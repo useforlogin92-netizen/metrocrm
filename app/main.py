@@ -10,12 +10,14 @@ from app.config import settings
 from app.database import Base, engine, get_db
 from app.models import AuditEvent, User
 from app.security import hash_password
+from app.routers.catalog_sharing import router as catalog_sharing_router
 import app.models  # noqa: F401
 import app.catalog_models  # noqa: F401
 
 app = FastAPI(title="MetroCRM", version="0.2.0")
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
+app.include_router(catalog_sharing_router)
 
 @app.on_event("startup")
 def startup() -> None:
