@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Property Catalog</title><style>body{font-family:Arial,sans-serif;max-width:1000px;margin:0 auto;padding:24px;background:#f5f6f8;color:#222}.card{background:#fff;border-radius:14px;padding:22px;margin:16px 0;box-shadow:0 2px 10px #0001}h1{margin-top:0}.media{display:flex;gap:12px;overflow:auto}.media img{width:260px;height:180px;object-fit:cover;border-radius:10px}.contact{display:inline-block;margin:6px 8px 6px 0;padding:10px 14px;background:#eef5ff;border-radius:8px}</style></head>
+<body>
+<div class="card"><h1>{{ catalog.fields.get('title','Property Catalog') }}</h1>
+{% for key, value in catalog.fields.items() %}<p><strong>{{ key|replace('_',' ')|title }}:</strong> {{ value }}</p>{% endfor %}</div>
+{% if catalog.media %}<div class="card"><h2>Photos & Media</h2><div class="media">{% for item in catalog.media %}{% if item.get('file_url') %}<img src="{{ item.get('file_url') }}" alt="{{ item.get('title','Property media') }}">{% endif %}{% endfor %}</div></div>{% endif %}
+{% if catalog.contacts %}<div class="card"><h2>Contact</h2>{% for ctype, contact in catalog.contacts.items() %}<div class="contact"><strong>{{ ctype|replace('_',' ')|title }}</strong>{% for key,value in contact.items() %}<div>{{ key|title }}: {{ value }}</div>{% endfor %}</div>{% endfor %}</div>{% endif %}
+<script>fetch('{{ visit_url }}',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});</script>
+</body></html>
