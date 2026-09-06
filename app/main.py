@@ -52,6 +52,23 @@ def root(request: Request):
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(db: Session = Depends(get_db)):
+    if db.scalar(select(User.id).limit(1)) is not None:
+        return HTMLResponse("Setup has already been completed.", status_code=409)
+    return HTMLResponse("""
+    <!doctype html><html><head><title>MetroCRM Initial Setup</title>
+    <style>body{font-family:Arial,sans-serif;background:#f5f7fb;display:flex;justify-content:center;padding:40px}.card{background:white;padding:28px;border-radius:12px;width:420px;box-shadow:0 4px 18px #0001}label{display:block;margin-top:14px;font-weight:600}input{width:100%;box-sizing:border-box;padding:10px;margin-top:6px;border:1px solid #bbb;border-radius:6px}button{width:100%;padding:12px;margin-top:22px;background:#2878e8;color:white;border:0;border-radius:6px;font-weight:600}</style>
+    </head><body><div class="card"><h1>MetroCRM</h1><p>Create the first Super Admin account.</p>
+    <form method="post" action="/auth/setup">
+    <label>Username</label><input name="username" required autocomplete="username">
+    <label>Password</label><input name="password" type="password" required minlength="8" autocomplete="new-password">
+    <label>Security Question</label><input name="security_question" required>
+    <label>Security Answer</label><input name="security_answer" type="password" required autocomplete="off">
+    <input type="hidden" name="role" value="SUPER_ADMIN">
+    <button type="submit">Create Super Admin</button></form></div></body></html>
+    """)
+
 @app.post("/auth/setup")
 def setup(username: str = Form(...), password: str = Form(...), role: str = Form("SUPER_ADMIN"), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
     if db.scalar(select(User.id).limit(1)) is not None:
