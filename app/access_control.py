@@ -18,12 +18,13 @@ def mask_phone(value: str | None) -> str | None:
 
 
 def mask_email(value: str | None) -> str | None:
+    """Keep the first character and use a fixed six-character mask."""
     if not value or "@" not in value:
         return value
     local, domain = value.split("@", 1)
     if not local:
         return "X@" + domain
-    return local[:1] + "X" * max(1, len(local) - 1) + "@" + domain
+    return local[:1] + "XXXXXX@" + domain
 
 
 def visibility_for_field(
@@ -32,7 +33,6 @@ def visibility_for_field(
     overrides: Mapping[str, str] | None = None,
 ) -> FieldVisibility:
     """Resolve Super Admin policy -> role default -> user field override."""
-    # Super Admin has full visibility unless explicitly restricted by policy.
     default = FieldVisibility.VIEW if role in {Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER} else (
         FieldVisibility.MASKED if field in SENSITIVE_FIELDS else FieldVisibility.VIEW
     )
