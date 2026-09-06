@@ -12,6 +12,8 @@ from app.models import AuditEvent, User
 from app.security import hash_password
 from app.routers.catalog_sharing import router as catalog_sharing_router
 from app.routers.caller_search import router as caller_search_router
+from app.routers.backups import router as backups_router
+from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 import app.models  # noqa: F401
 import app.catalog_models  # noqa: F401
 
@@ -20,10 +22,16 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=se
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
+app.include_router(backups_router)
 
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    start_backup_scheduler()
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    stop_backup_scheduler()
 
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
@@ -84,7 +92,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user or user.session_version != request.session.get("session_version"):
         request.session.clear(); return RedirectResponse("/", status_code=303)
-    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/caller/search'>Caller Property Search</a></p><p><a href='/auth/logout'>Logout</a></p></body></html>")
+    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/caller/search'>Caller Property Search</a></p><p><a href='/admin/backups/status'>Backup Status</a></p><p><a href='/auth/logout'>Logout</a></p></body></html>")
 
 @app.get("/auth/logout")
 def logout(request: Request):
