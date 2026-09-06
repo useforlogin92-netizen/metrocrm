@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MetroCRM - Share Property</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033}.wrap{max-width:1100px;margin:30px auto;padding:0 18px}.card{background:#fff;border-radius:14px;padding:22px;margin:16px 0;box-shadow:0 5px 22px #0001}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.option{border:1px solid #d9dfeb;border-radius:10px;padding:12px}.option label{display:block;margin:6px 0}.muted{color:#667085;font-size:13px}.preview{white-space:pre-wrap;background:#101828;color:#f2f4f7;padding:16px;border-radius:10px;min-height:120px;overflow:auto}button{padding:11px 16px;border:0;border-radius:8px;cursor:pointer;background:#1f6feb;color:#fff;margin-right:8px}button.secondary{background:#667085}.contact-fields{margin-left:22px}.danger{color:#b42318}.actions{position:sticky;bottom:12px;background:#fff;padding:12px;border-radius:10px;box-shadow:0 4px 18px #0002}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Share Property Catalog</h1>
+  <p class="muted">Select exactly what the customer should receive. Nothing is selected by default.</p>
+
+  <div class="card">
+    <h2>Property Fields</h2>
+    <div id="fields" class="grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>Media</h2>
+    <div id="media" class="grid"></div>
+    <p class="muted">Internal/confidential media is never eligible for customer sharing.</p>
+  </div>
+
+  <div class="card">
+    <h2>Contact Person</h2>
+    <div class="grid">
+      <div class="option"><label><input type="checkbox" data-contact="salesperson"> Salesperson</label><div class="contact-fields" data-fields="salesperson"></div></div>
+      <div class="option"><label><input type="checkbox" data-contact="closing_manager"> Closing Manager</label><div class="contact-fields" data-fields="closing_manager"></div></div>
+      <div class="option"><label><input type="checkbox" data-contact="company"> Company</label><div class="contact-fields" data-fields="company"></div></div>
+      <div class="option"><label><input type="checkbox" data-contact="custom"> Custom Contact</label><div class="contact-fields" data-fields="custom"></div></div>
+    </div>
+    <p class="danger muted">No contact number is shared unless you explicitly select it.</p>
+  </div>
+
+  <div class="card">
+    <h2>Customer Preview</h2>
+    <div id="preview" class="preview">Click Preview to generate the exact sanitized customer payload.</div>
+  </div>
+
+  <div class="actions">
+    <button type="button" onclick="previewShare()">Preview</button>
+    <button type="button" class="secondary" onclick="clearSelection()">Clear Selection</button>
+  </div>
+</div>
+<script>
+const propertyFields=[
+  ['property_code','Property Code'],['title','Property Title'],['category','Category'],['property_type','Property Type'],['listing_type','Buy / Rent'],['listing_status','Listing Status'],['developer_id','Developer'],['project_id','Project'],['tower_id','Tower / Wing'],['unit_number','Unit Number'],
+  ['state','State'],['district','District'],['city','City'],['locality','Locality / Area'],['sector','Sector'],['pincode','PIN Code'],['address','Full Address'],['landmark','Landmark'],['latitude','Latitude'],['longitude','Longitude'],
+  ['bhk','BHK / Jodi'],['bedrooms','Bedrooms'],['bathrooms','Bathrooms'],['balconies','Balconies'],['carpet_area','Carpet Area'],['built_up_area','Built-up Area'],['super_built_up_area','Super Built-up Area'],['plot_area','Plot Area'],['terrace_area','Terrace Area'],
+  ['price','Price'],['price_per_sqft','Price / Sq.ft'],['maintenance','Maintenance'],['other_charges','Other Charges'],['negotiable','Negotiable'],['parking','Parking'],['parking_count','Parking Count'],['facing','Facing'],['view','View'],['furnishing','Furnishing'],['amenities','Amenities'],['construction_status','Construction Status'],['possession_date','Expected Possession'],['rera_number','RERA Number'],['rera_possession_date','RERA Possession Date'],['builder_commitment_date','Builder Commitment Date'],['oc_status','OC Status'],['cc_status','CC Status'],['loan_available','Loan Available'],['description','Description'],['highlights','Highlights']
+];
+const media=[['photo-1','Property Photo'],['photo-2','Living/Bedroom Photo'],['video-1','Property Video'],['brochure-1','Brochure'],['floor-plan-1','Floor Plan'],['price-sheet-1','Price Sheet']];
+function render(){document.getElementById('fields').innerHTML=propertyFields.map(([k,l])=>`<div class="option"><label><input type="checkbox" value="${k}" class="property-field"> ${l}</label></div>`).join('');document.getElementById('media').innerHTML=media.map(([id,l])=>`<div class="option"><label><input type="checkbox" value="${id}" class="media-item"> ${l}</label></div>`).join('');document.querySelectorAll('[data-contact]').forEach(cb=>cb.addEventListener('change',()=>renderContactFields(cb.dataset.contact,cb.checked)));}
+function renderContactFields(type,on){const box=document.querySelector(`[data-fields="${type}"]`);if(!on){box.innerHTML='';return;}box.innerHTML=['name','mobile','whatsapp','email'].map(f=>`<label><input type="checkbox" value="${f}" class="contact-field-${type}"> ${f[0].toUpperCase()+f.slice(1)}</label>`).join('');}
+async function previewShare(){const selected_fields=[...document.querySelectorAll('.property-field:checked')].map(x=>x.value);const selected_media_ids=[...document.querySelectorAll('.media-item:checked')].map(x=>x.value);const contact_selections=[];document.querySelectorAll('[data-contact]:checked').forEach(cb=>{const type=cb.dataset.contact;const fields=[...document.querySelectorAll(`.contact-field-${type}:checked`)].map(x=>x.value);contact_selections.push({contact_type:type,fields});});const res=await fetch('/catalog/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_data:{},selected_fields,selected_media_ids,media:[],contacts:{},contact_selections})});const data=await res.json();document.getElementById('preview').textContent=JSON.stringify(data,null,2);}
+function clearSelection(){document.querySelectorAll('input[type=checkbox]').forEach(x=>x.checked=false);document.querySelectorAll('[data-fields]').forEach(x=>x.innerHTML='');document.getElementById('preview').textContent='Selection cleared.';}
+render();
+</script>
+</body>
+</html>
