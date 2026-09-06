@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Iterable
 
-from app.services.matching import MatchCandidate, rank_properties, location_matches
+from app.services.matching import MatchCandidate, rank_properties
 
 BUDGET_SLABS = [("Below 1 Cr", None, 10_000_000), ("1–2 Cr", 10_000_000, 20_000_000), ("2–3 Cr", 20_000_000, 30_000_000), ("3–4 Cr", 30_000_000, 40_000_000), ("4–5 Cr", 40_000_000, 50_000_000), ("5–6 Cr", 50_000_000, 60_000_000), ("6–7 Cr", 60_000_000, 70_000_000), ("7–8 Cr", 70_000_000, 80_000_000), ("8–9 Cr", 80_000_000, 90_000_000), ("9–10 Cr", 90_000_000, 100_000_000), ("10–12 Cr", 100_000_000, 120_000_000), ("12–15 Cr", 120_000_000, 150_000_000), ("15–20 Cr", 150_000_000, 200_000_000), ("Above 20 Cr", 200_000_000, None)]
 BHK_OPTIONS = ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "5 BHK", "More"]
@@ -14,7 +14,12 @@ SIDE_OPTIONS = ["East", "West", "Both"]
 
 
 def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dict[str, Any]]) -> list[MatchCandidate]:
-    """Apply caller filters and return strictly matching inventory ranked by score."""
+    """Filter hard constraints, then rank location matches and useful alternatives.
+
+    Explicit location is a ranking/category preference rather than a hard exclusion.
+    Thus a property such as Powai remains visible under ``Other`` when it matches
+    the caller's BHK/budget/type/possession requirements.
+    """
     candidates = list(properties)
     construction = filters.get("construction_statuses") or filters.get("construction_status")
     if construction:
@@ -27,9 +32,17 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
         requested_types = filters["property_type"] if isinstance(filters["property_type"], (list, tuple, set)) else [filters["property_type"]]
         wanted_types = {str(v).strip().casefold() for v in requested_types}
         candidates = [p for p in candidates if str(p.get("property_type") or "").strip().casefold() in wanted_types]
-    if filters.get("preferred_locations") or filters.get("locations") or filters.get("locality") or filters.get("pincodes") or filters.get("preferred_pincodes") or filters.get("mumbai_station_from") or filters.get("mumbai_station_to"):
-        candidates = [p for p in candidates if location_matches(filters, p)]
-    return rank_properties(filters, candidates, minimum_score=0.0)
+
+    # Location is deliberately NOT hard-filtered. matching.py assigns
+    # Selected Location or Other so useful alternatives are retained.
+    has_location_filter = bool(
+        filters.get("preferred_locations") or filters.get("locations") or
+        filters.get("locality") or filters.get("pincodes") or
+        filters.get("preferred_pincodes") or filters.get("mumbai_station_from") or
+        filters.get("mumbai_station_to")
+    )
+    minimum_score = 1.0 if has_location_filter else 0.0
+    return rank_properties(filters, candidates, minimum_score=minimum_score)
 
 
 def group_search_results(results: Iterable[MatchCandidate]) -> dict[str, list[MatchCandidate]]:
