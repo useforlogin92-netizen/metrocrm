@@ -12,8 +12,8 @@ class PendingVerification:
     method: VerificationMethod
     otp: str | None
     created_at: float
+    expected_answer_hash: str | None = None
     attempts: int = 0
-
 
 _pending: dict[str, PendingVerification] = {}
 
@@ -31,10 +31,11 @@ def authenticate_password(user, password: str) -> bool:
     return bool(user and user.is_active and verify_password(password, user.password_hash))
 
 
-def create_pending(user_id: int, method: VerificationMethod) -> tuple[str, str | None]:
+def create_pending(user, method: VerificationMethod) -> tuple[str, str | None]:
     challenge = generate_otp() if method in ("mobile_otp", "email_otp") else None
-    token = generate_otp() + str(user_id) + str(int(time()))
-    _pending[token] = PendingVerification(user_id, method, challenge, time())
+    token = generate_otp() + str(user.id) + str(int(time()))
+    expected = user.security_answer_hash if method == "security_question" else None
+    _pending[token] = PendingVerification(user.id, method, challenge, time(), expected)
     return token, challenge
 
 
@@ -47,7 +48,13 @@ def verify_pending(token: str, value: str, expiry_seconds: int, max_attempts: in
     if pending.attempts > max_attempts:
         _pending.pop(token, None)
         return None
-    if pending.method in ("mobile_otp", "email_otp") and value != pending.otp:
+    if pending.method in ("mobile_otp", "email_otp"):
+        valid = value == pending.otp
+    elif pending.method == "security_question":
+        valid = bool(pending.expected_answer_hash) and verify_password(value, pending.expected_answer_hash)
+    else:
+        valid = value == "APPROVED" if False else False
+    if not valid:
         return None
     _pending.pop(token, None)
     return pending.user_id
