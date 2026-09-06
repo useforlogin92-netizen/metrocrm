@@ -1,16 +1,16 @@
 """Deterministic customer/property matching helpers.
 
-Location matching is hierarchical: PIN/locality/city/district/state are
-understood independently, while Mumbai/Pune catchment priorities are used as
-a deterministic tie-breaker rather than overriding an exact location match.
+Supports multiple locations, Mumbai station-to-station ranges, East/West/Both
+side filtering, budget/configuration filters and possession flexibility.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Iterable
 
-from app.location_catalog import location_priority
+from app.location_catalog import location_priority, mumbai_station_range_matches
 
 
 @dataclass(slots=True)
@@ -39,17 +39,36 @@ def _contains_any(value: str, choices: Iterable[str]) -> bool:
     return any(_normalise(choice) and _normalise(choice) in text for choice in choices)
 
 
+def _values(value: object) -> list[object]:
+    if value is None:
+        return []
+    return value if isinstance(value, (list, tuple, set, frozenset)) else [value]
+
+
 def _location_component(customer: dict, property_: dict) -> tuple[float, str | None]:
-    """Return the location score and the strongest matched hierarchy level."""
-    # Exact PIN is the strongest filter. It is intentionally checked before
-    # broader geography so a customer can search a precise PIN without losing
-    # the existing city/district matching behaviour.
     customer_pins = customer.get("pincodes") or customer.get("preferred_pincodes") or []
     if isinstance(customer_pins, str):
         customer_pins = [customer_pins]
     property_pin = property_.get("pincode")
     if property_pin and any(_normalise(property_pin) == _normalise(pin) for pin in customer_pins):
         return LOCATION_WEIGHT, "pincode"
+
+    # Mumbai caller workflow: From station -> To station + East/West/Both.
+    if _normalise(customer.get("city")) == "mumbai" or customer.get("mumbai_station_from") or customer.get("mumbai_station_to"):
+        from_station = customer.get("mumbai_station_from")
+        to_station = customer.get("mumbai_station_to")
+        if from_station or to_station:
+            if mumbai_station_range_matches(
+                property_station=property_.get("station") or property_.get("railway_station"),
+                from_station=from_station,
+                to_station=to_station,
+                side=customer.get("mumbai_side", "Both"),
+                property_side=property_.get("side") or property_.get("location_side") or "Both",
+            ):
+                return LOCATION_WEIGHT, "mumbai_station_range"
+            # A requested Mumbai range is an explicit filter; do not leak
+            # unrelated Mumbai properties into the caller's result set.
+            return 0.0, None
 
     for level, customer_key, property_key, points in (
         ("locality", "locality", "locality", LOCATION_WEIGHT),
@@ -59,18 +78,30 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
     ):
         wanted = customer.get(customer_key)
         actual = property_.get(property_key)
-        if wanted and actual:
-            values = wanted if isinstance(wanted, list) else [wanted]
-            if _contains_any(actual, values):
-                return points, level
+        if wanted and actual and _contains_any(actual, [str(item) for item in _values(wanted)]):
+            return points, level
 
     locations = customer.get("preferred_locations") or customer.get("locations") or []
-    if isinstance(locations, str):
-        locations = [locations]
     property_location = property_.get("location") or property_.get("locality") or ""
-    if locations and _contains_any(property_location, locations):
+    if locations and _contains_any(property_location, [str(item) for item in _values(locations)]):
         return LOCATION_WEIGHT, "location"
     return 0.0, None
+
+
+def _possession_matches(customer: dict, property_: dict) -> bool:
+    statuses = {_normalise(item) for item in _values(customer.get("construction_statuses") or customer.get("construction_status"))}
+    property_status = _normalise(property_.get("construction_status") or property_.get("possession"))
+    if statuses and property_status in statuses:
+        return True
+
+    requirement = customer.get("possession_by") or customer.get("possession_requirement")
+    if not requirement:
+        return False
+    property_date = property_.get("rera_possession_date") or property_.get("possession_date") or property_.get("possession")
+    if isinstance(requirement, int) and property_date:
+        text = str(property_date)
+        return text.startswith(str(requirement))
+    return _normalise(requirement) == _normalise(property_date)
 
 
 def score_match(customer: dict, property_: dict) -> MatchCandidate:
@@ -90,20 +121,17 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         lower_ok = budget_min is None or float(price) >= float(budget_min)
         upper_ok = budget_max is None or float(price) <= float(budget_max)
         if lower_ok and upper_ok:
-            score += BUDGET_WEIGHT
-            reasons.append("budget")
+            score += BUDGET_WEIGHT; reasons.append("budget")
 
     requested_bhk = customer.get("bhk")
     property_bhk = property_.get("bhk")
     if requested_bhk and property_bhk and _normalise(requested_bhk) == _normalise(property_bhk):
-        score += BHK_WEIGHT
-        reasons.append("bhk")
+        score += BHK_WEIGHT; reasons.append("bhk")
 
     requested_type = customer.get("property_type")
     property_type = property_.get("property_type")
     if requested_type and property_type and _normalise(requested_type) == _normalise(property_type):
-        score += PROPERTY_TYPE_WEIGHT
-        reasons.append("property_type")
+        score += PROPERTY_TYPE_WEIGHT; reasons.append("property_type")
 
     area_min = customer.get("carpet_area_min")
     area_max = customer.get("carpet_area_max")
@@ -112,32 +140,19 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         lower_ok = area_min is None or float(area) >= float(area_min)
         upper_ok = area_max is None or float(area) <= float(area_max)
         if lower_ok and upper_ok:
-            score += AREA_WEIGHT
-            reasons.append("area")
+            score += AREA_WEIGHT; reasons.append("area")
 
-    possession = customer.get("possession_requirement")
-    property_possession = property_.get("possession")
-    if possession and property_possession and _normalise(possession) == _normalise(property_possession):
-        score += POSSESSION_WEIGHT
-        reasons.append("possession")
+    if _possession_matches(customer, property_):
+        score += POSSESSION_WEIGHT; reasons.append("possession")
 
     return MatchCandidate(
-        property_id=property_.get("id", ""),
-        score=min(score, 100.0),
-        reasons=reasons,
+        property_id=property_.get("id", ""), score=min(score, 100.0), reasons=reasons,
         location_level=location_level,
-        regional_priority=location_priority(
-            city=property_.get("city"),
-            district=property_.get("district"),
-            state=property_.get("state"),
-        ),
+        regional_priority=location_priority(city=property_.get("city"), district=property_.get("district"), state=property_.get("state")),
     )
 
 
 def rank_properties(customer: dict, properties: Iterable[dict], minimum_score: float = 0.0) -> list[MatchCandidate]:
-    """Return matching properties ranked by match score then regional priority."""
+    """Return all matching properties ranked by score and regional priority."""
     candidates = [score_match(customer, item) for item in properties]
-    return sorted(
-        (item for item in candidates if item.score >= minimum_score),
-        key=lambda item: (-item.score, -item.regional_priority, str(item.property_id)),
-    )
+    return sorted((item for item in candidates if item.score >= minimum_score), key=lambda item: (-item.score, -item.regional_priority, str(item.property_id)))
