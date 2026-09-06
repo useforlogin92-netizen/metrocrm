@@ -1,17 +1,41 @@
 """Customer-facing property catalog sharing API and preview UI."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from app.database import get_db
+from app.models import User
+from app.permissions import Access, Role, user_allows
 from app.services.catalog_sharing import ContactSelection, build_share_payload
 
 router = APIRouter(prefix="/catalog", tags=["catalog-sharing"])
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _current_user(request: Request, db: Session) -> User | None:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        return None
+    return user
+
+
+def _can_share(user: User) -> bool:
+    try:
+        role = Role(user.role)
+    except ValueError:
+        return False
+    permissions = json.loads(user.permissions_json or "{}")
+    return user_allows(role, "properties", Access.VIEW, permissions)
 
 
 class ContactSelectionRequest(BaseModel):
@@ -43,33 +67,34 @@ def _payload(request: CatalogShareRequest) -> dict[str, Any]:
     )
 
 
-def _require_session(request: Request) -> JSONResponse | None:
-    if not request.session.get("user_id"):
-        return JSONResponse({"error": "authentication_required"}, status_code=401)
-    return None
-
-
 @router.get("/share", response_class=HTMLResponse)
-def share_catalog_page(request: Request) -> HTMLResponse | RedirectResponse:
+def share_catalog_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse | RedirectResponse:
     """Render the explicit field/media/contact selection screen for staff."""
-    if not request.session.get("user_id"):
+    user = _current_user(request, db)
+    if not user:
         return RedirectResponse("/", status_code=303)
+    if not _can_share(user):
+        return HTMLResponse("Catalog sharing is not permitted for this account.", status_code=403)
     return templates.TemplateResponse("catalog_share.html", {"request": request})
 
 
 @router.post("/preview")
-def preview_catalog_share(http_request: Request, request: CatalogShareRequest) -> dict[str, Any] | JSONResponse:
-    """Preview exactly what would be shared, after authentication and sanitization."""
-    auth_error = _require_session(http_request)
-    if auth_error:
-        return auth_error
-    return _payload(request)
+def preview_catalog_share(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Preview exactly what would be shared, after server-side sanitization."""
+    user = _current_user(request, db)
+    if not user:
+        return {"error": "authentication_required"}
+    if not _can_share(user):
+        return {"error": "catalog_sharing_not_permitted"}
+    return _payload(body)
 
 
 @router.post("/share")
-def share_catalog(http_request: Request, request: CatalogShareRequest) -> dict[str, Any] | JSONResponse:
+def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Return the sanitized share payload for the future delivery provider."""
-    auth_error = _require_session(http_request)
-    if auth_error:
-        return auth_error
-    return {"status": "READY", "catalog": _payload(request)}
+    user = _current_user(request, db)
+    if not user:
+        return {"error": "authentication_required"}
+    if not _can_share(user):
+        return {"error": "catalog_sharing_not_permitted"}
+    return {"status": "READY", "catalog": _payload(body)}
