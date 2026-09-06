@@ -46,6 +46,18 @@ def _values(value: object) -> list[object]:
     return value if isinstance(value, (list, tuple, set, frozenset)) else [value]
 
 
+def _has_explicit_location_filter(customer: dict) -> bool:
+    return bool(
+        customer.get("mumbai_station_from")
+        or customer.get("mumbai_station_to")
+        or customer.get("preferred_locations")
+        or customer.get("locations")
+        or customer.get("locality")
+        or customer.get("pincodes")
+        or customer.get("preferred_pincodes")
+    )
+
+
 def _location_component(customer: dict, property_: dict) -> tuple[float, str | None]:
     customer_pins = customer.get("pincodes") or customer.get("preferred_pincodes") or []
     if isinstance(customer_pins, str):
@@ -69,6 +81,16 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
                 return LOCATION_WEIGHT, "mumbai_station_range"
             return 0.0, None
 
+    # Explicit locality/location selections are strict: a non-selected area
+    # must not receive a weaker city/district score and accidentally pass the
+    # overall minimum score because BHK/budget also match.
+    locations = customer.get("preferred_locations") or customer.get("locations") or []
+    property_location = property_.get("location") or property_.get("locality") or ""
+    if locations:
+        if _contains_any(property_location, [str(item) for item in _values(locations)]):
+            return LOCATION_WEIGHT, "location"
+        return 0.0, None
+
     for level, customer_key, property_key, points in (
         ("locality", "locality", "locality", LOCATION_WEIGHT),
         ("city", "city", "city", LOCATION_WEIGHT * 0.85),
@@ -80,25 +102,12 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
         if wanted and actual and _contains_any(actual, [str(item) for item in _values(wanted)]):
             return points, level
 
-    locations = customer.get("preferred_locations") or customer.get("locations") or []
-    property_location = property_.get("location") or property_.get("locality") or ""
-    if locations and _contains_any(property_location, [str(item) for item in _values(locations)]):
-        return LOCATION_WEIGHT, "location"
     return 0.0, None
 
 
 def location_matches(customer: dict, property_: dict) -> bool:
     """Return whether a property satisfies an explicitly requested location filter."""
-    has_location_filter = bool(
-        customer.get("mumbai_station_from")
-        or customer.get("mumbai_station_to")
-        or customer.get("preferred_locations")
-        or customer.get("locations")
-        or customer.get("locality")
-        or customer.get("pincodes")
-        or customer.get("preferred_pincodes")
-    )
-    if not has_location_filter:
+    if not _has_explicit_location_filter(customer):
         return True
     score, _ = _location_component(customer, property_)
     return score > 0
@@ -189,15 +198,7 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         score += POSSESSION_WEIGHT
         reasons.append("possession")
 
-    has_location_filter = bool(
-        customer.get("mumbai_station_from")
-        or customer.get("mumbai_station_to")
-        or customer.get("preferred_locations")
-        or customer.get("locations")
-        or customer.get("locality")
-        or customer.get("pincodes")
-        or customer.get("preferred_pincodes")
-    )
+    has_location_filter = _has_explicit_location_filter(customer)
     location_category = "Selected Location" if location_score else ("Other" if has_location_filter else "All")
 
     return MatchCandidate(
