@@ -4,23 +4,17 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Iterable
 
-from app.services.matching import MatchCandidate, rank_properties
+from app.services.matching import MatchCandidate, rank_properties, location_matches
 
 BUDGET_SLABS = [("Below 1 Cr", None, 10_000_000), ("1–2 Cr", 10_000_000, 20_000_000), ("2–3 Cr", 20_000_000, 30_000_000), ("3–4 Cr", 30_000_000, 40_000_000), ("4–5 Cr", 40_000_000, 50_000_000), ("5–6 Cr", 50_000_000, 60_000_000), ("6–7 Cr", 60_000_000, 70_000_000), ("7–8 Cr", 70_000_000, 80_000_000), ("8–9 Cr", 80_000_000, 90_000_000), ("9–10 Cr", 90_000_000, 100_000_000), ("10–12 Cr", 100_000_000, 120_000_000), ("12–15 Cr", 120_000_000, 150_000_000), ("15–20 Cr", 150_000_000, 200_000_000), ("Above 20 Cr", 200_000_000, None)]
 BHK_OPTIONS = ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "5 BHK", "More"]
-JODI_OPTIONS = ["2+1", "2+2", "3+1", "3+2", "3+3", "4+2", "4+3", "4+4"]
+JODI_OPTIONS = ["1+1", "1+2", "1+3", "1+4", "1+5", "2+1", "2+2", "2+3", "2+4", "2+5", "3+1", "3+2", "3+3", "3+4", "3+5", "4+1", "4+2", "4+3", "4+4", "4+5", "5+1", "5+2", "5+3", "5+4", "5+5"]
 CONSTRUCTION_OPTIONS = ["Ready to Move", "Under Construction", "Upcoming", "Sold Out"]
 SIDE_OPTIONS = ["East", "West", "Both"]
 
 
 def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dict[str, Any]]) -> list[MatchCandidate]:
-    """Apply non-location caller filters and return both primary and Other results.
-
-    A selected Mumbai station range is a preference/category boundary, not a hard
-    exclusion. Properties such as Powai remain visible under ``Other`` when they
-    satisfy the caller's other filters, so a salesperson does not miss useful
-    alternatives while speaking with the customer.
-    """
+    """Apply caller filters and return strictly matching inventory ranked by score."""
     candidates = list(properties)
     construction = filters.get("construction_statuses") or filters.get("construction_status")
     if construction:
@@ -29,14 +23,16 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
     if filters.get("city"):
         city = str(filters["city"]).strip().casefold()
         candidates = [p for p in candidates if str(p.get("city") or "").strip().casefold() == city]
-
-    # Do not hard-filter location. matching.py labels each result as
-    # ``Selected Location`` or ``Other`` while preserving budget/BHK/etc. matches.
+    if filters.get("property_type"):
+        requested_types = filters["property_type"] if isinstance(filters["property_type"], (list, tuple, set)) else [filters["property_type"]]
+        wanted_types = {str(v).strip().casefold() for v in requested_types}
+        candidates = [p for p in candidates if str(p.get("property_type") or "").strip().casefold() in wanted_types]
+    if filters.get("preferred_locations") or filters.get("locations") or filters.get("locality") or filters.get("pincodes") or filters.get("preferred_pincodes") or filters.get("mumbai_station_from") or filters.get("mumbai_station_to"):
+        candidates = [p for p in candidates if location_matches(filters, p)]
     return rank_properties(filters, candidates, minimum_score=0.0)
 
 
 def group_search_results(results: Iterable[MatchCandidate]) -> dict[str, list[MatchCandidate]]:
-    """Group caller-search results with the selected location first and Other second."""
     grouped: dict[str, list[MatchCandidate]] = defaultdict(list)
     for result in results:
         grouped[result.location_category].append(result)
