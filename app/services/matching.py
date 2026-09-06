@@ -1,7 +1,8 @@
 """Deterministic customer/property matching helpers.
 
-The service is intentionally framework-agnostic so the API layer can reuse the
-same scoring rules and tests can exercise them without a database.
+Location matching is hierarchical: PIN/locality/city/district/state are
+understood independently, while Mumbai/Pune catchment priorities are used as
+a deterministic tie-breaker rather than overriding an exact location match.
 """
 
 from __future__ import annotations
@@ -9,12 +10,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from app.location_catalog import location_priority
+
 
 @dataclass(slots=True)
 class MatchCandidate:
     property_id: int | str
     score: float
     reasons: list[str] = field(default_factory=list)
+    location_level: str | None = None
+    regional_priority: int = 0
 
 
 LOCATION_WEIGHT = 30.0
@@ -34,18 +39,49 @@ def _contains_any(value: str, choices: Iterable[str]) -> bool:
     return any(_normalise(choice) and _normalise(choice) in text for choice in choices)
 
 
-def score_match(customer: dict, property_: dict) -> MatchCandidate:
-    """Score one property against a customer requirement on a 0-100 scale."""
-    score = 0.0
-    reasons: list[str] = []
+def _location_component(customer: dict, property_: dict) -> tuple[float, str | None]:
+    """Return the location score and the strongest matched hierarchy level."""
+    # Exact PIN is the strongest filter. It is intentionally checked before
+    # broader geography so a customer can search a precise PIN without losing
+    # the existing city/district matching behaviour.
+    customer_pins = customer.get("pincodes") or customer.get("preferred_pincodes") or []
+    if isinstance(customer_pins, str):
+        customer_pins = [customer_pins]
+    property_pin = property_.get("pincode")
+    if property_pin and any(_normalise(property_pin) == _normalise(pin) for pin in customer_pins):
+        return LOCATION_WEIGHT, "pincode"
+
+    for level, customer_key, property_key, points in (
+        ("locality", "locality", "locality", LOCATION_WEIGHT),
+        ("city", "city", "city", LOCATION_WEIGHT * 0.85),
+        ("district", "district", "district", LOCATION_WEIGHT * 0.70),
+        ("state", "state", "state", LOCATION_WEIGHT * 0.50),
+    ):
+        wanted = customer.get(customer_key)
+        actual = property_.get(property_key)
+        if wanted and actual:
+            values = wanted if isinstance(wanted, list) else [wanted]
+            if _contains_any(actual, values):
+                return points, level
 
     locations = customer.get("preferred_locations") or customer.get("locations") or []
     if isinstance(locations, str):
         locations = [locations]
     property_location = property_.get("location") or property_.get("locality") or ""
     if locations and _contains_any(property_location, locations):
-        score += LOCATION_WEIGHT
-        reasons.append("location")
+        return LOCATION_WEIGHT, "location"
+    return 0.0, None
+
+
+def score_match(customer: dict, property_: dict) -> MatchCandidate:
+    """Score one property against a customer requirement on a 0-100 scale."""
+    score = 0.0
+    reasons: list[str] = []
+
+    location_score, location_level = _location_component(customer, property_)
+    if location_score:
+        score += location_score
+        reasons.append(f"location:{location_level}")
 
     budget_min = customer.get("budget_min")
     budget_max = customer.get("budget_max")
@@ -59,10 +95,9 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
 
     requested_bhk = customer.get("bhk")
     property_bhk = property_.get("bhk")
-    if requested_bhk and property_bhk:
-        if _normalise(requested_bhk) == _normalise(property_bhk):
-            score += BHK_WEIGHT
-            reasons.append("bhk")
+    if requested_bhk and property_bhk and _normalise(requested_bhk) == _normalise(property_bhk):
+        score += BHK_WEIGHT
+        reasons.append("bhk")
 
     requested_type = customer.get("property_type")
     property_type = property_.get("property_type")
@@ -86,13 +121,23 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         score += POSSESSION_WEIGHT
         reasons.append("possession")
 
-    return MatchCandidate(property_id=property_.get("id", ""), score=min(score, 100.0), reasons=reasons)
+    return MatchCandidate(
+        property_id=property_.get("id", ""),
+        score=min(score, 100.0),
+        reasons=reasons,
+        location_level=location_level,
+        regional_priority=location_priority(
+            city=property_.get("city"),
+            district=property_.get("district"),
+            state=property_.get("state"),
+        ),
+    )
 
 
 def rank_properties(customer: dict, properties: Iterable[dict], minimum_score: float = 0.0) -> list[MatchCandidate]:
-    """Return matching properties ranked highest score first."""
+    """Return matching properties ranked by match score then regional priority."""
     candidates = [score_match(customer, item) for item in properties]
     return sorted(
         (item for item in candidates if item.score >= minimum_score),
-        key=lambda item: (-item.score, str(item.property_id)),
+        key=lambda item: (-item.score, -item.regional_priority, str(item.property_id)),
     )
