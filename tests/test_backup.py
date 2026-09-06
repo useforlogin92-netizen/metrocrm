@@ -40,3 +40,29 @@ def test_backup_schedule_and_dual_destination_defaults(monkeypatch):
     with zipfile.ZipFile(payload) as archive:
         assert "database/database.snapshot" in archive.namelist()
         assert "backup_metadata.txt" in archive.namelist()
+
+
+def test_backup_scheduler_registers_11am_and_7pm(monkeypatch):
+    from app.config import settings
+    import app.services.backup_scheduler as module
+
+    class FakeScheduler:
+        running = False
+        def __init__(self, **kwargs):
+            self.jobs = []
+        def add_job(self, func, trigger, **kwargs):
+            self.jobs.append((func, trigger, kwargs))
+        def start(self):
+            self.running = True
+        def shutdown(self, **kwargs):
+            self.running = False
+
+    monkeypatch.setattr(module, "BackgroundScheduler", FakeScheduler)
+    monkeypatch.setattr(settings, "backup_enabled", True)
+    module._scheduler = None
+    scheduler = module.start_backup_scheduler()
+    assert scheduler is not None
+    assert [job[2]["id"] for job in scheduler.jobs] == ["metrocrm_backup_start", "metrocrm_backup_end"]
+    assert [job[1].hour for job in scheduler.jobs] == [11, 19]
+    assert [job[1].minute for job in scheduler.jobs] == [0, 0]
+    module.stop_backup_scheduler()
