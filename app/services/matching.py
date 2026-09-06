@@ -20,6 +20,7 @@ class MatchCandidate:
     reasons: list[str] = field(default_factory=list)
     location_level: str | None = None
     regional_priority: int = 0
+    location_category: str = "Other"
 
 
 LOCATION_WEIGHT = 30.0
@@ -188,10 +189,22 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         score += POSSESSION_WEIGHT
         reasons.append("possession")
 
+    has_location_filter = bool(
+        customer.get("mumbai_station_from")
+        or customer.get("mumbai_station_to")
+        or customer.get("preferred_locations")
+        or customer.get("locations")
+        or customer.get("locality")
+        or customer.get("pincodes")
+        or customer.get("preferred_pincodes")
+    )
+    location_category = "Selected Location" if location_score else ("Other" if has_location_filter else "All")
+
     return MatchCandidate(
         property_id=property_.get("id", ""), score=min(score, 100.0), reasons=reasons,
         location_level=location_level,
         regional_priority=location_priority(city=property_.get("city"), district=property_.get("district"), state=property_.get("state")),
+        location_category=location_category,
     )
 
 
