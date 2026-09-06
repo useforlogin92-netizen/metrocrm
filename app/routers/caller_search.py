@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Project, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
-from app.services.caller_search import filter_and_rank_properties
+from app.services.caller_search import BHK_OPTIONS, BUDGET_SLABS, CONSTRUCTION_OPTIONS, JODI_OPTIONS, SIDE_OPTIONS, filter_and_rank_properties
 
 router = APIRouter(prefix="/caller", tags=["caller-search"])
 templates = Jinja2Templates(directory="app/templates")
@@ -79,43 +79,40 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
             side = "East"
         possession_date = unit.possession or project.possession_date
         rows.append({
-            "id": unit.id,
-            "title": f"{project.name} - {unit.unit_number}",
-            "project": project.name,
-            "developer_id": project.developer_id,
-            "tower": tower.name if tower else None,
-            "unit_number": unit.unit_number,
-            "city": project.city,
-            "district": project.district,
-            "state": project.state,
-            "locality": project.locality,
-            "location": location_text,
-            "sector": project.sector,
-            "pincode": project.pincode,
-            "station": station,
-            "railway_station": station,
-            "corridor": corridor,
-            "side": side,
-            "bhk": unit.bhk,
-            "property_type": unit.property_type,
-            "carpet_area": _decimal(unit.carpet_area),
-            "price": _decimal(unit.price),
-            "price_per_sqft": _decimal(unit.price_per_sqft),
-            "construction_status": project.construction_status or unit.status or unit.availability,
-            "possession": unit.possession,
-            "possession_date": possession_date,
-            "rera_possession_date": project.possession_date,
-            "rera": unit.rera or project.rera,
-            "parking": unit.parking,
-            "facing": unit.facing,
-            "furnishing": unit.furnishing,
+            "id": unit.id, "title": f"{project.name} - {unit.unit_number}", "project": project.name,
+            "developer_id": project.developer_id, "tower": tower.name if tower else None, "unit_number": unit.unit_number,
+            "city": project.city, "district": project.district, "state": project.state, "locality": project.locality,
+            "location": location_text, "sector": project.sector, "pincode": project.pincode, "station": station,
+            "railway_station": station, "corridor": corridor, "side": side, "bhk": unit.bhk,
+            "property_type": unit.property_type, "carpet_area": _decimal(unit.carpet_area), "price": _decimal(unit.price),
+            "price_per_sqft": _decimal(unit.price_per_sqft), "construction_status": project.construction_status or unit.status or unit.availability,
+            "possession": unit.possession, "possession_date": possession_date, "rera_possession_date": project.possession_date,
+            "rera": unit.rera or project.rera, "parking": unit.parking, "facing": unit.facing, "furnishing": unit.furnishing,
             "amenities": _json_list(unit.amenities_json) + _json_list(project.amenities_json),
-            "photos": _json_list(unit.photos_json) + _json_list(project.photos_json),
-            "floor_plan": unit.floor_plan,
-            "brochure": unit.brochure or project.brochure,
-            "description": unit.description or project.description,
+            "photos": _json_list(unit.photos_json) + _json_list(project.photos_json), "floor_plan": unit.floor_plan,
+            "brochure": unit.brochure or project.brochure, "description": unit.description or project.description,
         })
     return rows
+
+
+@router.get("/options")
+def caller_search_options(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+    user = _user(request, db)
+    if not user or not user.is_active:
+        return {"error": "authentication_required"}
+    corridors: dict[str, list[str]] = {}
+    for station in MUMBAI_LOCAL_STATIONS:
+        corridors.setdefault(station["corridor"], []).append(station["name"])
+    return {
+        "corridors": corridors,
+        "stations": MUMBAI_LOCAL_STATIONS,
+        "bhk": BHK_OPTIONS,
+        "jodi": JODI_OPTIONS,
+        "construction": CONSTRUCTION_OPTIONS,
+        "side": SIDE_OPTIONS,
+        "budget_slabs": [{"label": label, "min": low, "max": high} for label, low, high in BUDGET_SLABS],
+        "possession_years": list(range(2026, 2051)),
+    }
 
 
 @router.get("/search", response_class=HTMLResponse, response_model=None)
@@ -143,16 +140,11 @@ def caller_search(body: CallerSearchRequest, request: Request, db: Session = Dep
         item = asdict(result)
         property_data = by_id.get(str(result.property_id), {})
         item.update({
-            "title": property_data.get("title"),
-            "project": property_data.get("project"),
-            "locality": property_data.get("locality"),
-            "bhk": property_data.get("bhk"),
-            "property_type": property_data.get("property_type"),
-            "price": property_data.get("price"),
-            "carpet_area": property_data.get("carpet_area"),
-            "construction_status": property_data.get("construction_status"),
-            "possession": property_data.get("possession"),
-            "photos": property_data.get("photos", [])[:1],
+            "title": property_data.get("title"), "project": property_data.get("project"),
+            "locality": property_data.get("locality"), "bhk": property_data.get("bhk"),
+            "property_type": property_data.get("property_type"), "price": property_data.get("price"),
+            "carpet_area": property_data.get("carpet_area"), "construction_status": property_data.get("construction_status"),
+            "possession": property_data.get("possession"), "photos": property_data.get("photos", [])[:1],
         })
         response_results.append(item)
     return {"count": len(response_results), "results": response_results}
