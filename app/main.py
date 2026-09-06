@@ -13,16 +13,19 @@ from app.security import hash_password
 from app.routers.catalog_sharing import router as catalog_sharing_router
 from app.routers.caller_search import router as caller_search_router
 from app.routers.backups import router as backups_router
+from app.routers.integrations import router as integrations_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 import app.models  # noqa: F401
 import app.catalog_models  # noqa: F401
+import app.integration_models  # noqa: F401
 
-app = FastAPI(title="MetroCRM", version="0.2.0")
+app = FastAPI(title="MetroCRM", version="0.3.0")
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
 app.include_router(backups_router)
+app.include_router(integrations_router)
 
 @app.on_event("startup")
 def startup() -> None:
@@ -92,7 +95,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user or user.session_version != request.session.get("session_version"):
         request.session.clear(); return RedirectResponse("/", status_code=303)
-    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/caller/search'>Caller Property Search</a></p><p><a href='/admin/backups/status'>Backup Status</a></p><p><a href='/auth/logout'>Logout</a></p></body></html>")
+    integration_link = "<p><a href='/integrations/providers'>Lead / OTP / Alert Integrations API</a></p>" if user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} else ""
+    alert_link = "<p><a href='/integrations/property-visits/alerts'>Live Property Visit Alerts</a></p>" if user.role in {"SUPER_ADMIN", "ADMIN"} else ""
+    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/caller/search'>Caller Property Search</a></p>{integration_link}{alert_link}<p><a href='/admin/backups/status'>Backup Status</a></p><p><a href='/auth/logout'>Logout</a></p></body></html>")
 
 @app.get("/auth/logout")
 def logout(request: Request):
