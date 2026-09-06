@@ -66,8 +66,6 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
                 property_side=property_.get("side") or property_.get("location_side") or "Both",
             ):
                 return LOCATION_WEIGHT, "mumbai_station_range"
-            # A requested Mumbai range is an explicit filter; do not leak
-            # unrelated Mumbai properties into the caller's result set.
             return 0.0, None
 
     for level, customer_key, property_key, points in (
@@ -88,13 +86,27 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
     return 0.0, None
 
 
+def location_matches(customer: dict, property_: dict) -> bool:
+    """Return whether a property satisfies an explicitly requested location filter."""
+    has_location_filter = bool(
+        customer.get("mumbai_station_from")
+        or customer.get("mumbai_station_to")
+        or customer.get("preferred_locations")
+        or customer.get("locations")
+        or customer.get("locality")
+        or customer.get("pincodes")
+        or customer.get("preferred_pincodes")
+    )
+    if not has_location_filter:
+        return True
+    score, _ = _location_component(customer, property_)
+    return score > 0
+
+
 def _possession_matches(customer: dict, property_: dict) -> bool:
     """Match status and/or a possession deadline without confusing RERA and builder dates."""
     statuses = {_normalise(item) for item in _values(customer.get("construction_statuses") or customer.get("construction_status"))}
     property_status = _normalise(property_.get("construction_status") or property_.get("possession"))
-
-    # A selected status is a valid independent filter. If both status and year
-    # are supplied, the property must satisfy both conditions.
     if statuses and property_status not in statuses:
         return False
 
@@ -105,15 +117,11 @@ def _possession_matches(customer: dict, property_: dict) -> bool:
     property_date = property_.get("rera_possession_date") or property_.get("possession_date") or property_.get("possession")
     if property_date is None:
         return False
-
     try:
         required_year = int(requirement)
     except (TypeError, ValueError):
         return _normalise(requirement) == _normalise(property_date)
 
-    # "Possession by 2028" means any known possession year/date in 2028 or
-    # earlier is acceptable. This remains future-proof as new inventory years
-    # are added through the search-option catalog up to 2050.
     if isinstance(property_date, date):
         property_year = property_date.year
     else:
@@ -131,7 +139,6 @@ def _configuration_matches(requested: object, actual: object) -> bool:
     actual_value = _normalise(actual)
     if not wanted or not actual_value:
         return False
-    # Accept both "Jodi 2+1" and "2+1" forms.
     actual_variants = {actual_value, actual_value.removeprefix("jodi ")}
     return bool(wanted & actual_variants)
 
@@ -140,7 +147,6 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
     """Score one property against a customer requirement on a 0-100 scale."""
     score = 0.0
     reasons: list[str] = []
-
     location_score, location_level = _location_component(customer, property_)
     if location_score:
         score += location_score
@@ -153,17 +159,20 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         lower_ok = budget_min is None or float(price) >= float(budget_min)
         upper_ok = budget_max is None or float(price) <= float(budget_max)
         if lower_ok and upper_ok:
-            score += BUDGET_WEIGHT; reasons.append("budget")
+            score += BUDGET_WEIGHT
+            reasons.append("budget")
 
     requested_bhk = customer.get("bhk") or customer.get("bhks") or customer.get("configurations")
     property_bhk = property_.get("bhk") or property_.get("configuration")
     if _configuration_matches(requested_bhk, property_bhk):
-        score += BHK_WEIGHT; reasons.append("bhk")
+        score += BHK_WEIGHT
+        reasons.append("bhk")
 
     requested_type = customer.get("property_type")
     property_type = property_.get("property_type")
     if requested_type and property_type and _normalise(requested_type) == _normalise(property_type):
-        score += PROPERTY_TYPE_WEIGHT; reasons.append("property_type")
+        score += PROPERTY_TYPE_WEIGHT
+        reasons.append("property_type")
 
     area_min = customer.get("carpet_area_min")
     area_max = customer.get("carpet_area_max")
@@ -172,10 +181,12 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         lower_ok = area_min is None or float(area) >= float(area_min)
         upper_ok = area_max is None or float(area) <= float(area_max)
         if lower_ok and upper_ok:
-            score += AREA_WEIGHT; reasons.append("area")
+            score += AREA_WEIGHT
+            reasons.append("area")
 
     if _possession_matches(customer, property_):
-        score += POSSESSION_WEIGHT; reasons.append("possession")
+        score += POSSESSION_WEIGHT
+        reasons.append("possession")
 
     return MatchCandidate(
         property_id=property_.get("id", ""), score=min(score, 100.0), reasons=reasons,
