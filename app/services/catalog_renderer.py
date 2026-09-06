@@ -5,8 +5,12 @@ from html import escape
 from typing import Any, Mapping
 
 
+LABEL_OVERRIDES = {"whatsapp": "WhatsApp"}
+
+
 def _label(key: str) -> str:
-    return key.replace("_", " ").strip().title()
+    normalized = key.replace("_", " ").strip()
+    return LABEL_OVERRIDES.get(normalized.casefold(), normalized.title())
 
 
 def render_customer_catalog(payload: Mapping[str, Any], *, title: str = "Property Details") -> str:
@@ -45,5 +49,5 @@ def render_customer_catalog(payload: Mapping[str, Any], *, title: str = "Propert
   <header><h1>{escape(title)}</h1></header>
   <section class="catalog-fields">{field_html}</section>
   <section class="catalog-media">{media_html}</section>
-  <section class="catalog-contacts">{"".join(contact_blocks)}</section>
-</article>'''
+  <section class="catalog-contacts>{"".join(contact_blocks)}</section>
+</article>'''.replace('class="catalog-contacts>', 'class="catalog-contacts">')
