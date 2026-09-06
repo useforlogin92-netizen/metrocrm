@@ -23,6 +23,35 @@ class Settings(BaseSettings):
     backup_s3_secret_key: str = ""
     backup_s3_region: str = ""
 
+    # External lead/communication integrations. Credentials are supplied later in .env.
+    lead_integrations_enabled: bool = True
+    magicbricks_enabled: bool = False
+    ninetynineacres_enabled: bool = False
+    housing_enabled: bool = False
+    facebook_leads_enabled: bool = False
+    instagram_leads_enabled: bool = False
+    google_leads_enabled: bool = False
+    meta_ads_enabled: bool = False
+    other_lead_webhook_enabled: bool = True
+    integration_webhook_secret: str = ""
+    integration_encryption_key: str = ""
+
+    # OTP delivery providers are intentionally disabled until real credentials are configured.
+    otp_mobile_provider: str = "test"
+    otp_email_provider: str = "test"
+    sms_provider: str = "test"
+    sms_api_url: str = ""
+    sms_api_key: str = ""
+    sms_sender_id: str = ""
+    email_provider: str = "test"
+    email_api_url: str = ""
+    email_api_key: str = ""
+    email_from: str = ""
+
+    # Instant property/project visit alerts.
+    property_visit_alerts_enabled: bool = True
+    property_visit_alert_cooldown_seconds: int = 60
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
