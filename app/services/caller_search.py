@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Iterable
 
-from app.services.matching import MatchCandidate, rank_properties
+from app.services.matching import MatchCandidate, mumbai_station_range_matches, rank_properties
 
 BUDGET_SLABS = [("Below 1 Cr", None, 10_000_000), ("1–2 Cr", 10_000_000, 20_000_000), ("2–3 Cr", 20_000_000, 30_000_000), ("3–4 Cr", 30_000_000, 40_000_000), ("4–5 Cr", 40_000_000, 50_000_000), ("5–6 Cr", 50_000_000, 60_000_000), ("6–7 Cr", 60_000_000, 70_000_000), ("7–8 Cr", 70_000_000, 80_000_000), ("8–9 Cr", 80_000_000, 90_000_000), ("9–10 Cr", 90_000_000, 100_000_000), ("10–12 Cr", 100_000_000, 120_000_000), ("12–15 Cr", 120_000_000, 150_000_000), ("15–20 Cr", 150_000_000, 200_000_000), ("Above 20 Cr", 200_000_000, None)]
 BHK_OPTIONS = ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "5 BHK", "More"]
@@ -13,13 +13,33 @@ CONSTRUCTION_OPTIONS = ["Ready to Move", "Under Construction", "Upcoming", "Sold
 SIDE_OPTIONS = ["East", "West", "Both"]
 
 
-def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dict[str, Any]]) -> list[MatchCandidate]:
-    """Filter hard constraints, then rank location matches and useful alternatives.
+def _station_range_filter(filters: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply Mumbai From/To as a strict location constraint.
 
-    Explicit location is a ranking/category preference rather than a hard exclusion.
-    Thus a property such as Powai remains visible under ``Other`` when it matches
-    the caller's BHK/budget/type/possession requirements.
+    Caller search must not return unrelated stations when the caller explicitly
+    requested a station range. This is intentionally stricter than the generic
+    ranking engine's ``Other`` category.
     """
+    station_from = filters.get("mumbai_station_from")
+    station_to = filters.get("mumbai_station_to")
+    if not station_from and not station_to:
+        return candidates
+    corridor = filters.get("mumbai_corridor")
+    side = filters.get("mumbai_side", "Both")
+    filtered: list[dict[str, Any]] = []
+    for candidate in candidates:
+        station = candidate.get("station")
+        if not station:
+            # Without a resolved station we cannot safely claim it is inside the
+            # requested range, so strict station-range search excludes it.
+            continue
+        if mumbai_station_range_matches(str(station), station_from, station_to, side=side, corridor=corridor):
+            filtered.append(candidate)
+    return filtered
+
+
+def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dict[str, Any]]) -> list[MatchCandidate]:
+    """Apply hard caller filters, then rank the remaining properties."""
     candidates = list(properties)
     construction = filters.get("construction_statuses") or filters.get("construction_status")
     if construction:
@@ -33,8 +53,7 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
         wanted_types = {str(v).strip().casefold() for v in requested_types}
         candidates = [p for p in candidates if str(p.get("property_type") or "").strip().casefold() in wanted_types]
 
-    # Location is deliberately NOT hard-filtered. matching.py assigns
-    # Selected Location or Other so useful alternatives are retained.
+    candidates = _station_range_filter(filters, candidates)
     has_location_filter = bool(
         filters.get("preferred_locations") or filters.get("locations") or
         filters.get("locality") or filters.get("pincodes") or
