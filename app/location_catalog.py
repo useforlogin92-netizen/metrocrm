@@ -1,8 +1,8 @@
 """India location catalogue and real-estate search priorities.
 
-The catalogue is seed-oriented but includes a detailed Mumbai local-station
-search index so callers can select a station-to-station range, East/West side,
-or both sides. Matching uses these values as a deterministic location filter.
+The Mumbai catalogue covers the main suburban corridors used for caller-led
+property searches. Station records keep corridor and city metadata so future
+inventory imports can map properties deterministically.
 """
 
 COUNTRY = "India"
@@ -29,39 +29,57 @@ MAJOR_CITIES = [
     ("Kerala", "Kochi", 70),
 ]
 
-# Mumbai suburban/local search index, in railway-corridor order.
-MUMBAI_LOCAL_STATIONS = [
-    {"name": "Churchgate", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Marine Lines", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Charni Road", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Grant Road", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Mumbai Central", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Mahalaxmi", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Lower Parel", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Prabhadevi", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Dadar", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Matunga Road", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Mahim Junction", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Bandra", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Khar Road", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Santacruz", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Vile Parle", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Andheri", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Jogeshwari", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Ram Mandir", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Goregaon", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Malad", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Kandivali", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Borivali", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Dahisar", "corridor": "Western", "city": "Mumbai"},
-    {"name": "Mira Road", "corridor": "Western", "city": "Thane"},
-    {"name": "Bhayandar", "corridor": "Western", "city": "Thane"},
-    {"name": "Naigaon", "corridor": "Western", "city": "Palghar"},
-    {"name": "Vasai Road", "corridor": "Western", "city": "Palghar"},
-    {"name": "Nalasopara", "corridor": "Western", "city": "Palghar"},
-    {"name": "Virar", "corridor": "Western", "city": "Palghar"},
-]
-MUMBAI_STATION_ORDER = {station["name"].casefold(): index for index, station in enumerate(MUMBAI_LOCAL_STATIONS)}
+
+def _stations(names: list[str], corridor: str, city: str = "Mumbai") -> list[dict[str, str]]:
+    return [{"name": name, "corridor": corridor, "city": city} for name in names]
+
+
+# Main Mumbai suburban corridors. The order within each list is the travel
+# order used for From -> To range matching.
+MUMBAI_LOCAL_STATIONS = (
+    _stations([
+        "Churchgate", "Marine Lines", "Charni Road", "Grant Road", "Mumbai Central", "Mahalaxmi",
+        "Lower Parel", "Prabhadevi", "Dadar", "Matunga Road", "Mahim Junction", "Bandra", "Khar Road",
+        "Santacruz", "Vile Parle", "Andheri", "Jogeshwari", "Ram Mandir", "Goregaon", "Malad",
+        "Kandivali", "Borivali", "Dahisar", "Mira Road", "Bhayandar", "Naigaon", "Vasai Road",
+        "Nalasopara", "Virar", "Vaitarna", "Saphale", "Kelva Road", "Palghar", "Umroli", "Boisar",
+        "Vangaon", "Dahanu Road",
+    ], "Western")
+    + _stations([
+        "Chhatrapati Shivaji Maharaj Terminus", "Masjid", "Sandhurst Road", "Byculla", "Chinchpokli",
+        "Currey Road", "Parel", "Dadar", "Matunga", "Sion", "Kurla", "Vidyavihar", "Ghatkopar",
+        "Vikhroli", "Kanjurmarg", "Bhandup", "Nahur", "Mulund", "Thane", "Kalwa", "Mumbra",
+        "Diva", "Kopar", "Dombivli", "Thakurli", "Kalyan", "Vithalwadi", "Ulhasnagar", "Ambernath",
+        "Chikhloli", "Badlapur", "Vangani", "Shelu", "Neral", "Bhivpuri Road", "Karjat", "Palasdhari",
+        "Kelavli", "Dolavli", "Lowjee", "Khopoli", "Shahad", "Ambivli", "Titwala", "Khadavli", "Vasind",
+        "Asangaon", "Atgaon", "Tanshet", "Khardi", "Umbermali", "Kasara",
+    ], "Central")
+    + _stations([
+        "Chhatrapati Shivaji Maharaj Terminus", "Masjid", "Sandhurst Road", "Dockyard Road", "Reay Road",
+        "Cotton Green", "Sewri", "Wadala Road", "Guru Tegh Bahadur Nagar", "Chunabhatti", "Kurla",
+        "Tilak Nagar", "Chembur", "Govandi", "Mankhurd", "Vashi", "Sanpada", "Juinagar", "Nerul",
+        "Seawoods-Darave", "CBD Belapur", "Kharghar", "Mansarovar", "Khandeshwar", "Panvel", "Goregaon",
+        "Jogeshwari",
+    ], "Harbour")
+    + _stations([
+        "Thane", "Digha Gaon", "Airoli", "Rabale", "Ghansoli", "Koparkhairane", "Turbhe", "Sanpada",
+        "Vashi", "Juinagar", "Nerul", "Seawoods-Darave", "CBD Belapur", "Kharghar", "Mansarovar",
+        "Khandeshwar", "Panvel",
+    ], "Trans-Harbour")
+    + _stations([
+        "Nerul", "Seawoods-Darave", "Belapur CBD", "Bamandongri", "Kharkopar", "Uran",
+    ], "Nerul-Uran", city="Navi Mumbai")
+    + _stations([
+        "Vasai Road", "Juchandra", "Kaman Road", "Kharbao", "Bhiwandi Road", "Kopar", "Diva",
+        "Nilaje", "Taloja Panchnand", "Navade Road", "Kalamboli", "Panvel", "Apta", "Rasayani",
+        "Sev", "Nagothane", "Roha",
+    ], "Vasai-Roha")
+)
+
+# A simple canonical lookup remains useful for station-only property records.
+MUMBAI_STATION_ORDER = {}
+for station in MUMBAI_LOCAL_STATIONS:
+    MUMBAI_STATION_ORDER.setdefault(station["name"].casefold(), len(MUMBAI_STATION_ORDER))
 
 MUMBAI_PRIORITY_DISTRICTS = {"Mumbai City", "Mumbai Suburban", "Thane", "Palghar", "Raigad"}
 PUNE_PRIORITY_DISTRICTS = {"Pune", "Raigad", "Satara", "Ahmednagar", "Nashik"}
@@ -91,22 +109,45 @@ def mumbai_station_index(name: str | None) -> int | None:
 
 def mumbai_station_range_matches(*, property_station: str | None, from_station: str | None,
                                  to_station: str | None, side: str = "Both",
-                                 property_side: str = "Both") -> bool:
-    """Match a property to a Mumbai station range and East/West/Both side."""
+                                 property_side: str = "Both", corridor: str | None = None) -> bool:
+    """Match a property to a Mumbai station range and optional East/West side."""
     if not from_station and not to_station:
         return True
-    property_index = mumbai_station_index(property_station)
-    if property_index is None:
+
+    wanted_from = str(from_station or "").strip().casefold()
+    wanted_to = str(to_station or "").strip().casefold()
+    wanted_corridor = str(corridor or "").strip().casefold()
+
+    matching_corridors = []
+    for item in MUMBAI_LOCAL_STATIONS:
+        name = item["name"].casefold()
+        if (not wanted_from or name == wanted_from) and (not wanted_to or name == wanted_to):
+            if not wanted_corridor or item["corridor"].casefold() == wanted_corridor:
+                matching_corridors.append(item["corridor"])
+    if not matching_corridors:
+        # Try corridor from the first endpoint when the two names are on the
+        # same corridor; otherwise a missing corridor is treated as invalid.
+        matching_corridors = [item["corridor"] for item in MUMBAI_LOCAL_STATIONS
+                              if item["name"].casefold() in {wanted_from, wanted_to}
+                              and (not wanted_corridor or item["corridor"].casefold() == wanted_corridor)]
+    if not matching_corridors:
         return False
-    start = mumbai_station_index(from_station) if from_station else property_index
-    end = mumbai_station_index(to_station) if to_station else property_index
-    if start is None or end is None:
-        return False
-    low, high = sorted((start, end))
-    if not low <= property_index <= high:
-        return False
-    requested = str(side or "Both").strip().casefold()
-    actual = str(property_side or "Both").strip().casefold()
-    if requested == "both" or actual == "both":
-        return True
-    return actual == requested
+
+    property_name = str(property_station or "").strip().casefold()
+    actual_side = str(property_side or "Both").strip().casefold()
+    requested_side = str(side or "Both").strip().casefold()
+
+    for selected_corridor in dict.fromkeys(matching_corridors):
+        ordered = [item["name"].casefold() for item in MUMBAI_LOCAL_STATIONS if item["corridor"] == selected_corridor]
+        if wanted_from and wanted_from not in ordered:
+            continue
+        if wanted_to and wanted_to not in ordered:
+            continue
+        if property_name not in ordered:
+            continue
+        start = ordered.index(wanted_from) if wanted_from else ordered.index(property_name)
+        end = ordered.index(wanted_to) if wanted_to else ordered.index(property_name)
+        if start <= ordered.index(property_name) <= end or end <= ordered.index(property_name) <= start:
+            if requested_side == "both" or actual_side == "both" or actual_side == requested_side:
+                return True
+    return False
