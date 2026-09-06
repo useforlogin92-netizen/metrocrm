@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -45,11 +46,9 @@ def caller_search(body: CallerSearchRequest, request: Request, db: Session = Dep
     user = _user(request, db)
     if not user or not user.is_active:
         return {"error": "authentication_required"}
-    # Inventory adapter: production DB property rows can be mapped here without
-    # exposing internal/customer fields to the caller UI.
     properties: list[dict[str, Any]] = []
     filters = body.model_dump(exclude_none=True)
     if body.jodi:
         filters["bhk"] = body.bhk + body.jodi
     results = filter_and_rank_properties(filters, properties)
-    return {"count": len(results), "results": [r.__dict__ for r in results]}
+    return {"count": len(results), "results": [asdict(r) for r in results]}
