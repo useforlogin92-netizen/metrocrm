@@ -1,14 +1,17 @@
-"""Customer-facing property catalog sharing API helpers."""
+"""Customer-facing property catalog sharing API and preview UI."""
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.services.catalog_sharing import ContactSelection, build_share_payload
 
 router = APIRouter(prefix="/catalog", tags=["catalog-sharing"])
+templates = Jinja2Templates(directory="app/templates")
 
 
 class ContactSelectionRequest(BaseModel):
@@ -38,6 +41,14 @@ def _payload(request: CatalogShareRequest) -> dict[str, Any]:
         contacts=request.contacts,
         contact_selections=selections,
     )
+
+
+@router.get("/share", response_class=HTMLResponse)
+def share_catalog_page(request: Request) -> HTMLResponse | RedirectResponse:
+    """Render the explicit field/media/contact selection screen for staff."""
+    if not request.session.get("user_id"):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("catalog_share.html", {"request": request})
 
 
 @router.post("/preview")
