@@ -38,7 +38,7 @@ def test_approved_account_can_complete_approval_challenge(db_session):
 
 def test_email_verification_is_independent_from_admin_approval(db_session):
     user = make_user(db_session, approved=False)
-    db.add(EmailVerification(user_id=user.id))
-    db.commit()
+    db_session.add(EmailVerification(user_id=user.id))
+    db_session.commit()
     assert user.is_approved is False
-    assert db.query(EmailVerification).filter_by(user_id=user.id).one() is not None
+    assert db_session.query(EmailVerification).filter_by(user_id=user.id).one() is not None
