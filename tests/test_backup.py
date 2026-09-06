@@ -60,7 +60,8 @@ def test_backup_scheduler_registers_11am_and_7pm(monkeypatch):
     monkeypatch.setattr(module, "BackgroundScheduler", FakeScheduler)
     monkeypatch.setattr(settings, "backup_enabled", True)
     module._scheduler = None
-    scheduler = module.start_backup_scheduler()
+    module.start_backup_scheduler()
+    scheduler = module._scheduler
     assert scheduler is not None
     assert [job[2]["id"] for job in scheduler.jobs] == ["metrocrm_backup_start", "metrocrm_backup_end"]
     assert [job[1].hour for job in scheduler.jobs] == [11, 19]
