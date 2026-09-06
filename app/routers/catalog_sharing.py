@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -34,8 +34,20 @@ def _can_share(user: User) -> bool:
         role = Role(user.role)
     except ValueError:
         return False
-    permissions = json.loads(user.permissions_json or "{}")
+    try:
+        permissions = json.loads(user.permissions_json or "{}")
+    except json.JSONDecodeError:
+        permissions = {}
     return user_allows(role, "properties", Access.VIEW, permissions)
+
+
+def _require_sharing_user(request: Request, db: Session) -> User:
+    user = _current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not _can_share(user):
+        raise HTTPException(status_code=403, detail="catalog_sharing_not_permitted")
+    return user
 
 
 class ContactSelectionRequest(BaseModel):
@@ -81,20 +93,12 @@ def share_catalog_page(request: Request, db: Session = Depends(get_db)) -> HTMLR
 @router.post("/preview")
 def preview_catalog_share(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Preview exactly what would be shared, after server-side sanitization."""
-    user = _current_user(request, db)
-    if not user:
-        return {"error": "authentication_required"}
-    if not _can_share(user):
-        return {"error": "catalog_sharing_not_permitted"}
+    _require_sharing_user(request, db)
     return _payload(body)
 
 
 @router.post("/share")
 def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Return the sanitized share payload for the future delivery provider."""
-    user = _current_user(request, db)
-    if not user:
-        return {"error": "authentication_required"}
-    if not _can_share(user):
-        return {"error": "catalog_sharing_not_permitted"}
+    _require_sharing_user(request, db)
     return {"status": "READY", "catalog": _payload(body)}
