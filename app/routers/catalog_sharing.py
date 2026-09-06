@@ -43,7 +43,9 @@ def _can_share(user: User) -> bool:
 
 def _require_sharing_user(request: Request, db: Session) -> User:
     user = _current_user(request, db)
-    if not user or not _can_share(user):
+    if not user:
+        raise HTTPException(401, "authentication_required")
+    if not _can_share(user):
         raise HTTPException(403, "catalog_sharing_not_permitted")
     return user
 
