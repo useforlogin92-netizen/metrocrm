@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from enum import StrEnum
+from typing import Mapping
 
 
 class Role(StrEnum):
@@ -23,20 +26,6 @@ class Access(StrEnum):
     EXPORT = "EXPORT"
 
 
-# Sensitive data export and deletion are deliberately not role defaults.
-# They must go through the separate approval workflow (except Super Admin).
-ROLE_DEFAULTS: dict[Role, set[Access]] = {
-    Role.SUPER_ADMIN: set(Access),
-    Role.ADMIN: {Access.VIEW, Access.CREATE, Access.EDIT, Access.ASSIGN, Access.REASSIGN, Access.CLOSE},
-    Role.MANAGER: {Access.VIEW, Access.CREATE, Access.EDIT, Access.ASSIGN, Access.REASSIGN, Access.CLOSE},
-    Role.TL: {Access.VIEW, Access.CREATE, Access.EDIT, Access.CLOSE},
-    Role.SALES_EXECUTIVE: {Access.VIEW, Access.CREATE, Access.EDIT},
-    Role.TELECALLER: {Access.VIEW, Access.CREATE, Access.EDIT},
-    Role.ACCOUNTANT: {Access.VIEW, Access.CREATE, Access.EDIT},
-    Role.HR: {Access.VIEW, Access.CREATE, Access.EDIT},
-}
-
-
 class FieldVisibility(StrEnum):
     VIEW = "VIEW"
     MASKED = "MASKED"
@@ -48,47 +37,90 @@ SENSITIVE_FIELDS = {
     "alternate_mobile",
     "email",
     "address",
-    "budget_min",
-    "budget_max",
-    "requirement",
+    "budget",
+    "requirements",
     "internal_notes",
     "booking_amount",
     "sale_value",
-    "commission_amount",
+    "financial_information",
     "documents",
 }
 
+# Export/delete are deliberately absent from ordinary role defaults.
+# Data downloads and destructive deletion use the approval workflow in the
+# application service layer rather than a menu-only permission.
+ROLE_DEFAULTS: dict[Role, dict[str, set[Access]]] = {
+    Role.SUPER_ADMIN: {"*": set(Access)},
+    Role.ADMIN: {
+        "leads": {Access.VIEW, Access.CREATE, Access.EDIT, Access.ASSIGN, Access.REASSIGN, Access.CLOSE},
+        "customers": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "properties": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "followups": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "reports": {Access.VIEW},
+    },
+    Role.MANAGER: {
+        "leads": {Access.VIEW, Access.CREATE, Access.EDIT, Access.ASSIGN, Access.REASSIGN, Access.CLOSE},
+        "customers": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "properties": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "followups": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "reports": {Access.VIEW},
+    },
+    Role.TL: {
+        "leads": {Access.VIEW, Access.EDIT, Access.ASSIGN, Access.REASSIGN},
+        "customers": {Access.VIEW, Access.EDIT},
+        "properties": {Access.VIEW},
+        "followups": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "reports": {Access.VIEW},
+    },
+    Role.SALES_EXECUTIVE: {
+        "leads": {Access.VIEW, Access.EDIT},
+        "customers": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "properties": {Access.VIEW},
+        "followups": {Access.VIEW, Access.CREATE, Access.EDIT},
+    },
+    Role.TELECALLER: {
+        "leads": {Access.VIEW, Access.EDIT},
+        "customers": {Access.VIEW, Access.CREATE, Access.EDIT},
+        "properties": {Access.VIEW},
+        "followups": {Access.VIEW, Access.CREATE, Access.EDIT},
+    },
+    Role.ACCOUNTANT: {
+        "customers": {Access.VIEW},
+        "reports": {Access.VIEW},
+    },
+    Role.HR: {
+        "reports": {Access.VIEW},
+    },
+}
 
-def effective_access(role: Role, grants: set[Access] | None = None, denies: set[Access] | None = None) -> set[Access]:
-    """Resolve role defaults, then user grants, then user restrictions."""
-    access = set(ROLE_DEFAULTS[role])
-    access.update(grants or set())
-    access.difference_update(denies or set())
-    return access
+
+def role_allows(role: Role, module: str, action: Access) -> bool:
+    permissions = ROLE_DEFAULTS.get(role, {})
+    return action in permissions.get("*", set()) or action in permissions.get(module, set())
 
 
-def has_access(role: Role, action: Access, grants: set[Access] | None = None, denies: set[Access] | None = None) -> bool:
-    """Pure authorization check suitable for use at API/service boundaries."""
-    return action in effective_access(role, grants, denies)
+def user_allows(
+    role: Role,
+    module: str,
+    action: Access,
+    permissions: Mapping[str, object] | None = None,
+) -> bool:
+    """Resolve role defaults, then apply per-user additions/restrictions.
 
-
-def can_assign_lead(role: Role, grants: set[Access] | None = None, denies: set[Access] | None = None) -> bool:
-    return has_access(role, Access.ASSIGN, grants, denies)
-
-
-def can_reassign_lead(role: Role, grants: set[Access] | None = None, denies: set[Access] | None = None) -> bool:
-    return has_access(role, Access.REASSIGN, grants, denies)
-
-
-def can_direct_export(role: Role, grants: set[Access] | None = None, denies: set[Access] | None = None) -> bool:
-    """Only Super Admin may directly export; Admin exports require approval."""
-    if role == Role.SUPER_ADMIN:
-        return True
-    return False
-
-
-def can_direct_delete(role: Role, grants: set[Access] | None = None, denies: set[Access] | None = None) -> bool:
-    """Only Super Admin may directly delete; other roles need approval."""
-    if role == Role.SUPER_ADMIN:
-        return True
-    return False
+    Supported JSON shape:
+      {"allow": {"leads": ["VIEW"]}, "deny": {"leads": ["EDIT"]}}
+    A deny always wins, allowing an administrator to restrict a role default.
+    """
+    permissions = permissions or {}
+    allowed = role_allows(role, module, action)
+    allow = permissions.get("allow", {})
+    deny = permissions.get("deny", {})
+    if isinstance(allow, Mapping):
+        values = allow.get(module, [])
+        if isinstance(values, (list, tuple, set)) and action.value in values:
+            allowed = True
+    if isinstance(deny, Mapping):
+        values = deny.get(module, [])
+        if isinstance(values, (list, tuple, set)) and action.value in values:
+            return False
+    return allowed
