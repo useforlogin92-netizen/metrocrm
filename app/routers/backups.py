@@ -1,7 +1,7 @@
 """Protected backup management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,12 +11,7 @@ from app.services.backup import backup_health, create_full_backup
 router = APIRouter(prefix="/admin/backups", tags=["backups"])
 
 
-def _super_admin(user: User = Depends(lambda: None), db: Session = Depends(get_db)) -> User:
-    # Dependency is resolved from request state by the wrapper below.
-    raise RuntimeError("unreachable")
-
-
-def require_super_admin(request, db: Session) -> User:
+def require_super_admin(request: Request, db: Session) -> User:
     user_id = request.session.get("user_id")
     user = db.get(User, user_id) if user_id else None
     if not user or not user.is_active or user.role != "SUPER_ADMIN":
@@ -25,13 +20,13 @@ def require_super_admin(request, db: Session) -> User:
 
 
 @router.get("/status")
-def status(request, db: Session = Depends(get_db)):
+def status(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
     return {"user": user.username, **backup_health()}
 
 
 @router.post("/run")
-def run_manual(request, db: Session = Depends(get_db)):
+def run_manual(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
     try:
         result = create_full_backup("manual")
