@@ -11,6 +11,7 @@ from app.database import Base, engine, get_db
 from app.models import AuditEvent, User
 from app.security import hash_password
 from app.routers.catalog_sharing import router as catalog_sharing_router
+from app.routers.caller_search import router as caller_search_router
 import app.models  # noqa: F401
 import app.catalog_models  # noqa: F401
 
@@ -18,6 +19,7 @@ app = FastAPI(title="MetroCRM", version="0.2.0")
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
+app.include_router(caller_search_router)
 
 @app.on_event("startup")
 def startup() -> None:
@@ -82,7 +84,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user or user.session_version != request.session.get("session_version"):
         request.session.clear(); return RedirectResponse("/", status_code=303)
-    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/auth/logout'>Logout</a></p></body></html>")
+    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/caller/search'>Caller Property Search</a></p><p><a href='/auth/logout'>Logout</a></p></body></html>")
 
 @app.get("/auth/logout")
 def logout(request: Request):
