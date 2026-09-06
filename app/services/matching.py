@@ -66,7 +66,7 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
     if property_pin and any(_normalise(property_pin) == _normalise(pin) for pin in customer_pins):
         return LOCATION_WEIGHT, "pincode"
 
-    # Mumbai caller workflow: From station -> To station + East/West/Both.
+    # Mumbai caller workflow: corridor + From station -> To station + side.
     if _normalise(customer.get("city")) == "mumbai" or customer.get("mumbai_station_from") or customer.get("mumbai_station_to"):
         from_station = customer.get("mumbai_station_from")
         to_station = customer.get("mumbai_station_to")
@@ -77,13 +77,11 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
                 to_station=to_station,
                 side=customer.get("mumbai_side", "Both"),
                 property_side=property_.get("side") or property_.get("location_side") or "Both",
+                corridor=customer.get("mumbai_corridor"),
             ):
                 return LOCATION_WEIGHT, "mumbai_station_range"
             return 0.0, None
 
-    # Explicit locality/location selections are strict: a non-selected area
-    # must not receive a weaker city/district score and accidentally pass the
-    # overall minimum score because BHK/budget also match.
     locations = customer.get("preferred_locations") or customer.get("locations") or []
     property_location = property_.get("location") or property_.get("locality") or ""
     if locations:
