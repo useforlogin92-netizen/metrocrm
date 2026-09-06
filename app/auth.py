@@ -1,0 +1,53 @@
+from dataclasses import dataclass
+from time import time
+from typing import Literal
+
+from app.security import generate_otp, otp_is_valid, verify_password
+
+VerificationMethod = Literal["mobile_otp", "email_otp", "security_question", "approval"]
+
+@dataclass
+class PendingVerification:
+    user_id: int
+    method: VerificationMethod
+    otp: str | None
+    created_at: float
+    attempts: int = 0
+
+
+_pending: dict[str, PendingVerification] = {}
+
+
+def allowed_methods(role: str) -> list[VerificationMethod]:
+    role = role.upper()
+    if role == "SUPER_ADMIN":
+        return ["mobile_otp", "email_otp", "security_question"]
+    if role == "ADMIN":
+        return ["mobile_otp", "email_otp", "approval"]
+    return ["mobile_otp", "email_otp", "approval"]
+
+
+def authenticate_password(user, password: str) -> bool:
+    return bool(user and user.is_active and verify_password(password, user.password_hash))
+
+
+def create_pending(user_id: int, method: VerificationMethod) -> tuple[str, str | None]:
+    challenge = generate_otp() if method in ("mobile_otp", "email_otp") else None
+    token = generate_otp() + str(user_id) + str(int(time()))
+    _pending[token] = PendingVerification(user_id, method, challenge, time())
+    return token, challenge
+
+
+def verify_pending(token: str, value: str, expiry_seconds: int, max_attempts: int) -> int | None:
+    pending = _pending.get(token)
+    if not pending or not otp_is_valid(pending.created_at, time(), expiry_seconds):
+        _pending.pop(token, None)
+        return None
+    pending.attempts += 1
+    if pending.attempts > max_attempts:
+        _pending.pop(token, None)
+        return None
+    if pending.method in ("mobile_otp", "email_otp") and value != pending.otp:
+        return None
+    _pending.pop(token, None)
+    return pending.user_id
