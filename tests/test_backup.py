@@ -64,6 +64,6 @@ def test_backup_scheduler_registers_11am_and_7pm(monkeypatch):
     scheduler = module._scheduler
     assert scheduler is not None
     assert [job[2]["id"] for job in scheduler.jobs] == ["metrocrm_backup_start", "metrocrm_backup_end"]
-    assert [job[1].fields["hour"].expressions[0].first for job in scheduler.jobs] == [11, 19]
-    assert [job[1].fields["minute"].expressions[0].first for job in scheduler.jobs] == [0, 0]
+    assert [job[1].fields[0].expressions[0].first for job in scheduler.jobs] == [11, 19]
+    assert [job[1].fields[2].expressions[0].first for job in scheduler.jobs] == [0, 0]
     module.stop_backup_scheduler()
