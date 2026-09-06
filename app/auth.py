@@ -31,12 +31,19 @@ def authenticate_password(user, password: str) -> bool:
     return bool(user and user.is_active and verify_password(password, user.password_hash))
 
 
-def create_pending(user, method: VerificationMethod) -> tuple[str, str | None]:
-    challenge = generate_otp() if method in ("mobile_otp", "email_otp") else None
+def create_pending(user, method: VerificationMethod, otp: str | None = None) -> tuple[str, str | None]:
+    challenge = otp if method in ("mobile_otp", "email_otp") else None
     token = generate_otp() + str(user.id) + str(int(time()))
     expected = user.security_answer_hash if method == "security_question" else None
+    if method == "approval" and not user.is_approved:
+        raise ValueError("approval_not_granted")
     _pending[token] = PendingVerification(user.id, method, challenge, time(), expected)
     return token, challenge
+
+
+def pending_method(token: str) -> VerificationMethod | None:
+    pending = _pending.get(token)
+    return pending.method if pending else None
 
 
 def verify_pending(token: str, value: str, expiry_seconds: int, max_attempts: int) -> int | None:
@@ -53,7 +60,7 @@ def verify_pending(token: str, value: str, expiry_seconds: int, max_attempts: in
     elif pending.method == "security_question":
         valid = bool(pending.expected_answer_hash) and verify_password(value, pending.expected_answer_hash)
     else:
-        valid = value == "APPROVED" if False else False
+        valid = value.strip().upper() == "APPROVED"
     if not valid:
         return None
     _pending.pop(token, None)
