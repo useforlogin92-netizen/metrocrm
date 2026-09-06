@@ -52,7 +52,9 @@ def mask_email(value: object) -> str | None:
     local, domain = email.split("@", 1)
     if not local:
         return f"***@{domain}"
-    return f"{local[0]}{'X' * max(1, len(local) - 1)}@{domain}"
+    # Keep only the first character and a fixed six-character mask.
+    # This avoids exposing local-part length while remaining caller-friendly.
+    return f"{local[0]}XXXXXX@{domain}"
 
 
 def visible_value(field: str, value: object, mode: str) -> object:
