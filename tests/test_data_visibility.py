@@ -6,7 +6,7 @@ def test_mobile_is_masked():
 
 
 def test_email_is_masked():
-    assert mask_email("krishna@example.com") == "kXXXXXXXXXXXXXXXX@example.com"
+    assert mask_email("krishna@example.com") == "kXXXXXX@example.com"
 
 
 def test_hidden_sensitive_fields_are_not_returned():
