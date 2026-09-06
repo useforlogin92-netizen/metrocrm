@@ -65,10 +65,20 @@ def ingest_lead(db: Session, provider: str, payload: dict[str, Any], raw_body: b
         raise ValueError("unsupported_lead_provider")
     normalized = normalize_lead_payload(provider, payload)
     payload_hash = hashlib.sha256(raw_body).hexdigest()
-    existing = db.scalar(select(LeadIntegrationEvent).where(
-        LeadIntegrationEvent.provider == provider,
-        LeadIntegrationEvent.payload_hash == payload_hash,
-    ))
+
+    # Idempotency is based on the provider's stable external lead ID when supplied.
+    # Payload hash remains the fallback for providers/events that do not expose one.
+    existing = None
+    if normalized["external_lead_id"]:
+        existing = db.scalar(select(LeadIntegrationEvent).where(
+            LeadIntegrationEvent.provider == provider,
+            LeadIntegrationEvent.external_lead_id == normalized["external_lead_id"],
+        ))
+    if existing is None:
+        existing = db.scalar(select(LeadIntegrationEvent).where(
+            LeadIntegrationEvent.provider == provider,
+            LeadIntegrationEvent.payload_hash == payload_hash,
+        ))
     if existing:
         return existing
 
