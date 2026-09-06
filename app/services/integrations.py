@@ -1,9 +1,4 @@
-"""Provider-agnostic lead intake and OTP delivery adapters.
-
-Real provider credentials stay in environment variables. Webhook payloads are
-normalized here so each portal/ad platform can be connected without changing
-CRM lead logic later.
-"""
+"""Provider-agnostic lead intake and OTP delivery adapters."""
 from __future__ import annotations
 import hashlib
 import hmac
@@ -11,6 +6,8 @@ import json
 import secrets
 from datetime import datetime
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,24 +22,18 @@ SUPPORTED_LEAD_PROVIDERS = (
 
 
 def normalize_lead_payload(provider: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Map common portal/ad fields into MetroCRM's canonical lead shape."""
     data = payload.get("lead") if isinstance(payload.get("lead"), dict) else payload
     name = data.get("name") or data.get("full_name") or data.get("customer_name") or "Unknown Lead"
     mobile = data.get("mobile") or data.get("phone") or data.get("phone_number")
     email = data.get("email") or data.get("email_address")
     return {
-        "name": str(name)[:200],
-        "mobile": str(mobile)[:30] if mobile else None,
+        "name": str(name)[:200], "mobile": str(mobile)[:30] if mobile else None,
         "alternate_mobile": str(data.get("alternate_mobile") or data.get("alternate_phone"))[:30] if data.get("alternate_mobile") or data.get("alternate_phone") else None,
-        "email": str(email)[:255] if email else None,
-        "source": provider,
+        "email": str(email)[:255] if email else None, "source": provider,
         "requirement": data.get("requirement") or data.get("message") or data.get("notes"),
-        "budget_min": data.get("budget_min"),
-        "budget_max": data.get("budget_max") or data.get("budget"),
-        "preferred_location": data.get("preferred_location") or data.get("location"),
-        "bhk": data.get("bhk"),
-        "property_type": data.get("property_type"),
-        "buy_rent": data.get("buy_rent") or data.get("intent"),
+        "budget_min": data.get("budget_min"), "budget_max": data.get("budget_max") or data.get("budget"),
+        "preferred_location": data.get("preferred_location") or data.get("location"), "bhk": data.get("bhk"),
+        "property_type": data.get("property_type"), "buy_rent": data.get("buy_rent") or data.get("intent"),
         "external_lead_id": str(data.get("lead_id") or data.get("id") or data.get("external_id") or "")[:255] or None,
     }
 
@@ -50,7 +41,6 @@ def normalize_lead_payload(provider: str, payload: dict[str, Any]) -> dict[str, 
 def verify_webhook_signature(raw_body: bytes, signature: str | None) -> bool:
     secret = settings.integration_webhook_secret
     if not secret:
-        # Development/test mode can receive unsigned events; production should configure a secret.
         return settings.environment != "production"
     if not signature:
         return False
@@ -65,23 +55,13 @@ def ingest_lead(db: Session, provider: str, payload: dict[str, Any], raw_body: b
         raise ValueError("unsupported_lead_provider")
     normalized = normalize_lead_payload(provider, payload)
     payload_hash = hashlib.sha256(raw_body).hexdigest()
-
-    # Idempotency is based on the provider's stable external lead ID when supplied.
-    # Payload hash remains the fallback for providers/events that do not expose one.
     existing = None
     if normalized["external_lead_id"]:
-        existing = db.scalar(select(LeadIntegrationEvent).where(
-            LeadIntegrationEvent.provider == provider,
-            LeadIntegrationEvent.external_lead_id == normalized["external_lead_id"],
-        ))
+        existing = db.scalar(select(LeadIntegrationEvent).where(LeadIntegrationEvent.provider == provider, LeadIntegrationEvent.external_lead_id == normalized["external_lead_id"]))
     if existing is None:
-        existing = db.scalar(select(LeadIntegrationEvent).where(
-            LeadIntegrationEvent.provider == provider,
-            LeadIntegrationEvent.payload_hash == payload_hash,
-        ))
+        existing = db.scalar(select(LeadIntegrationEvent).where(LeadIntegrationEvent.provider == provider, LeadIntegrationEvent.payload_hash == payload_hash))
     if existing:
         return existing
-
     event = LeadIntegrationEvent(provider=provider, external_lead_id=normalized["external_lead_id"], payload_hash=payload_hash, payload_json=json.dumps(payload, default=str))
     db.add(event)
     customer = None
@@ -92,29 +72,43 @@ def ingest_lead(db: Session, provider: str, payload: dict[str, Any], raw_body: b
     if customer is None:
         customer = Customer(name=normalized["name"], mobile=normalized["mobile"], alternate_mobile=normalized["alternate_mobile"], email=normalized["email"], notes=normalized["requirement"])
         db.add(customer); db.flush()
-    lead = Lead(customer_id=customer.id, source=provider, status="NEW", assigned_user_id=None, original_owner_id=None,
-                requirement=normalized["requirement"], budget_min=normalized["budget_min"], budget_max=normalized["budget_max"],
-                preferred_location=normalized["preferred_location"], bhk=normalized["bhk"], property_type=normalized["property_type"], buy_rent=normalized["buy_rent"])
+    lead = Lead(customer_id=customer.id, source=provider, status="NEW", assigned_user_id=None, original_owner_id=None, requirement=normalized["requirement"], budget_min=normalized["budget_min"], budget_max=normalized["budget_max"], preferred_location=normalized["preferred_location"], bhk=normalized["bhk"], property_type=normalized["property_type"], buy_rent=normalized["buy_rent"])
     db.add(lead); db.flush()
-    event.lead_id = lead.id
-    event.status = "PROCESSED"
-    event.processed_at = datetime.utcnow()
+    event.lead_id = lead.id; event.status = "PROCESSED"; event.processed_at = datetime.utcnow()
     db.add(AuditEvent(action="EXTERNAL_LEAD_RECEIVED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"provider": provider, "event_id": event.id})))
-    db.commit()
-    return event
+    db.commit(); return event
 
 
 class OtpProvider:
-    """Provider abstraction. Test mode returns a code; real adapters can be added without changing auth."""
+    """Test delivery locally; production delivery uses a configured JSON HTTP provider."""
     def __init__(self, channel: str):
+        if channel not in {"mobile", "email"}:
+            raise ValueError("unsupported_otp_channel")
         self.channel = channel
 
     def send(self, destination: str, code: str) -> dict[str, Any]:
         provider = settings.otp_mobile_provider if self.channel == "mobile" else settings.otp_email_provider
         if provider == "test" or settings.environment != "production":
             return {"status": "TEST", "provider": provider, "destination": destination}
-        # Intentionally fail closed until a configured provider adapter exists.
-        raise RuntimeError(f"otp_provider_not_implemented:{provider}")
+        url = settings.sms_api_url if self.channel == "mobile" else settings.email_api_url
+        api_key = settings.sms_api_key if self.channel == "mobile" else settings.email_api_key
+        if not url or not api_key:
+            raise RuntimeError(f"otp_provider_not_configured:{self.channel}")
+        if self.channel == "mobile":
+            payload = {"to": destination, "message": f"Your MetroCRM OTP is {code}", "otp": code, "sender_id": settings.sms_sender_id}
+        else:
+            payload = {"to": destination, "subject": "MetroCRM verification code", "body": f"Your MetroCRM OTP is {code}", "otp": code, "from": settings.email_from}
+        request = UrlRequest(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}, method="POST")
+        try:
+            with urlopen(request, timeout=10) as response:
+                status = getattr(response, "status", 200)
+                if status < 200 or status >= 300:
+                    raise RuntimeError(f"otp_delivery_http_{status}")
+                return {"status": "SENT", "provider": provider, "destination": destination, "http_status": status}
+        except HTTPError as exc:
+            raise RuntimeError(f"otp_delivery_http_{exc.code}") from exc
+        except URLError as exc:
+            raise RuntimeError("otp_delivery_network_error") from exc
 
 
 def generate_and_send_otp(channel: str, destination: str) -> tuple[str, dict[str, Any]]:
