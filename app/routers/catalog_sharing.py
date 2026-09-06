@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -36,7 +37,9 @@ def _can_share(user: User) -> bool:
         return False
     try:
         permissions = json.loads(user.permissions_json or "{}")
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
+        permissions = {}
+    if not isinstance(permissions, Mapping):
         permissions = {}
     return user_allows(role, "properties", Access.VIEW, permissions)
 
@@ -79,8 +82,8 @@ def _payload(request: CatalogShareRequest) -> dict[str, Any]:
     )
 
 
-@router.get("/share", response_class=HTMLResponse)
-def share_catalog_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse | RedirectResponse:
+@router.get("/share", response_class=HTMLResponse, response_model=None)
+def share_catalog_page(request: Request, db: Session = Depends(get_db)) -> Response:
     """Render the explicit field/media/contact selection screen for staff."""
     user = _current_user(request, db)
     if not user:
