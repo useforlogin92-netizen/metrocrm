@@ -14,12 +14,7 @@ SIDE_OPTIONS = ["East", "West", "Both"]
 
 
 def _station_range_filter(filters: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Apply Mumbai From/To as a strict location constraint.
-
-    Caller search must not return unrelated stations when the caller explicitly
-    requested a station range. This is intentionally stricter than the generic
-    ranking engine's ``Other`` category.
-    """
+    """Apply Mumbai From/To as a strict location constraint."""
     station_from = filters.get("mumbai_station_from")
     station_to = filters.get("mumbai_station_to")
     if not station_from and not station_to:
@@ -30,10 +25,15 @@ def _station_range_filter(filters: dict[str, Any], candidates: list[dict[str, An
     for candidate in candidates:
         station = candidate.get("station")
         if not station:
-            # Without a resolved station we cannot safely claim it is inside the
-            # requested range, so strict station-range search excludes it.
             continue
-        if mumbai_station_range_matches(str(station), station_from, station_to, side=side, corridor=corridor):
+        if mumbai_station_range_matches(
+            property_station=str(station),
+            from_station=station_from,
+            to_station=station_to,
+            side=side,
+            property_side=candidate.get("side") or candidate.get("location_side") or "Both",
+            corridor=corridor,
+        ):
             filtered.append(candidate)
     return filtered
 
