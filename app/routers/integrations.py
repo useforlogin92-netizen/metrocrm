@@ -65,6 +65,10 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
 
 @router.post("/lead/{provider}")
 async def lead_webhook(provider: str, request: Request, x_metrocrm_signature: str | None = Header(default=None), db: Session = Depends(get_db)):
+    provider = provider.lower().strip()
+    config = db.scalar(select(IntegrationConfig).where(IntegrationConfig.provider == provider))
+    if provider not in SUPPORTED_LEAD_PROVIDERS or config is None or not config.enabled:
+        raise HTTPException(404, "integration_provider_not_enabled")
     raw = await request.body()
     if not settings.lead_integrations_enabled or not verify_webhook_signature(raw, x_metrocrm_signature):
         raise HTTPException(401, "invalid_integration_signature")
