@@ -89,19 +89,51 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
 
 
 def _possession_matches(customer: dict, property_: dict) -> bool:
+    """Match status and/or a possession deadline without confusing RERA and builder dates."""
     statuses = {_normalise(item) for item in _values(customer.get("construction_statuses") or customer.get("construction_status"))}
     property_status = _normalise(property_.get("construction_status") or property_.get("possession"))
-    if statuses and property_status in statuses:
-        return True
+
+    # A selected status is a valid independent filter. If both status and year
+    # are supplied, the property must satisfy both conditions.
+    if statuses and property_status not in statuses:
+        return False
 
     requirement = customer.get("possession_by") or customer.get("possession_requirement")
-    if not requirement:
-        return False
+    if requirement is None or requirement == "":
+        return bool(statuses and property_status in statuses)
+
     property_date = property_.get("rera_possession_date") or property_.get("possession_date") or property_.get("possession")
-    if isinstance(requirement, int) and property_date:
-        text = str(property_date)
-        return text.startswith(str(requirement))
-    return _normalise(requirement) == _normalise(property_date)
+    if property_date is None:
+        return False
+
+    try:
+        required_year = int(requirement)
+    except (TypeError, ValueError):
+        return _normalise(requirement) == _normalise(property_date)
+
+    # "Possession by 2028" means any known possession year/date in 2028 or
+    # earlier is acceptable. This remains future-proof as new inventory years
+    # are added through the search-option catalog up to 2050.
+    if isinstance(property_date, date):
+        property_year = property_date.year
+    else:
+        text = str(property_date).strip()
+        try:
+            property_year = int(text[:4])
+        except (TypeError, ValueError):
+            return False
+    return property_year <= required_year
+
+
+def _configuration_matches(requested: object, actual: object) -> bool:
+    """Support one or many BHK/Jodi values while preserving exact configurations."""
+    wanted = {_normalise(item) for item in _values(requested) if _normalise(item)}
+    actual_value = _normalise(actual)
+    if not wanted or not actual_value:
+        return False
+    # Accept both "Jodi 2+1" and "2+1" forms.
+    actual_variants = {actual_value, actual_value.removeprefix("jodi ")}
+    return bool(wanted & actual_variants)
 
 
 def score_match(customer: dict, property_: dict) -> MatchCandidate:
@@ -123,9 +155,9 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
         if lower_ok and upper_ok:
             score += BUDGET_WEIGHT; reasons.append("budget")
 
-    requested_bhk = customer.get("bhk")
-    property_bhk = property_.get("bhk")
-    if requested_bhk and property_bhk and _normalise(requested_bhk) == _normalise(property_bhk):
+    requested_bhk = customer.get("bhk") or customer.get("bhks") or customer.get("configurations")
+    property_bhk = property_.get("bhk") or property_.get("configuration")
+    if _configuration_matches(requested_bhk, property_bhk):
         score += BHK_WEIGHT; reasons.append("bhk")
 
     requested_type = customer.get("property_type")
