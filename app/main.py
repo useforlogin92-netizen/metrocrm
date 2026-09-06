@@ -1,7 +1,7 @@
 from datetime import datetime
 import json
 
-from fastapi import Depends, FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -112,7 +112,6 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         token, _ = create_pending(user, method, otp=otp)
     else:
         token, _ = create_pending(user, method)
-        delivery = None
     request.session["pending_token"] = token
     destination = "registered mobile" if method == "mobile_otp" else "registered email" if method == "email_otp" else None
     if method == "security_question":
@@ -148,7 +147,7 @@ def verify(request: Request, token: str = Form(...), value: str = Form(...), db:
 def pending_users(request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     if not actor or actor.role not in {"SUPER_ADMIN", "ADMIN"}:
-        raise PermissionError("administrator_required")
+        raise HTTPException(status_code=403, detail="administrator_required")
     users = db.scalars(select(User).where(User.is_active.is_(True), User.is_approved.is_(False)).order_by(User.created_at)).all()
     return [{"id": u.id, "username": u.username, "role": u.role, "email": u.email, "created_at": u.created_at.isoformat() if u.created_at else None} for u in users]
 
