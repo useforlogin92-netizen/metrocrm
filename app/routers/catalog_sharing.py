@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,12 @@ def _payload(request: CatalogShareRequest) -> dict[str, Any]:
     )
 
 
+def _require_session(request: Request) -> JSONResponse | None:
+    if not request.session.get("user_id"):
+        return JSONResponse({"error": "authentication_required"}, status_code=401)
+    return None
+
+
 @router.get("/share", response_class=HTMLResponse)
 def share_catalog_page(request: Request) -> HTMLResponse | RedirectResponse:
     """Render the explicit field/media/contact selection screen for staff."""
@@ -52,12 +58,18 @@ def share_catalog_page(request: Request) -> HTMLResponse | RedirectResponse:
 
 
 @router.post("/preview")
-def preview_catalog_share(request: CatalogShareRequest) -> dict[str, Any]:
-    """Preview exactly what would be shared, after server-side sanitization."""
+def preview_catalog_share(http_request: Request, request: CatalogShareRequest) -> dict[str, Any] | JSONResponse:
+    """Preview exactly what would be shared, after authentication and sanitization."""
+    auth_error = _require_session(http_request)
+    if auth_error:
+        return auth_error
     return _payload(request)
 
 
 @router.post("/share")
-def share_catalog(request: CatalogShareRequest) -> dict[str, Any]:
+def share_catalog(http_request: Request, request: CatalogShareRequest) -> dict[str, Any] | JSONResponse:
     """Return the sanitized share payload for the future delivery provider."""
+    auth_error = _require_session(http_request)
+    if auth_error:
+        return auth_error
     return {"status": "READY", "catalog": _payload(request)}
