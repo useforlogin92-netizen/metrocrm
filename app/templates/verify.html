@@ -23,7 +23,12 @@
       Approval is valid for <strong>15 minutes</strong> from the request time.
       The Super Admin must approve or reject it within this period.
     </div>
-    <p class="small">If the request is not received/acted on, a new request can be sent after <strong>1 minute</strong>. If the 15-minute approval window expires, you must start a new request.</p>
+    <p class="small">After the Super Admin approves your request, click the button below to complete login. If the request is not received/acted on, a new request can be sent after <strong>1 minute</strong>. If the 15-minute approval window expires, you must start a new request.</p>
+    <form method="post" action="/auth/verify">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="value" value="APPROVED">
+      <button type="submit">Check Approval &amp; Login</button>
+    </form>
     <a class="secondary" href="/">← Back to Login</a>
   {% else %}
     <div class="status">Method: <strong>{{ method }}</strong>{% if destination %}<br>Destination: {{ destination }}{% endif %}{% if test_otp %}<br>TEST MODE OTP: <strong>{{ test_otp }}</strong>{% endif %}</div>
