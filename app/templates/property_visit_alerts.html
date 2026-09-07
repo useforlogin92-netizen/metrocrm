@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Visit Alerts{% endblock %}
+{% block header_title %}Property Visit Alerts{% endblock %}
+{% block breadcrumb %}Visit Alerts{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0 0 5px;font-size:20px">Recent Property Visits</h2>
+      <p style="margin:0;color:#64748b;font-size:13px">Latest visitor alerts available to Admin and Super Admin.</p>
+    </div>
+    <a href="/dashboard" style="border:1px solid #e2e8f0;background:#fff;color:#0f172a;text-decoration:none;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:700">← Dashboard</a>
+  </div>
+  {% if alerts %}
+  <div style="overflow:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;border-bottom:1px solid #e2e8f0"><th style="padding:10px">ID</th><th style="padding:10px">Project</th><th style="padding:10px">Unit</th><th style="padding:10px">Lead</th><th style="padding:10px">Status</th><th style="padding:10px">Created</th></tr></thead>
+      <tbody>
+      {% for a in alerts %}<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:10px">{{ a.id }}</td><td style="padding:10px">{{ a.project_id or '—' }}</td><td style="padding:10px">{{ a.unit_id or '—' }}</td><td style="padding:10px">{{ a.lead_id or '—' }}</td><td style="padding:10px">{{ a.status }}</td><td style="padding:10px">{{ a.created_at }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div style="padding:28px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:12px">No property visit alerts yet.</div>{% endif %}
+</div>
+{% endblock %}
