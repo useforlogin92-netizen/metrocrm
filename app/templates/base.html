@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>{% block title %}MetroCRM{% endblock %}</title>
 <style>
 :root{--nav:#0b1224;--nav2:#172554;--primary:#2563eb;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--bg:#f4f7fb;--card:#fff}
@@ -19,17 +20,18 @@
 <nav class="nav">
 <a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span class="icon">⌂</span>Dashboard</a>
 <a class="{% if request.url.path.startswith('/caller/') %}active{% endif %}" href="/caller/search"><span class="icon">⌕</span>Caller Property Search</a>
-{% if show_integrations %}<a href="/integrations/providers"><span class="icon">⚙</span>Integrations</a>{% endif %}
-{% if show_alerts %}<a href="/integrations/property-visits/alerts"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
-{% if show_approvals %}<a href="/admin/users/pending"><span class="icon">✓</span>User Approvals</a>{% endif %}
-<a href="/admin/backups/status"><span class="icon">▣</span>Backup Status</a>
+{% if show_user_management %}<a class="{% if request.url.path.startswith('/admin/users') %}active{% endif %}" href="/admin/users"><span class="icon">♙</span>User Management</a>{% endif %}
+{% if show_integrations %}<a class="{% if request.url.path.startswith('/integrations/providers') %}active{% endif %}" href="/integrations/providers"><span class="icon">⚙</span>Integrations</a>{% endif %}
+{% if show_alerts %}<a class="{% if request.url.path.startswith('/integrations/property-visits') %}active{% endif %}" href="/integrations/property-visits/alerts"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
+{% if show_approvals %}<a class="{% if request.url.path == '/admin/users/pending' %}active{% endif %}" href="/admin/users/pending"><span class="icon">✓</span>User Approvals</a>{% endif %}
+<a class="{% if request.url.path.startswith('/admin/backups') %}active{% endif %}" href="/admin/backups/status"><span class="icon">▣</span>Backup Status</a>
 </nav>
-<div class="sidebar-bottom"><nav class="nav"><a class="logout" href="/auth/logout"><span class="icon">↪</span>Logout</a></nav></div>
+<div class="sidebar-bottom"><nav class="nav"><a class="{% if request.url.path == '/profile' %}active{% endif %}" href="/profile"><span class="icon">●</span>My Profile</a><a class="logout" href="/auth/logout"><span class="icon">↪</span>Logout</a></nav></div>
 </aside>
 <main class="main">
 <header class="topbar">
 <div class="page-heading"><h1>{% block header_title %}CRM Workspace{% endblock %}</h1><p>Secure business management portal</p></div>
-<div class="profile-wrap" tabindex="0"><div class="profile"><div class="profile-info"><div class="profile-name">{{ username|default('User') }}</div><div class="profile-role">{{ role|default('STAFF') }}</div></div><div class="avatar">{{ avatar|default('U') }}</div></div><div class="profile-menu"><div class="menu-user"><strong>{{ username|default('User') }}</strong><span>{{ role|default('STAFF') }} · Secure session</span></div><a href="/dashboard">Dashboard</a><a href="/auth/logout" class="menu-logout">↪ Logout</a></div></div>
+<div class="profile-wrap" tabindex="0"><div class="profile"><div class="profile-info"><div class="profile-name">{{ username|default('User') }}</div><div class="profile-role">{{ role|default('STAFF') }}</div></div><div class="avatar">{{ avatar|default('U') }}</div></div><div class="profile-menu"><div class="menu-user"><strong>{{ username|default('User') }}</strong><span>{{ role|default('STAFF') }} · Secure session</span></div><a href="/profile">My Profile</a><a href="/dashboard">Dashboard</a><a href="/auth/logout" class="menu-logout">↪ Logout</a></div></div>
 </header>
 <section class="content">
 <div class="toolbar"><div class="crumbs"><a href="/dashboard">Dashboard</a> <span>›</span> {% block breadcrumb %}Workspace{% endblock %}</div><div class="history"><button type="button" onclick="history.back()">← Back</button><button type="button" onclick="history.forward()">Forward →</button></div></div>
