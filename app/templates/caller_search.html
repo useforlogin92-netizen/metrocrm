@@ -1,59 +1,36 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MetroCRM Caller Property Search</title>
+{% extends "base.html" %}
+{% block title %}MetroCRM | Caller Property Search{% endblock %}
+{% block header_title %}Caller Property Search{% endblock %}
+{% block breadcrumb %}Caller Property Search{% endblock %}
+{% block content %}
 <style>
-body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033}.wrap{max-width:1280px;margin:24px auto;padding:0 16px}.card{background:#fff;border-radius:14px;padding:20px;margin:14px 0;box-shadow:0 4px 18px #0001}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}label{font-weight:600;display:block;margin-bottom:5px}input,select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccd4e0;border-radius:8px}.checks{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px}.checks label{white-space:nowrap;border:1px solid #d8dee9;border-radius:8px;padding:9px;font-weight:400}.checks input{width:auto}.range{display:grid;grid-template-columns:1fr 1fr;gap:10px}.actions{display:flex;gap:10px;position:sticky;bottom:10px;background:#fff;padding:12px;border-radius:10px;z-index:2}.btn{border:0;border-radius:8px;padding:11px 18px;cursor:pointer}.primary{background:#1f6feb;color:#fff}.result{border:1px solid #e1e6ef;border-radius:10px;padding:14px;margin:9px 0}.muted{color:#667085;font-size:13px}.chips{display:flex;gap:8px;overflow-x:auto;padding:6px 0}.chip{border:1px solid #d8dee9;border-radius:999px;padding:7px 12px;white-space:nowrap;cursor:pointer}.meta{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:#475467}.error{color:#b42318}.ok{color:#067647}.section-title{margin:22px 0 8px}.badge{display:inline-block;border-radius:999px;padding:4px 9px;font-size:12px;margin-bottom:8px}.selected{background:#e8f1ff}.other{background:#fff4e5}
+.search-intro{margin-bottom:20px}.search-intro h2{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}.search-intro p{margin:0;color:var(--muted);font-size:13px}.search-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin:14px 0;box-shadow:0 4px 18px rgba(15,23,42,.04)}.search-card h3{margin:0 0 14px;font-size:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}label{font-weight:650;display:block;margin-bottom:5px;font-size:13px}input,select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccd4e0;border-radius:8px;background:#fff}.checks{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px}.checks label{white-space:nowrap;border:1px solid #d8dee9;border-radius:8px;padding:9px;font-weight:400}.checks input{width:auto}.range{display:grid;grid-template-columns:1fr 1fr;gap:10px}.search-actions{display:flex;gap:10px;align-items:center;position:sticky;bottom:10px;background:rgba(255,255,255,.96);padding:12px;border:1px solid var(--line);border-radius:12px;z-index:5;box-shadow:0 8px 20px rgba(15,23,42,.08)}.btn{border:0;border-radius:8px;padding:11px 18px;cursor:pointer;font-weight:750}.primary{background:#2563eb;color:#fff}.secondary{background:#fff;border:1px solid var(--line)}.result{border:1px solid #e1e6ef;border-radius:10px;padding:14px;margin:9px 0}.muted{color:#667085;font-size:13px}.chips{display:flex;gap:8px;overflow-x:auto;padding:6px 0}.chip{border:1px solid #d8dee9;background:#fff;border-radius:999px;padding:7px 12px;white-space:nowrap;cursor:pointer}.meta{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:#475467}.error{color:#b42318}.ok{color:#067647}.section-title{margin:22px 0 8px}.badge{display:inline-block;border-radius:999px;padding:4px 9px;font-size:12px;margin-bottom:8px}.selected{background:#e8f1ff}.other{background:#fff4e5}
+@media(max-width:700px){.range{grid-template-columns:1fr}.search-actions{align-items:stretch;flex-direction:column}.btn{width:100%}}
 </style>
-</head>
-<body>
-<div class="wrap">
-<h1>Caller Property Search</h1>
-<p class="muted">Caller se requirement sunte hi multiple locations, station range, budget, BHK/Jodi, construction aur possession ke basis par CRM inventory search karein.</p>
-
-<div class="card"><h3>Location</h3><div class="grid">
+<div class="search-intro"><h2>Find the right property faster</h2><p>Caller ki requirements ko location, station range, budget, BHK/Jodi, construction aur possession ke basis par CRM inventory se match karein.</p></div>
+<div class="search-card"><h3>Location</h3><div class="grid">
 <div><label>City</label><input id="city" value="Mumbai"></div>
 <div><label>Mumbai Corridor</label><select id="corridor"><option value="">Any corridor</option></select></div>
 <div><label>From Station</label><select id="from"><option value="">Any</option></select></div>
 <div><label>To Station</label><select id="to"><option value="">Any</option></select></div>
 <div><label>Side</label><select id="side"><option>Both</option><option>East</option><option>West</option></select></div>
 </div></div>
-
-<div class="card"><h3>Multiple Preferred Locations</h3><input id="locations" placeholder="e.g. Borivali, Malad, Andheri (comma separated)"><p class="muted">Selected location ke exact matches pehle aayenge. Range ke bahar useful properties <strong>Other</strong> me dikhengi.</p></div>
-
-<div class="card"><h3>BHK / Configuration</h3><div id="bhk" class="checks"></div><h3>Jodi</h3><div id="jodi" class="checks"></div></div>
-
-<div class="card"><h3>Budget</h3><div id="budgetSlabs" class="chips"></div><div class="range"><div><label>Minimum ₹</label><input id="min" type="number" min="0"></div><div><label>Maximum ₹</label><input id="max" type="number" min="0"></div></div></div>
-
-<div class="card"><h3>Property / Construction</h3><div class="grid"><div><label>Property Type</label><select id="type"><option value="">Any</option><option>Apartment</option><option>Villa</option><option>Plot</option><option>Office</option><option>Shop</option><option>Warehouse</option></select></div><div><label>Possession by</label><select id="year"><option value="">Any</option></select></div></div><p><strong>Construction Status</strong></p><div id="construction" class="checks"></div></div>
-
-<div class="actions"><button class="btn primary" onclick="searchProperties()">Search Matching Properties</button><button class="btn" onclick="resetSearch()">Clear</button><span id="status" class="muted"></span></div>
-
-<div class="card"><h2 id="summary">Search results</h2><div id="results" class="muted">Inventory results will appear here.</div></div>
-</div>
+<div class="search-card"><h3>Multiple Preferred Locations</h3><input id="locations" placeholder="e.g. Borivali, Malad, Andheri (comma separated)"><p class="muted">Selected locations ke exact matches pehle aayenge. Range ke bahar useful properties <strong>Other</strong> me dikhengi.</p></div>
+<div class="search-card"><h3>BHK / Configuration</h3><div id="bhk" class="checks"></div><h3 style="margin-top:20px">Jodi</h3><div id="jodi" class="checks"></div></div>
+<div class="search-card"><h3>Budget</h3><div id="budgetSlabs" class="chips"></div><div class="range"><div><label>Minimum ₹</label><input id="min" type="number" min="0"></div><div><label>Maximum ₹</label><input id="max" type="number" min="0"></div></div></div>
+<div class="search-card"><h3>Property / Construction</h3><div class="grid"><div><label>Property Type</label><select id="type"><option value="">Any</option><option>Apartment</option><option>Villa</option><option>Plot</option><option>Office</option><option>Shop</option><option>Warehouse</option></select></div><div><label>Possession by</label><select id="year"><option value="">Any</option></select></div></div><p><strong>Construction Status</strong></p><div id="construction" class="checks"></div></div>
+<div class="search-actions"><button class="btn primary" onclick="searchProperties()">Search Matching Properties</button><button class="btn secondary" onclick="resetSearch()">Clear</button><span id="status" class="muted"></span></div>
+<div class="search-card"><h3 id="summary">Search results</h3><div id="results" class="muted">Inventory results will appear here.</div></div>
 <script>
 let OPTIONS={stations:[],corridors:{},bhk:[],jodi:[],construction:[],budget_slabs:[],possession_years:[]};
 const $=id=>document.getElementById(id);
 function checks(id,arr,defaultChecked=false){$(id).innerHTML=arr.map(x=>`<label><input type="checkbox" value="${String(x).replaceAll('"','&quot;')}" ${defaultChecked?'checked':''}> ${x}</label>`).join('')}
 function values(id){return [...document.querySelectorAll(`#${id} input:checked`)].map(x=>x.value)}
 function fillStations(){const corridor=$("corridor").value;const list=corridor?(OPTIONS.corridors[corridor]||[]):[...new Set(OPTIONS.stations.map(x=>x.name))];["from","to"].forEach(id=>{$(id).innerHTML='<option value="">Any</option>'+list.map(x=>`<option>${x}</option>`).join('')})}
-async function init(){
- const r=await fetch('/caller/options'); const d=await r.json(); if(d.error){$('status').textContent='Authentication required';$('status').className='error';return} OPTIONS=d;
- Object.keys(d.corridors).sort().forEach(c=>$("corridor").insertAdjacentHTML('beforeend',`<option>${c}</option>`));
- $("corridor").onchange=fillStations; fillStations();
- checks('bhk',d.bhk); checks('jodi',d.jodi); checks('construction',d.construction,true);
- $("year").insertAdjacentHTML('beforeend',d.possession_years.map(y=>`<option>${y}</option>`).join(''));
- d.budget_slabs.forEach(s=>{const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=s.label;b.onclick=()=>{$('min').value=s.min??'';$('max').value=s.max??''};$('budgetSlabs').appendChild(b)});
-}
+async function init(){const r=await fetch('/caller/options');const d=await r.json();if(d.error){$('status').textContent='Authentication required';$('status').className='error';return}OPTIONS=d;Object.keys(d.corridors).sort().forEach(c=>$('corridor').insertAdjacentHTML('beforeend',`<option>${c}</option>`));$('corridor').onchange=fillStations;fillStations();checks('bhk',d.bhk);checks('jodi',d.jodi);checks('construction',d.construction,true);$('year').insertAdjacentHTML('beforeend',d.possession_years.map(y=>`<option>${y}</option>`).join(''));d.budget_slabs.forEach(s=>{const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=s.label;b.onclick=()=>{$('min').value=s.min??'';$('max').value=s.max??''};$('budgetSlabs').appendChild(b)})}
 function renderProperty(x){return `<div class="result"><span class="badge ${x.location_category==='Other'?'other':'selected'}">${x.location_category||'Match'}</span><br><b>${x.title||('Property #'+x.property_id)}</b><div class="meta"><span>${x.project||''}</span><span>${x.locality||''}</span><span>${x.bhk||''}</span><span>${x.property_type||''}</span><span>${x.price!=null?'₹ '+Number(x.price).toLocaleString('en-IN'):''}</span><span>${x.construction_status||''}</span><span>${x.possession||''}</span></div><div><strong>Match ${Number(x.score).toFixed(0)}/100</strong> — ${(x.reasons||[]).join(' • ')}</div></div>`}
-async function searchProperties(){
- $('status').textContent='Searching inventory...';
- const locations=$('locations').value.split(',').map(x=>x.trim()).filter(Boolean);
- const body={city:$('city').value.trim()||'Mumbai',mumbai_corridor:$('corridor').value||null,mumbai_station_from:$('from').value||null,mumbai_station_to:$('to').value||null,mumbai_side:$('side').value,bhk:values('bhk'),jodi:values('jodi'),budget_min:$('min').value?Number($('min').value):null,budget_max:$('max').value?Number($('max').value):null,property_type:$('type').value||null,construction_statuses:values('construction'),possession_by:$('year').value?Number($('year').value):null,preferred_locations:locations};
- try{const r=await fetch('/caller/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(d.error){$('status').textContent=d.error;$('status').className='error';return} $('status').textContent='Search complete';$('status').className='ok';$('summary').textContent=`${d.count||0} matching properties`;const grouped={"Selected Location":[],"Other":[],"All":[]};(d.results||[]).forEach(x=>(grouped[x.location_category||'All'] ||= []).push(x));let html='';if(grouped['Selected Location'].length)html+=`<h3 class="section-title">Selected Location</h3>${grouped['Selected Location'].map(renderProperty).join('')}`;if(grouped.Other.length)html+=`<h3 class="section-title">Other Alternatives</h3><p class="muted">Selected range ke bahar, lekin caller ki baaki requirements se match karti properties.</p>${grouped.Other.map(renderProperty).join('')}`;if(grouped.All.length)html+=grouped.All.map(renderProperty).join('');$('results').innerHTML=html||'No matching inventory found for these filters.'}catch(e){$('status').textContent='Search failed';$('status').className='error'}
-}
+async function searchProperties(){$('status').textContent='Searching inventory...';const locations=$('locations').value.split(',').map(x=>x.trim()).filter(Boolean);const body={city:$('city').value.trim()||'Mumbai',mumbai_corridor:$('corridor').value||null,mumbai_station_from:$('from').value||null,mumbai_station_to:$('to').value||null,mumbai_side:$('side').value,bhk:values('bhk'),jodi:values('jodi'),budget_min:$('min').value?Number($('min').value):null,budget_max:$('max').value?Number($('max').value):null,property_type:$('type').value||null,construction_statuses:values('construction'),possession_by:$('year').value?Number($('year').value):null,preferred_locations:locations};try{const r=await fetch('/caller/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(d.error){$('status').textContent=d.error;$('status').className='error';return}$('status').textContent='Search complete';$('status').className='ok';$('summary').textContent=`${d.count||0} matching properties`;const grouped={"Selected Location":[],"Other":[],"All":[]};(d.results||[]).forEach(x=>(grouped[x.location_category||'All'] ||= []).push(x));let html='';if(grouped['Selected Location'].length)html+=`<h3 class="section-title">Selected Location</h3>${grouped['Selected Location'].map(renderProperty).join('')}`;if(grouped.Other.length)html+=`<h3 class="section-title">Other Alternatives</h3><p class="muted">Selected range ke bahar, lekin caller ki baaki requirements se match karti properties.</p>${grouped.Other.map(renderProperty).join('')}`;if(grouped.All.length)html+=grouped.All.map(renderProperty).join('');$('results').innerHTML=html||'No matching inventory found for these filters.'}catch(e){$('status').textContent='Search failed';$('status').className='error'}}
 function resetSearch(){location.reload()}
 init();
 </script>
-</body></html>
+{% endblock %}
