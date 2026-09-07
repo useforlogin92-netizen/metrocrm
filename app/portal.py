@@ -155,6 +155,12 @@ def admin_login(request: Request, username: str = Form(...), password: str = For
     return response
 
 
+@app.post("/auth/super-admin/login")
+def super_admin_login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), portal: str = Form("super_admin"), db: Session = Depends(get_db)):
+    response, _ = _login_flow(request, username, password, method, "super_admin", db)
+    return response
+
+
 @app.post("/auth/login")
 def staff_login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), portal: str = Form(""), db: Session = Depends(get_db)):
     response, _ = _login_flow(request, username, password, method, "staff", db)
@@ -300,4 +306,5 @@ def _move_first(path: str, method: str):
 
 
 _move_first("/auth/login", "POST")
+_move_first("/auth/super-admin/login", "POST")
 _move_first("/auth/verify", "POST")
