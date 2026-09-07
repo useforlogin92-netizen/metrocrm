@@ -19,13 +19,12 @@ def make_user(db_session, *, approved=False, email="user@example.com"):
     return user
 
 
-def test_approval_pending_requires_admin_approval(db_session):
+def test_approval_challenge_can_be_created_before_login_approval(db_session):
     user = make_user(db_session, approved=False)
-    try:
-        create_pending(user, "approval")
-        assert False, "unapproved account must not create an approval challenge"
-    except ValueError as exc:
-        assert str(exc) == "approval_not_granted"
+    token, challenge = create_pending(user, "approval")
+    assert pending_method(token) == "approval"
+    assert challenge is None
+    assert verify_pending(token, "APPROVED", 300, 5) == user.id
 
 
 def test_approved_account_can_complete_approval_challenge(db_session):
