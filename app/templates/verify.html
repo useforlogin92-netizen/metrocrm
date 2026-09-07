@@ -2,17 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MetroCRM | Verify Login</title>
-  <style>body{font-family:Inter,Arial,sans-serif;background:#f5f7fb;color:#10213f;margin:0}.card{max-width:470px;margin:80px auto;background:#fff;padding:32px;border-radius:16px;box-shadow:0 12px 40px #0001}.icon{font-size:36px;text-align:center}.title{text-align:center}.hint{background:#eef4ff;padding:14px;border-radius:10px;line-height:1.55}.wait{background:#fff8e6;border:1px solid #f4d58a;padding:14px;border-radius:10px;margin:18px 0;color:#805b00}input,button{width:100%;padding:13px;margin:8px 0;box-sizing:border-box;border-radius:8px}input{border:1px solid #cbd5e1}button{background:#1f6feb;color:white;border:0;font-weight:700;cursor:pointer}</style>
+  <style>
+    body{font-family:Inter,Arial,sans-serif;background:#f5f7fb;margin:0;min-height:100vh;display:grid;place-items:center;color:#10213f}.card{width:min(520px,calc(100% - 32px));background:#fff;padding:32px;border-radius:18px;box-shadow:0 12px 40px #0001}.badge{display:inline-block;background:#edf5ff;color:#0758d8;padding:7px 11px;border-radius:999px;font-size:12px;font-weight:800}.status{background:#eef7ff;border:1px solid #cfe2ff;border-radius:12px;padding:15px;margin:18px 0;color:#164e8b}.warning{background:#fff8e6;border:1px solid #f4d58a;border-radius:12px;padding:14px;margin:15px 0;color:#7a5200}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:12px;border-radius:10px;margin:15px 0}input,button{width:100%;padding:13px;margin:8px 0;box-sizing:border-box;border-radius:10px}input{border:1px solid #cbd5e1}button{background:#1677ff;color:white;border:0;font-weight:800;cursor:pointer}.secondary{display:block;text-align:center;margin-top:12px;color:#0758d8;text-decoration:none;font-size:13px}.timer{font-weight:800}.small{font-size:12px;color:#64748b;line-height:1.5}</style>
 </head>
-<body><div class="card">
-  <div class="icon">🔐</div><h2 class="title">Verify Login</h2>
-  <div class="hint">Method: <b>{{ method }}</b>{% if destination %}<br>Destination: {{ destination }}{% endif %}{% if test_otp %}<br>TEST MODE OTP: <b>{{ test_otp }}</b>{% endif %}</div>
+<body>
+<div class="card">
+  <span class="badge">MetroCRM Secure Verification</span>
+  <h2>Verify Login</h2>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
   {% if approval_pending %}
-    <div class="wait"><b>Approval requested.</b><br>Your login request has been sent to the Super Admin. After approval, click <b>Check Approval & Login</b>.</div>
-    <form method="post" action="/auth/verify"><input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="value" value="APPROVED"><button>Check Approval & Login</button></form>
+    <div class="status">
+      <strong>Super Admin approval requested</strong><br>
+      Your login request has been sent to the Super Admin.<br>
+      Status: <strong>Waiting for approval</strong>
+    </div>
+    <div class="warning">
+      Approval is valid for <strong>15 minutes</strong> from the request time.
+      The Super Admin must approve or reject it within this period.
+    </div>
+    <p class="small">If the request is not received/acted on, a new request can be sent after <strong>1 minute</strong>. If the 15-minute approval window expires, you must start a new request.</p>
+    <a class="secondary" href="/">← Back to Login</a>
   {% else %}
-    <form method="post" action="/auth/verify"><input type="hidden" name="token" value="{{ token }}"><input name="value" placeholder="Enter OTP / answer / approval code" required autofocus><button>Verify & Login</button></form>
+    <div class="status">Method: <strong>{{ method }}</strong>{% if destination %}<br>Destination: {{ destination }}{% endif %}{% if test_otp %}<br>TEST MODE OTP: <strong>{{ test_otp }}</strong>{% endif %}</div>
+    <form method="post" action="/auth/verify">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input name="value" placeholder="Enter OTP / answer" required autofocus>
+      <button>Verify &amp; Login</button>
+    </form>
   {% endif %}
-</div></body></html>
+</div>
+</body>
+</html>
