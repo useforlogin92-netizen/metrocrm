@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,11 +18,7 @@ from app.services.integrations import SUPPORTED_LEAD_PROVIDERS, ingest_lead, ver
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 MANAGEMENT_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}
-
-templates = Environment(
-    loader=FileSystemLoader("app/templates"),
-    autoescape=select_autoescape(["html", "xml"]),
-)
+templates = Jinja2Templates(directory="app/templates")
 
 
 def _user(request: Request, db: Session) -> User:
@@ -134,7 +130,7 @@ def property_visit_alerts_page(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(select(PropertyVisitAlert).order_by(PropertyVisitAlert.created_at.desc()).limit(100)).all()
     context = _shell_context(request, user)
     context["alerts"] = rows
-    return templates.get_template("property_visit_alerts.html").render(**context)
+    return templates.TemplateResponse("property_visit_alerts.html", context)
 
 
 @router.get("/property-visits/alerts")
