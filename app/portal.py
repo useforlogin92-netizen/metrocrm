@@ -220,6 +220,7 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
     request.session["user_id"] = user.id
     request.session["session_version"] = user.session_version
     request.session["login_portal"] = login_portal or "staff"
+    request.session["last_activity"] = datetime.now(timezone.utc).timestamp()
     main_module._audit(db, user.id, "LOGIN_SUCCESS", user, {"method": method, "portal": login_portal})
     db.commit()
     return RedirectResponse("/dashboard", status_code=303)
