@@ -7,8 +7,8 @@ from app.models import AuditEvent, User
 from app.portal import super_admin_login_requests
 
 
-def _request_for_session(user_id: int) -> Request:
-    scope = {"type": "http", "method": "GET", "path": "/super-admin/login-requests", "headers": [], "query_string": b"", "session": {"user_id": user_id}}
+def _request_for_session(user_id: int, session_version: int = 1) -> Request:
+    scope = {"type": "http", "method": "GET", "path": "/super-admin/login-requests", "headers": [], "query_string": b"", "session": {"user_id": user_id, "session_version": session_version}}
     return Request(scope)
 
 
@@ -21,7 +21,7 @@ def test_super_admin_queue_shows_latest_pending_admin_request(db_session):
     db_session.add(event)
     db_session.commit()
 
-    response = super_admin_login_requests(_request_for_session(super_admin.id), db_session)
+    response = super_admin_login_requests(_request_for_session(super_admin.id, super_admin.session_version), db_session)
     body = response.body.decode("utf-8")
     assert response.status_code == 200
     assert "Satyapal_Admin" in body
@@ -39,7 +39,7 @@ def test_super_admin_queue_hides_decided_request(db_session):
     db_session.add(AuditEvent(actor_user_id=super_admin.id, action="LOGIN_APPROVAL_GRANTED", entity_type="User", entity_id=str(admin.id), details=json.dumps({"request_id": request_event.id, "portal": "admin", "reason": "approved_by_super_admin"})))
     db_session.commit()
 
-    response = super_admin_login_requests(_request_for_session(super_admin.id), db_session)
+    response = super_admin_login_requests(_request_for_session(super_admin.id, super_admin.session_version), db_session)
     body = response.body.decode("utf-8")
     assert response.status_code == 200
     assert "No pending login approval requests." in body
@@ -54,7 +54,7 @@ def test_super_admin_queue_hides_expired_request(db_session):
     db_session.add(event)
     db_session.commit()
 
-    response = super_admin_login_requests(_request_for_session(super_admin.id), db_session)
+    response = super_admin_login_requests(_request_for_session(super_admin.id, super_admin.session_version), db_session)
     body = response.body.decode("utf-8")
     assert response.status_code == 200
     assert "No pending login approval requests." in body
