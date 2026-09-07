@@ -163,21 +163,20 @@ def staff_login(request: Request, username: str = Form(...), password: str = For
 
 @app.post("/auth/verify")
 def portal_verify(request: Request, token: str = Form(...), value: str = Form(...), db: Session = Depends(get_db)):
-    method = pending_method(token)
     login_portal = request.session.get("login_portal")
+    approval_request_id = request.session.get("approval_request_id")
+    is_approval = bool(approval_request_id and login_portal in {"admin", "staff"} and token == str(approval_request_id))
+    method = "approval" if is_approval else pending_method(token)
 
     if method == "approval":
-        request_id = request.session.get("approval_request_id")
-        if not request_id or login_portal not in {"admin", "staff"} or token != str(request_id):
-            return JSONResponse({"error": "approval_request_missing"}, status_code=403)
-        user_id = None
-        event = db.get(AuditEvent, int(request_id))
-        if event and event.entity_id:
-            try:
-                user_id = int(event.entity_id)
-            except ValueError:
-                user_id = None
-        user = db.get(User, user_id) if user_id else None
+        event = db.get(AuditEvent, int(approval_request_id))
+        if not event or event.action != "LOGIN_APPROVAL_REQUEST":
+            return JSONResponse({"error": "approval_request_not_found"}, status_code=403)
+        try:
+            user_id = int(event.entity_id)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "approval_request_invalid"}, status_code=403)
+        user = db.get(User, user_id)
         if not user or not user.is_active:
             return JSONResponse({"error": "account_disabled"}, status_code=403)
         if login_portal == "admin" and user.role != "ADMIN":
@@ -186,14 +185,13 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
             return JSONResponse({"error": "administrator_must_use_dedicated_portal"}, status_code=403)
         if value.strip().upper() != "APPROVED":
             return JSONResponse({"error": "approval_confirmation_required"}, status_code=400)
-        allowed, reason = _approval_request_active(db, user.id, int(request_id))
+        allowed, reason = _approval_request_active(db, user.id, int(approval_request_id))
         if not allowed:
             return JSONResponse({"error": reason}, status_code=403)
     else:
         if not method:
             return JSONResponse({"error": "verification_expired_or_invalid"}, status_code=401)
-        expiry = settings.otp_expiry_seconds
-        user_id = verify_pending(token, value.strip(), expiry, settings.otp_max_attempts)
+        user_id = verify_pending(token, value.strip(), settings.otp_expiry_seconds, settings.otp_max_attempts)
         if not user_id:
             return JSONResponse({"error": "verification_failed"}, status_code=401)
         user = db.get(User, user_id)
@@ -214,7 +212,7 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
     request.session["user_id"] = user.id
     request.session["session_version"] = user.session_version
     request.session["login_portal"] = login_portal or "staff"
-    main_module._audit(db, user.id, "LOGIN_SUCCESS", user, {"method": method or "approval", "portal": login_portal})
+    main_module._audit(db, user.id, "LOGIN_SUCCESS", user, {"method": method, "portal": login_portal})
     db.commit()
     return RedirectResponse("/dashboard", status_code=303)
 
