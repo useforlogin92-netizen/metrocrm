@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
+import hmac
 import json
+import secrets
 
 from fastapi import Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -73,6 +75,19 @@ def _approval_request_active(db: Session, user_id: int, request_id: int) -> tupl
     return False, "approval_pending"
 
 
+def _csrf_token(request: Request, key: str) -> str:
+    token = request.session.get(key)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session[key] = token
+    return token
+
+
+def _valid_csrf(request: Request, key: str, supplied: str) -> bool:
+    expected = request.session.get(key)
+    return bool(expected and supplied and hmac.compare_digest(str(expected), str(supplied)))
+
+
 def _login_flow(request: Request, username: str, password: str, method: str, portal: str, db: Session):
     user = db.scalar(select(User).where(User.username == username.strip()))
     required_role = {"admin": "ADMIN", "super_admin": "SUPER_ADMIN"}.get(portal)
@@ -91,15 +106,14 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
         if latest and _approval_request_age(latest) < APPROVAL_RESEND_COOLDOWN_SECONDS:
             remaining = APPROVAL_RESEND_COOLDOWN_SECONDS - int(_approval_request_age(latest))
             return _render(request, f"Approval request already sent. You can resend it in about {max(1, remaining)} seconds.", portal), 429
-        token, _ = create_pending(user, method)
         request_event = AuditEvent(actor_user_id=user.id, action="LOGIN_APPROVAL_REQUEST", entity_type="User", entity_id=str(user.id), details=json.dumps({"portal": portal, "role": user.role}))
         db.add(request_event)
         db.flush()
         db.commit()
-        request.session["pending_token"] = token
         request.session["approval_request_id"] = request_event.id
         request.session["login_portal"] = portal
-        return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": "Super Admin Approval", "destination": "Waiting for Super Admin approval", "test_otp": None, "approval_pending": True, "approval_request_id": request_event.id, "approval_expiry_seconds": APPROVAL_EXPIRY_SECONDS, "approval_resend_seconds": APPROVAL_RESEND_COOLDOWN_SECONDS}), 200
+        request.session["approval_csrf"] = secrets.token_urlsafe(32)
+        return templates.TemplateResponse("verify.html", {"request": request, "token": str(request_event.id), "method": "Super Admin Approval", "destination": "Waiting for Super Admin approval", "test_otp": None, "approval_pending": True, "approval_request_id": request_event.id, "approval_expiry_seconds": APPROVAL_EXPIRY_SECONDS, "approval_resend_seconds": APPROVAL_RESEND_COOLDOWN_SECONDS}), 200
 
     email_verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
     if method == "email_otp" and not user.email:
@@ -150,44 +164,57 @@ def staff_login(request: Request, username: str = Form(...), password: str = For
 @app.post("/auth/verify")
 def portal_verify(request: Request, token: str = Form(...), value: str = Form(...), db: Session = Depends(get_db)):
     method = pending_method(token)
-    if not method:
-        return JSONResponse({"error": "verification_expired_or_invalid"}, status_code=401)
-    expiry = APPROVAL_EXPIRY_SECONDS if method == "approval" else settings.otp_expiry_seconds
-    user_id = verify_pending(token, value.strip(), expiry, settings.otp_max_attempts)
-    if not user_id:
-        if method == "approval":
-            return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": "Super Admin Approval", "destination": "Approval request expired or invalid. Start a new request.", "test_otp": None, "approval_pending": False, "error": "Approval request expired or invalid."}, status_code=401)
-        return JSONResponse({"error": "verification_failed"}, status_code=401)
-    user = db.get(User, user_id)
-    if not user or not user.is_active:
-        return JSONResponse({"error": "account_disabled"}, status_code=403)
     login_portal = request.session.get("login_portal")
+
     if method == "approval":
         request_id = request.session.get("approval_request_id")
-        if not request_id or login_portal not in {"admin", "staff"}:
+        if not request_id or login_portal not in {"admin", "staff"} or token != str(request_id):
             return JSONResponse({"error": "approval_request_missing"}, status_code=403)
+        user_id = None
+        event = db.get(AuditEvent, int(request_id))
+        if event and event.entity_id:
+            try:
+                user_id = int(event.entity_id)
+            except ValueError:
+                user_id = None
+        user = db.get(User, user_id) if user_id else None
+        if not user or not user.is_active:
+            return JSONResponse({"error": "account_disabled"}, status_code=403)
         if login_portal == "admin" and user.role != "ADMIN":
             return JSONResponse({"error": "approval_portal_role_mismatch"}, status_code=403)
         if login_portal == "staff" and user.role in {"ADMIN", "SUPER_ADMIN"}:
             return JSONResponse({"error": "administrator_must_use_dedicated_portal"}, status_code=403)
+        if value.strip().upper() != "APPROVED":
+            return JSONResponse({"error": "approval_confirmation_required"}, status_code=400)
         allowed, reason = _approval_request_active(db, user.id, int(request_id))
         if not allowed:
             return JSONResponse({"error": reason}, status_code=403)
-    elif method != "email_otp":
-        verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
-        if not (user.is_approved or verified):
-            return JSONResponse({"error": "account_not_approved"}, status_code=403)
-    if method == "email_otp":
-        existing = db.scalar(select(EmailVerification).where(EmailVerification.user_id == user.id))
-        if existing is None:
-            db.add(EmailVerification(user_id=user.id, verified_at=datetime.utcnow()))
-        else:
-            existing.verified_at = datetime.utcnow()
+    else:
+        if not method:
+            return JSONResponse({"error": "verification_expired_or_invalid"}, status_code=401)
+        expiry = settings.otp_expiry_seconds
+        user_id = verify_pending(token, value.strip(), expiry, settings.otp_max_attempts)
+        if not user_id:
+            return JSONResponse({"error": "verification_failed"}, status_code=401)
+        user = db.get(User, user_id)
+        if not user or not user.is_active:
+            return JSONResponse({"error": "account_disabled"}, status_code=403)
+        if method != "email_otp":
+            verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
+            if not (user.is_approved or verified):
+                return JSONResponse({"error": "account_not_approved"}, status_code=403)
+        if method == "email_otp":
+            existing = db.scalar(select(EmailVerification).where(EmailVerification.user_id == user.id))
+            if existing is None:
+                db.add(EmailVerification(user_id=user.id, verified_at=datetime.utcnow()))
+            else:
+                existing.verified_at = datetime.utcnow()
+
     request.session.clear()
     request.session["user_id"] = user.id
     request.session["session_version"] = user.session_version
     request.session["login_portal"] = login_portal or "staff"
-    main_module._audit(db, user.id, "LOGIN_SUCCESS", user, {"method": method, "portal": login_portal})
+    main_module._audit(db, user.id, "LOGIN_SUCCESS", user, {"method": method or "approval", "portal": login_portal})
     db.commit()
     return RedirectResponse("/dashboard", status_code=303)
 
@@ -197,6 +224,7 @@ def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
     actor = main_module._current_user(request, db)
     if not actor or actor.role != "SUPER_ADMIN":
         return RedirectResponse("/super-admin/login", status_code=303)
+    csrf = _csrf_token(request, "login_approval_csrf")
     candidates = db.scalars(select(AuditEvent).where(AuditEvent.action == "LOGIN_APPROVAL_REQUEST", AuditEvent.entity_type == "User").order_by(AuditEvent.id.desc()).limit(500)).all()
     latest_by_user: dict[str, AuditEvent] = {}
     for item in candidates:
@@ -221,12 +249,14 @@ def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
         html += "<div class='empty'>No pending login approval requests.</div>"
     for item, target, portal in rows:
         remaining = max(0, APPROVAL_EXPIRY_SECONDS - int(_approval_request_age(item)))
-        html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>Role: {target.role} · Portal: <span class='pill'>{portal}</span> · Requested: {item.created_at} · Expires in about {remaining//60}m {remaining%60}s</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><button class='btn approve'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><button class='btn reject'>Reject</button></form></div></div>"
+        html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>Role: {target.role} · Portal: <span class='pill'>{portal}</span> · Requested: {item.created_at} · Expires in about {remaining//60}m {remaining%60}s</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn approve'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn reject'>Reject</button></form></div></div>"
     html += "</div></div></body></html>"
     return HTMLResponse(html)
 
 
-def _decide_login_request(request_id: int, request: Request, db: Session, action: str):
+def _decide_login_request(request_id: int, request: Request, db: Session, action: str, csrf_token: str):
+    if not _valid_csrf(request, "login_approval_csrf", csrf_token):
+        return HTMLResponse("Invalid security token. Refresh the Login Approval Requests page and try again.", status_code=403)
     actor = main_module._current_user(request, db)
     event = db.get(AuditEvent, request_id)
     if not actor or actor.role != "SUPER_ADMIN" or not event or event.action != "LOGIN_APPROVAL_REQUEST":
@@ -254,13 +284,13 @@ def _decide_login_request(request_id: int, request: Request, db: Session, action
 
 
 @app.post("/super-admin/login-requests/{request_id}/approve")
-def approve_login_request(request_id: int, request: Request, db: Session = Depends(get_db)):
-    return _decide_login_request(request_id, request, db, "approve")
+def approve_login_request(request_id: int, request: Request, csrf_token: str = Form(""), db: Session = Depends(get_db)):
+    return _decide_login_request(request_id, request, db, "approve", csrf_token)
 
 
 @app.post("/super-admin/login-requests/{request_id}/reject")
-def reject_login_request(request_id: int, request: Request, db: Session = Depends(get_db)):
-    return _decide_login_request(request_id, request, db, "reject")
+def reject_login_request(request_id: int, request: Request, csrf_token: str = Form(""), db: Session = Depends(get_db)):
+    return _decide_login_request(request_id, request, db, "reject", csrf_token)
 
 
 # Put the guarded routes before the legacy routes registered in app.main.
