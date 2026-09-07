@@ -3,7 +3,7 @@ from app.models import User
 
 
 def _user(user_id: int, role: str) -> User:
-    return User(id=user_id, username=f"user_{user_id}", role=role, is_active=True, is_approved=True)
+    return User(id=user_id, username=f"user_{user_id}", password_hash="test-hash", role=role, is_active=True, is_approved=True)
 
 
 def test_super_admin_can_manage_super_admin_and_admin_roles():
