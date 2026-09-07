@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0, private">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>{% block title %}MetroCRM{% endblock %}</title>
 <style>
 :root{--nav:#0b1224;--nav2:#172554;--primary:#2563eb;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--bg:#f4f7fb;--card:#fff}
@@ -40,5 +43,20 @@
 </section>
 </main>
 </div>
+<script>
+(function(){
+  const IDLE_LIMIT_MS = 15 * 60 * 1000;
+  let idleTimer;
+  function logoutForInactivity(){ window.location.replace('/auth/logout'); }
+  function armIdleTimer(){ clearTimeout(idleTimer); idleTimer = setTimeout(logoutForInactivity, IDLE_LIMIT_MS); }
+  ['click','keydown','mousemove','scroll','touchstart'].forEach(function(eventName){
+    window.addEventListener(eventName, armIdleTimer, {passive:true});
+  });
+  armIdleTimer();
+  window.addEventListener('pageshow', function(event){
+    if(event.persisted){ window.location.reload(); }
+  });
+})();
+</script>
 </body>
 </html>
