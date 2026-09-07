@@ -17,8 +17,8 @@
 <div class="brand"><div class="mark">M</div><div><strong>MetroCRM</strong><small>Business Management Portal</small></div></div>
 <div class="nav-title">Workspace</div>
 <nav class="nav">
-<a class="{% if active_page=='dashboard' %}active{% endif %}" href="/dashboard"><span class="icon">⌂</span>Dashboard</a>
-<a class="{% if active_page=='caller' %}active{% endif %}" href="/caller/search"><span class="icon">⌕</span>Caller Property Search</a>
+<a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span class="icon">⌂</span>Dashboard</a>
+<a class="{% if request.url.path.startswith('/caller/') %}active{% endif %}" href="/caller/search"><span class="icon">⌕</span>Caller Property Search</a>
 {% if show_integrations %}<a href="/integrations/providers"><span class="icon">⚙</span>Integrations</a>{% endif %}
 {% if show_alerts %}<a href="/integrations/property-visits/alerts"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
 {% if show_approvals %}<a href="/admin/users/pending"><span class="icon">✓</span>User Approvals</a>{% endif %}
