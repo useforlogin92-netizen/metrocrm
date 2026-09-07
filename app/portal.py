@@ -104,7 +104,6 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
         return _render(request, "Administrator accounts must use their dedicated secure login portal.", portal), 403
     if method not in allowed_methods(user.role):
         return _render(request, "This verification method is not allowed for your role.", portal), 403
-
     if method == "approval":
         if not _has_other_active_super_admin(db, user.id):
             return _render(request, "Super Admin approval is currently unavailable because no other active Super Admin account is available to approve this login.", portal), 403
@@ -120,7 +119,6 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
         request.session["login_portal"] = portal
         request.session["approval_csrf"] = secrets.token_urlsafe(32)
         return templates.TemplateResponse("verify.html", {"request": request, "token": str(request_event.id), "method": "Super Admin Approval", "destination": "Waiting for Super Admin approval", "test_otp": None, "approval_pending": True, "approval_request_id": request_event.id, "approval_expiry_seconds": APPROVAL_EXPIRY_SECONDS, "approval_resend_seconds": APPROVAL_RESEND_COOLDOWN_SECONDS}), 200
-
     email_verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
     if method == "email_otp" and not user.email:
         return _render(request, "No registered email is available for this account.", portal), 400
@@ -179,7 +177,6 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
     approval_request_id = request.session.get("approval_request_id")
     is_approval = bool(approval_request_id and login_portal in {"admin", "staff"} and token == str(approval_request_id))
     method = "approval" if is_approval else pending_method(token)
-
     if method == "approval":
         event = db.get(AuditEvent, int(approval_request_id))
         if not event or event.action != "LOGIN_APPROVAL_REQUEST":
@@ -219,7 +216,6 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
                 db.add(EmailVerification(user_id=user.id, verified_at=datetime.utcnow()))
             else:
                 existing.verified_at = datetime.utcnow()
-
     request.session.clear()
     request.session["user_id"] = user.id
     request.session["session_version"] = user.session_version
@@ -303,14 +299,11 @@ def reject_login_request(request_id: int, request: Request, csrf_token: str = Fo
     return _decide_login_request(request_id, request, db, "reject", csrf_token)
 
 
-# Put the guarded routes before the legacy routes registered in app.main.
-def _move_first(path: str, method: str):
-    for idx, route in enumerate(app.router.routes):
-        if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
-            app.router.routes.insert(0, app.router.routes.pop(idx))
-            return
-
-
-_move_first("/auth/login", "POST")
-_move_first("/auth/super-admin/login", "POST")
-_move_first("/auth/verify", "POST")
+# app.main contains legacy auth endpoints because it is also importable for internal services.
+# The portal application must not expose those duplicate handlers: they can bypass the portal policy.
+for _route in list(app.router.routes):
+    endpoint = getattr(_route, "endpoint", None)
+    path = getattr(_route, "path", None)
+    methods = getattr(_route, "methods", set())
+    if getattr(endpoint, "__module__", "") == "app.main" and path in {"/auth/login", "/auth/super-admin/login", "/auth/verify"} and methods.intersection({"POST"}):
+        app.router.routes.remove(_route)
