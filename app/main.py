@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import allowed_methods, authenticate_password, create_pending, pending_method, verify_pending
 from app.config import settings
+from app.csrf import csrf_token, require_csrf
 from app.database import Base, engine, get_db
 from app.email_verification import EmailVerification
 from app.models import AuditEvent, User
@@ -81,8 +82,6 @@ def _can_manage_user(actor: User, target: User | None = None, target_role: str |
     if role == "SUPER_ADMIN":
         return not (target and target.id == actor.id and wanted != "SUPER_ADMIN")
     if role == "ADMIN":
-        # Admin may manage only lower-level roles. Existing ADMIN/SUPER_ADMIN
-        # accounts are never editable, including attempts to demote them.
         if target and target.role.upper() in {"SUPER_ADMIN", "ADMIN"}:
             return False
         return wanted not in {"SUPER_ADMIN", "ADMIN"}
@@ -97,8 +96,6 @@ def _valid_reporting_manager(actor: User, manager_id: int | None, target: User |
     manager = db.get(User, manager_id)
     if not manager or not manager.is_active:
         return False
-    # A lower-level user may report to management, but Admin UI/backend must
-    # never create a relationship pointing at an inactive/non-management user.
     if manager.role.upper() not in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
         return False
     if actor.role.upper() == "ADMIN" and manager.role.upper() == "SUPER_ADMIN":
@@ -281,10 +278,10 @@ def profile(request: Request, db: Session = Depends(get_db)):
     if not user:
         return RedirectResponse("/", status_code=303)
     last_login = db.scalar(select(AuditEvent.created_at).where(AuditEvent.actor_user_id == user.id, AuditEvent.action == "LOGIN_SUCCESS").order_by(AuditEvent.created_at.desc()).limit(1))
-    return templates.TemplateResponse("profile.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "user": user, "last_login": last_login})
+    return templates.TemplateResponse("profile.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "user": user, "last_login": last_login, "csrf_token": csrf_token(request)})
 
 
-@app.post("/profile")
+@app.post("/profile", dependencies=[Depends(require_csrf)])
 def update_profile(request: Request, mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
     user = _current_user(request, db)
     if not user:
@@ -301,7 +298,7 @@ def update_profile(request: Request, mobile: str = Form(""), email: str = Form("
     return RedirectResponse("/profile", status_code=303)
 
 
-@app.post("/profile/password")
+@app.post("/profile/password", dependencies=[Depends(require_csrf)])
 def change_password(request: Request, current_password: str = Form(...), new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
     user = _current_user(request, db)
     if not user:
@@ -325,10 +322,10 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="administrator_required")
     users = db.scalars(select(User).order_by(User.created_at.desc())).all()
     managers = [u for u in users if u.is_active and u.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}]
-    return templates.TemplateResponse("admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "users": users, "managers": managers, "roles": [r.value for r in Role], "access_values": [a.value for a in Access]})
+    return templates.TemplateResponse("admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "users": users, "managers": managers, "roles": [r.value for r in Role], "access_values": [a.value for a in Access], "csrf_token": csrf_token(request)})
 
 
-@app.post("/admin/users")
+@app.post("/admin/users", dependencies=[Depends(require_csrf)])
 def create_user(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), reporting_manager_id: int | None = Form(None), permissions_json: str = Form("{}"), field_visibility_json: str = Form("{}"), is_approved: bool = Form(False), db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     role = role.upper()
@@ -347,7 +344,7 @@ def create_user(request: Request, username: str = Form(...), password: str = For
     return RedirectResponse("/admin/users", status_code=303)
 
 
-@app.post("/admin/users/{user_id}/edit")
+@app.post("/admin/users/{user_id}/edit", dependencies=[Depends(require_csrf)])
 def edit_user(user_id: int, request: Request, role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), reporting_manager_id: int | None = Form(None), permissions_json: str = Form("{}"), field_visibility_json: str = Form("{}"), db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
@@ -371,7 +368,7 @@ def edit_user(user_id: int, request: Request, role: str = Form(...), mobile: str
     return RedirectResponse("/admin/users", status_code=303)
 
 
-@app.post("/admin/users/{user_id}/toggle")
+@app.post("/admin/users/{user_id}/toggle", dependencies=[Depends(require_csrf)])
 def toggle_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
@@ -386,7 +383,7 @@ def toggle_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/admin/users", status_code=303)
 
 
-@app.post("/admin/users/{user_id}/reset-sessions")
+@app.post("/admin/users/{user_id}/reset-sessions", dependencies=[Depends(require_csrf)])
 def reset_user_sessions(user_id: int, request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
@@ -398,7 +395,7 @@ def reset_user_sessions(user_id: int, request: Request, db: Session = Depends(ge
     return RedirectResponse("/admin/users", status_code=303)
 
 
-@app.post("/admin/users/{user_id}/reset-password")
+@app.post("/admin/users/{user_id}/reset-password", dependencies=[Depends(require_csrf)])
 def reset_user_password(user_id: int, request: Request, new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
@@ -422,7 +419,7 @@ def pending_users(request: Request, db: Session = Depends(get_db)):
     return [{"id": u.id, "username": u.username, "role": u.role, "email": u.email, "created_at": u.created_at.isoformat() if u.created_at else None} for u in users]
 
 
-@app.post("/admin/users/{user_id}/approve")
+@app.post("/admin/users/{user_id}/approve", dependencies=[Depends(require_csrf)])
 def approve_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
@@ -436,7 +433,7 @@ def approve_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     return _browser_redirect(request, "/admin/users", {"status": "approved", "user_id": target.id})
 
 
-@app.post("/admin/users/{user_id}/revoke-approval")
+@app.post("/admin/users/{user_id}/revoke-approval", dependencies=[Depends(require_csrf)])
 def revoke_user_approval(user_id: int, request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
