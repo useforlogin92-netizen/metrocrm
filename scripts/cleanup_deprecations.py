@@ -21,6 +21,7 @@ def clean_datetime(path: Path) -> None:
         return
     text = add_timezone_import(text)
     text = text.replace("datetime.utcnow()", "datetime.now(timezone.utc).replace(tzinfo=None)")
+    text = text.replace("datetime.utcnow", "lambda: datetime.now(timezone.utc).replace(tzinfo=None)")
     path.write_text(text, encoding="utf-8")
 
 
