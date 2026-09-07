@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: metrocrm
+    name: metrocrm-live
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.portal:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main_portal:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: SECRET_KEY
         generateValue: true
