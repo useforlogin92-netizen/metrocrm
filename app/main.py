@@ -54,7 +54,7 @@ _SUPER_ADMIN_WINDOW_SECONDS = 15 * 60
 
 def _super_admin_rate_key(request: Request, username: str) -> str:
     host = request.client.host if request.client else "unknown"
-    return f"{host}:{username.strip().lower()}"
+    return f"{host}:{username.strip().lower()}:" 
 
 
 def _super_admin_rate_limited(request: Request, username: str) -> bool:
