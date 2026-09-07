@@ -1,5 +1,4 @@
 from pathlib import Path
-import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,11 +42,3 @@ for path in list((ROOT / "app").rglob("*.py")) + list((ROOT / "tests").rglob("*.
     clean_datetime(path)
 
 clean_fastapi_lifespan(ROOT / "app" / "main.py")
-
-result = subprocess.run(["git", "status", "--short"], cwd=ROOT, text=True, capture_output=True, check=True)
-if result.stdout.strip():
-    subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=ROOT, check=True)
-    subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], cwd=ROOT, check=True)
-    subprocess.run(["git", "add", "app", "tests"], cwd=ROOT, check=True)
-    subprocess.run(["git", "commit", "-m", "chore: remove deprecated datetime and FastAPI lifecycle APIs"], cwd=ROOT, check=True)
-    subprocess.run(["git", "push"], cwd=ROOT, check=True)
