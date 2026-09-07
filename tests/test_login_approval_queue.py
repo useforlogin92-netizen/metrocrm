@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import json
 
 from starlette.requests import Request
@@ -50,7 +50,7 @@ def test_super_admin_queue_hides_expired_request(db_session):
     admin = User(username="admin", password_hash="x", role="ADMIN", is_active=True, is_approved=True)
     db_session.add_all([super_admin, admin])
     db_session.flush()
-    event = AuditEvent(actor_user_id=admin.id, action="LOGIN_APPROVAL_REQUEST", entity_type="User", entity_id=str(admin.id), details=json.dumps({"portal": "admin", "role": "ADMIN"}), created_at=datetime.utcnow() - timedelta(minutes=16))
+    event = AuditEvent(actor_user_id=admin.id, action="LOGIN_APPROVAL_REQUEST", entity_type="User", entity_id=str(admin.id), details=json.dumps({"portal": "admin", "role": "ADMIN"}), created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=16))
     db_session.add(event)
     db_session.commit()
 

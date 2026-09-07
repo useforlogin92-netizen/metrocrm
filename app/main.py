@@ -1,4 +1,5 @@
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import json
 import time
 
@@ -28,7 +29,17 @@ import app.catalog_models  # noqa: F401
 import app.integration_models  # noqa: F401
 import app.email_verification  # noqa: F401
 
-app = FastAPI(title="MetroCRM", version="0.4.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    start_backup_scheduler()
+    try:
+        yield
+    finally:
+        stop_backup_scheduler()
+
+
+app = FastAPI(title="MetroCRM", version="0.4.0", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
@@ -112,17 +123,6 @@ def _browser_redirect(request: Request, location: str, fallback: dict | None = N
     if "text/html" in accept or "*/*" in accept:
         return RedirectResponse(location, status_code=status_code)
     return JSONResponse(fallback or {"status": "ok"})
-
-
-@app.on_event("startup")
-def startup() -> None:
-    Base.metadata.create_all(bind=engine)
-    start_backup_scheduler()
-
-
-@app.on_event("shutdown")
-def shutdown() -> None:
-    stop_backup_scheduler()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -261,9 +261,9 @@ def verify(request: Request, token: str = Form(...), value: str = Form(...), db:
     if method == "email_otp":
         existing = db.scalar(select(EmailVerification).where(EmailVerification.user_id == user.id))
         if existing is None:
-            db.add(EmailVerification(user_id=user.id, verified_at=datetime.utcnow()))
+            db.add(EmailVerification(user_id=user.id, verified_at=datetime.now(timezone.utc).replace(tzinfo=None)))
         else:
-            existing.verified_at = datetime.utcnow()
+            existing.verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     request.session.clear()
     request.session["user_id"] = user.id
     request.session["session_version"] = user.session_version

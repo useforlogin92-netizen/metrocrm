@@ -2,7 +2,7 @@
 from __future__ import annotations
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -72,7 +72,7 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
     row.mode = str(body.get("mode", "webhook"))[:30]
     safe_settings = {k: v for k, v in body.items() if k in {"mode", "webhook_url", "page_id", "form_id", "notes"}}
     row.settings_json = json.dumps(safe_settings)
-    row.updated_at = datetime.utcnow()
+    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.add(AuditEvent(actor_user_id=user.id, action="INTEGRATION_CONFIG_UPDATED", entity_type="IntegrationConfig", entity_id=provider, details=json.dumps({"enabled": row.enabled, "mode": row.mode})))
     db.commit()
     return {"provider": provider, "enabled": row.enabled, "mode": row.mode}
@@ -110,7 +110,7 @@ async def property_visit(request: Request, body: dict, db: Session = Depends(get
         PropertyVisitAlert.project_id == project_id,
         PropertyVisitAlert.unit_id == unit_id,
         PropertyVisitAlert.visitor_ip_hash == ip_hash,
-        PropertyVisitAlert.created_at >= datetime.utcnow() - timedelta(seconds=settings.property_visit_alert_cooldown_seconds),
+        PropertyVisitAlert.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=settings.property_visit_alert_cooldown_seconds),
     ))
     if recent:
         return {"status": "already_recorded", "alert_id": recent.id}

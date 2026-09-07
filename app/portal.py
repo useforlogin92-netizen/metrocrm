@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import hmac
 import json
 import secrets
@@ -56,7 +56,7 @@ def _approval_request_age(event: AuditEvent) -> float:
     if event.created_at is None:
         return float("inf")
     created_at = event.created_at.replace(tzinfo=None) if event.created_at.tzinfo is not None else event.created_at
-    return max(0.0, (datetime.utcnow() - created_at).total_seconds())
+    return max(0.0, (datetime.now(timezone.utc).replace(tzinfo=None) - created_at).total_seconds())
 
 
 def _approval_request_active(db: Session, user_id: int, request_id: int) -> tuple[bool, str]:
@@ -213,9 +213,9 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
         if method == "email_otp":
             existing = db.scalar(select(EmailVerification).where(EmailVerification.user_id == user.id))
             if existing is None:
-                db.add(EmailVerification(user_id=user.id, verified_at=datetime.utcnow()))
+                db.add(EmailVerification(user_id=user.id, verified_at=datetime.now(timezone.utc).replace(tzinfo=None)))
             else:
-                existing.verified_at = datetime.utcnow()
+                existing.verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     request.session.clear()
     request.session["user_id"] = user.id
     request.session["session_version"] = user.session_version

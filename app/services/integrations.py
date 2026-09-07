@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
@@ -74,7 +74,7 @@ def ingest_lead(db: Session, provider: str, payload: dict[str, Any], raw_body: b
         db.add(customer); db.flush()
     lead = Lead(customer_id=customer.id, source=provider, status="NEW", assigned_user_id=None, original_owner_id=None, requirement=normalized["requirement"], budget_min=normalized["budget_min"], budget_max=normalized["budget_max"], preferred_location=normalized["preferred_location"], bhk=normalized["bhk"], property_type=normalized["property_type"], buy_rent=normalized["buy_rent"])
     db.add(lead); db.flush()
-    event.lead_id = lead.id; event.status = "PROCESSED"; event.processed_at = datetime.utcnow()
+    event.lead_id = lead.id; event.status = "PROCESSED"; event.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.add(AuditEvent(action="EXTERNAL_LEAD_RECEIVED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"provider": provider, "event_id": event.id})))
     db.commit(); return event
 

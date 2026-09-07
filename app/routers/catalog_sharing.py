@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from collections.abc import Mapping
 from typing import Any
 
@@ -97,7 +97,7 @@ def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Dep
     user = _require_sharing_user(request, db)
     payload = _payload(body)
     token = secrets.token_urlsafe(32)
-    share = CatalogShare(token_hash=_token_hash(token), project_id=body.project_id, unit_id=body.unit_id, payload_json=json.dumps(payload, default=str), created_by_id=user.id, expires_at=(datetime.utcnow() + timedelta(hours=body.expires_hours)) if body.expires_hours else None)
+    share = CatalogShare(token_hash=_token_hash(token), project_id=body.project_id, unit_id=body.unit_id, payload_json=json.dumps(payload, default=str), created_by_id=user.id, expires_at=(datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=body.expires_hours)) if body.expires_hours else None)
     db.add(share)
     db.add(AuditEvent(actor_user_id=user.id, action="CATALOG_SHARE_CREATED", entity_type="CatalogShare", entity_id="pending", details=json.dumps({"project_id": body.project_id, "unit_id": body.unit_id})))
     db.commit(); db.refresh(share)
@@ -107,7 +107,7 @@ def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Dep
 @router.get("/view/{token}", response_class=HTMLResponse)
 def public_catalog(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     share = db.scalar(select(CatalogShare).where(CatalogShare.token_hash == _token_hash(token), CatalogShare.active.is_(True)))
-    if not share or (share.expires_at and share.expires_at < datetime.utcnow()):
+    if not share or (share.expires_at and share.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)):
         raise HTTPException(404, "catalog_link_not_found_or_expired")
     payload = json.loads(share.payload_json)
     return templates.TemplateResponse("catalog_public.html", {"request": request, "catalog": payload, "visit_url": f"/catalog/view/{token}/visit"})
@@ -116,11 +116,11 @@ def public_catalog(token: str, request: Request, db: Session = Depends(get_db)) 
 @router.post("/view/{token}/visit")
 async def public_catalog_visit(token: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     share = db.scalar(select(CatalogShare).where(CatalogShare.token_hash == _token_hash(token), CatalogShare.active.is_(True)))
-    if not share or (share.expires_at and share.expires_at < datetime.utcnow()):
+    if not share or (share.expires_at and share.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)):
         raise HTTPException(404, "catalog_link_not_found_or_expired")
     client_ip = request.client.host if request.client else "unknown"
     visitor_hash = hashlib.sha256((settings.secret_key + client_ip).encode()).hexdigest()
-    recent = db.scalar(select(CatalogShareVisit).where(CatalogShareVisit.share_id == share.id, CatalogShareVisit.visitor_key_hash == visitor_hash, CatalogShareVisit.created_at >= datetime.utcnow() - timedelta(seconds=settings.property_visit_alert_cooldown_seconds)))
+    recent = db.scalar(select(CatalogShareVisit).where(CatalogShareVisit.share_id == share.id, CatalogShareVisit.visitor_key_hash == visitor_hash, CatalogShareVisit.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=settings.property_visit_alert_cooldown_seconds)))
     if recent:
         return {"status": "already_recorded"}
     db.add(CatalogShareVisit(share_id=share.id, visitor_key_hash=visitor_hash, user_agent=(request.headers.get("user-agent") or "")[:500], page_url=str(request.headers.get("referer") or "")[:1000]))
