@@ -35,8 +35,9 @@ def create_pending(user, method: VerificationMethod, otp: str | None = None) -> 
     challenge = otp if method in ("mobile_otp", "email_otp") else None
     token = generate_otp() + str(user.id) + str(int(time()))
     expected = user.security_answer_hash if method == "security_question" else None
-    if method == "approval" and not user.is_approved:
-        raise ValueError("approval_not_granted")
+    # Approval is a request-and-approve workflow. An unapproved account may
+    # create a pending approval challenge; final verification still requires
+    # the account to be approved by an authorized administrator.
     _pending[token] = PendingVerification(user.id, method, challenge, time(), expected)
     return token, challenge
 
