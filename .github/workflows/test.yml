@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: write
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,22 +15,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python scripts/cleanup_deprecations.py
-      - name: Commit cleanup
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app tests
-          if git diff --cached --quiet; then
-            echo "No deprecation cleanup changes required."
-          else
-            git commit -m "chore: remove deprecated datetime defaults"
-            git push origin HEAD:main
-          fi
-      - run: PYTHONPATH=. pytest -q 2>&1 | tee pytest-output.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pytest-output
-          path: pytest-output.txt
-          retention-days: 1
+      - run: PYTHONPATH=. pytest -q -W error::DeprecationWarning
