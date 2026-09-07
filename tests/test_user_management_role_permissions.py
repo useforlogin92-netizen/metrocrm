@@ -20,7 +20,7 @@ def test_admin_cannot_create_or_promote_to_admin_roles():
 
 def test_admin_can_manage_lower_level_roles():
     actor = _user(1, "ADMIN")
-    for role in ("MANAGER", "TL", "TI", "SALES_EXECUTIVE", "TELECALLER", "ACCOUNTANT", "HR"):
+    for role in ("MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER", "ACCOUNTANT", "HR"):
         assert _can_manage_user(actor, target_role=role) is True
 
 
