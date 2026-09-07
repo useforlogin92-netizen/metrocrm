@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,7 @@ from app.database import get_db
 from app.integration_models import IntegrationConfig, PropertyVisitAlert
 from app.models import AuditEvent, User
 from app.services.integrations import SUPPORTED_LEAD_PROVIDERS, ingest_lead, verify_webhook_signature
+from app.templating import templates
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 MANAGEMENT_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}
@@ -31,6 +33,19 @@ def _management(request: Request, db: Session) -> User:
     if user.role not in MANAGEMENT_ROLES:
         raise HTTPException(403, "management_role_required")
     return user
+
+
+def _shell_context(request: Request, user: User) -> dict:
+    return {
+        "request": request,
+        "username": user.username,
+        "role": user.role,
+        "avatar": user.username[:1].upper(),
+        "show_integrations": user.role in MANAGEMENT_ROLES,
+        "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"},
+        "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"},
+        "show_user_management": user.role in {"SUPER_ADMIN", "ADMIN"},
+    }
 
 
 @router.get("/providers")
@@ -54,7 +69,6 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
         db.add(row)
     row.enabled = bool(body.get("enabled", False))
     row.mode = str(body.get("mode", "webhook"))[:30]
-    # Credentials must never be posted into ordinary CRM fields; keep provider secrets in .env.
     safe_settings = {k: v for k, v in body.items() if k in {"mode", "webhook_url", "page_id", "form_id", "notes"}}
     row.settings_json = json.dumps(safe_settings)
     row.updated_at = datetime.utcnow()
@@ -82,11 +96,7 @@ async def lead_webhook(provider: str, request: Request, x_metrocrm_signature: st
 
 @router.post("/property-visit")
 async def property_visit(request: Request, body: dict, db: Session = Depends(get_db)):
-    """Called by customer-facing property/project pages immediately when a visit is recorded.
-
-    Only hashed IP is stored. The alert is persisted immediately for Admin/Super Admin dashboards;
-    no customer phone/email is inferred from a browser visit.
-    """
+    """Called by customer-facing property/project pages immediately when a visit is recorded."""
     if not settings.property_visit_alerts_enabled:
         return {"status": "disabled"}
     project_id = body.get("project_id")
@@ -108,8 +118,18 @@ async def property_visit(request: Request, body: dict, db: Session = Depends(get
     db.add(alert)
     db.add(AuditEvent(action="PROPERTY_CATALOG_VISIT", entity_type="PropertyVisitAlert", entity_id="pending", details=json.dumps({"project_id": project_id, "unit_id": unit_id})))
     db.commit(); db.refresh(alert)
-    # The persisted alert is immediately visible to Admin/Super Admin. Provider notification hooks can be added later.
     return {"status": "alerted", "alert_id": alert.id, "notify_roles": ["ADMIN", "SUPER_ADMIN"]}
+
+
+@router.get("/property-visits", response_class=HTMLResponse)
+def property_visit_alerts_page(request: Request, db: Session = Depends(get_db)):
+    user = _management(request, db)
+    if user.role not in {"SUPER_ADMIN", "ADMIN"}:
+        raise HTTPException(403, "admin_or_super_admin_required")
+    rows = db.scalars(select(PropertyVisitAlert).order_by(PropertyVisitAlert.created_at.desc()).limit(100)).all()
+    context = _shell_context(request, user)
+    context["alerts"] = rows
+    return templates.TemplateResponse("property_visit_alerts.html", context)
 
 
 @router.get("/property-visits/alerts")
