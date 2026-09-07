@@ -15,4 +15,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: PYTHONPATH=. pytest -q
+      - run: PYTHONPATH=. pytest -q 2>&1 | tee pytest-output.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-output
+          path: pytest-output.txt
+          retention-days: 1
