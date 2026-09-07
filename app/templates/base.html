@@ -36,7 +36,7 @@
 <main class="main">
 <header class="topbar">
 <div class="page-heading"><h1>{% block header_title %}CRM Workspace{% endblock %}</h1><p>Secure business management portal</p></div>
-<div style="display:flex;align-items:center;gap:12px"><div id="sessionTimer" class="session-timer" title="Automatic logout after 15 minutes of inactivity">Session expires in 15:00</div><div class="profile-wrap" tabindex="0"><div class="profile"><div class="profile-info"><div class="profile-name">{{ username|default('User') }}</div><div class="profile-role">{{ role|default('STAFF') }}</div></div><div class="avatar">{{ avatar|default('U') }}</div></div><div class="profile-menu"><div class="menu-user"><strong>{{ username|default('User') }}</strong><span>{{ role|default('STAFF') }} · Secure session</span></div><a href="/profile">My Profile</a><a href="/dashboard">Dashboard</a><a href="/auth/logout" class="menu-logout">↪ Logout</a></div></div></div>
+<div style="display:flex;align-items:center;gap:12px"><div id="session-countdown" class="session-timer" title="Automatic logout after 15 minutes of inactivity">Session expires in 15:00</div><div class="profile-wrap" tabindex="0"><div class="profile"><div class="profile-info"><div class="profile-name">{{ username|default('User') }}</div><div class="profile-role">{{ role|default('STAFF') }}</div></div><div class="avatar">{{ avatar|default('U') }}</div></div><div class="profile-menu"><div class="menu-user"><strong>{{ username|default('User') }}</strong><span>{{ role|default('STAFF') }} · Secure session</span></div><a href="/profile">My Profile</a><a href="/dashboard">Dashboard</a><a href="/auth/logout" class="menu-logout">↪ Logout</a></div></div></div>
 </header>
 <section class="content">
 <div class="toolbar"><div class="crumbs"><a href="/dashboard">Dashboard</a> <span>›</span> {% block breadcrumb %}Workspace{% endblock %}</div><div class="history"><button type="button" onclick="history.back()">← Back</button><button type="button" onclick="history.forward()">Forward →</button></div></div>
@@ -48,12 +48,11 @@
 (function(){
   const IDLE_LIMIT_MS = 15 * 60 * 1000;
   let idleTimer;
-  let remainingTimer;
   let lastActivity = Date.now();
-  const timerEl = document.getElementById('sessionTimer');
+  const timerEl = document.getElementById('session-countdown');
   function logoutForInactivity(){ window.location.replace('/auth/logout'); }
   function armIdleTimer(){ lastActivity = Date.now(); clearTimeout(idleTimer); idleTimer = setTimeout(logoutForInactivity, IDLE_LIMIT_MS); }
-  function renderTimer(){
+  function updateCountdown(){
     const remaining = Math.max(0, IDLE_LIMIT_MS - (Date.now() - lastActivity));
     const totalSeconds = Math.ceil(remaining / 1000);
     const minutes = Math.floor(totalSeconds / 60).toString().padStart(2,'0');
@@ -66,8 +65,8 @@
     window.addEventListener(eventName, armIdleTimer, {passive:true});
   });
   armIdleTimer();
-  renderTimer();
-  remainingTimer = setInterval(renderTimer, 1000);
+  updateCountdown();
+  setInterval(updateCountdown, 1000);
   window.addEventListener('pageshow', function(event){
     if(event.persisted){ window.location.reload(); }
   });
