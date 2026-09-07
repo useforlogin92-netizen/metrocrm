@@ -87,6 +87,13 @@ def _audit(db: Session, actor_id: int | None, action: str, target: User | None =
     db.add(AuditEvent(actor_user_id=actor_id, action=action, entity_type="User" if target else None, entity_id=str(target.id) if target else None, details=json.dumps(details or {})))
 
 
+def _browser_redirect(request: Request, location: str, fallback: dict | None = None, status_code: int = 303):
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept or "*/*" in accept:
+        return RedirectResponse(location, status_code=status_code)
+    return JSONResponse(fallback or {"status": "ok"})
+
+
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
@@ -271,6 +278,23 @@ def update_profile(request: Request, mobile: str = Form(""), email: str = Form("
     return RedirectResponse("/profile", status_code=303)
 
 
+@app.post("/profile/password")
+def change_password(request: Request, current_password: str = Form(...), new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
+    user = _current_user(request, db)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+    if not authenticate_password(user, current_password):
+        return RedirectResponse("/profile?password_error=invalid_current", status_code=303)
+    if len(new_password) < 8 or new_password != confirm_password:
+        return RedirectResponse("/profile?password_error=invalid_new", status_code=303)
+    user.password_hash = hash_password(new_password)
+    user.session_version += 1
+    request.session.clear()
+    _audit(db, user.id, "PASSWORD_CHANGED", user)
+    db.commit()
+    return RedirectResponse("/", status_code=303)
+
+
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
@@ -347,6 +371,21 @@ def reset_user_sessions(user_id: int, request: Request, db: Session = Depends(ge
     return RedirectResponse("/admin/users", status_code=303)
 
 
+@app.post("/admin/users/{user_id}/reset-password")
+def reset_user_password(user_id: int, request: Request, new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
+    actor = _current_user(request, db)
+    target = db.get(User, user_id)
+    if not actor or not target or not _can_manage_user(actor, target):
+        raise HTTPException(status_code=403, detail="user_management_not_permitted")
+    if len(new_password) < 8 or new_password != confirm_password:
+        return RedirectResponse("/admin/users?error=invalid_password", status_code=303)
+    target.password_hash = hash_password(new_password)
+    target.session_version += 1
+    _audit(db, actor.id, "USER_PASSWORD_RESET", target)
+    db.commit()
+    return _browser_redirect(request, "/admin/users", {"status": "password_reset", "user_id": target.id})
+
+
 @app.get("/admin/users/pending")
 def pending_users(request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
@@ -367,7 +406,7 @@ def approve_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     target.is_approved = True
     _audit(db, actor.id, "USER_APPROVED", target, {"target_role": target.role})
     db.commit()
-    return {"status": "approved", "user_id": target.id}
+    return _browser_redirect(request, "/admin/users", {"status": "approved", "user_id": target.id})
 
 
 @app.post("/admin/users/{user_id}/revoke-approval")
@@ -382,7 +421,7 @@ def revoke_user_approval(user_id: int, request: Request, db: Session = Depends(g
     target.session_version += 1
     _audit(db, actor.id, "USER_APPROVAL_REVOKED", target, {"target_role": target.role})
     db.commit()
-    return {"status": "approval_revoked", "user_id": target.id}
+    return _browser_redirect(request, "/admin/users", {"status": "approval_revoked", "user_id": target.id})
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -399,7 +438,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"},
         "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"},
         "show_user_management": user.role in {"SUPER_ADMIN", "ADMIN"},
-        "show_profile": True,
     })
 
 
