@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     secret_key: str = "CHANGE-ME-IN-ENV"
     database_url: str = "sqlite:///./metrocrm.db"
-    session_max_age: int = 28800
+    # Security baseline: authenticated browser sessions expire after 15 minutes.
+    session_max_age: int = 900
     otp_expiry_seconds: int = 300
     otp_max_attempts: int = 5
 
