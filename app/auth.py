@@ -2,9 +2,10 @@ from dataclasses import dataclass
 from time import time
 from typing import Literal
 
-from app.security import generate_otp, otp_is_valid, verify_password
+from app.security import generate_otp, generate_token, otp_is_valid, verify_password
 
 VerificationMethod = Literal["mobile_otp", "email_otp", "security_question", "approval"]
+
 
 @dataclass
 class PendingVerification:
@@ -14,6 +15,7 @@ class PendingVerification:
     created_at: float
     expected_answer_hash: str | None = None
     attempts: int = 0
+
 
 _pending: dict[str, PendingVerification] = {}
 
@@ -33,7 +35,7 @@ def authenticate_password(user, password: str) -> bool:
 
 def create_pending(user, method: VerificationMethod, otp: str | None = None) -> tuple[str, str | None]:
     challenge = otp if method in ("mobile_otp", "email_otp") else None
-    token = generate_otp() + str(user.id) + str(int(time()))
+    token = generate_token()
     expected = user.security_answer_hash if method == "security_question" else None
     _pending[token] = PendingVerification(user.id, method, challenge, time(), expected)
     return token, challenge
