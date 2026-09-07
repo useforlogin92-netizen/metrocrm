@@ -22,7 +22,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     session_version: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -32,7 +32,7 @@ class Customer(Base):
     alternate_mobile: Mapped[str | None] = mapped_column(String(30))
     email: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class CustomerRequirement(Base):
     __tablename__ = "customer_requirements"
@@ -56,8 +56,8 @@ class CustomerRequirement(Base):
     purpose: Mapped[str | None] = mapped_column(String(100))
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class Lead(Base):
     __tablename__ = "leads"
@@ -74,7 +74,7 @@ class Lead(Base):
     bhk: Mapped[str | None] = mapped_column(String(30))
     property_type: Mapped[str | None] = mapped_column(String(80))
     buy_rent: Mapped[str | None] = mapped_column(String(20))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class LeadAssignmentHistory(Base):
     __tablename__ = "lead_assignment_history"
@@ -84,7 +84,7 @@ class LeadAssignmentHistory(Base):
     to_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     assigned_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     reason: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class FollowUp(Base):
     __tablename__ = "followups"
@@ -104,7 +104,7 @@ class Developer(Base):
     name: Mapped[str] = mapped_column(String(200), index=True)
     contact: Mapped[str | None] = mapped_column(String(255))
     details: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class Project(Base):
     __tablename__ = "projects"
@@ -128,7 +128,7 @@ class Project(Base):
     photos_json: Mapped[str] = mapped_column(Text, default="[]")
     brochure: Mapped[str | None] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class Tower(Base):
     __tablename__ = "towers"
@@ -192,7 +192,7 @@ class DataRequest(Base):
     reason: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), default="PENDING")
     decided_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime)
     approval_reason: Mapped[str | None] = mapped_column(Text)
 
@@ -204,7 +204,7 @@ class AuditEvent(Base):
     entity_type: Mapped[str | None] = mapped_column(String(100))
     entity_id: Mapped[str | None] = mapped_column(String(100))
     details: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class SiteVisit(Base):
     __tablename__ = "site_visits"
@@ -220,7 +220,7 @@ class SiteVisit(Base):
     outcome: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     next_action: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class Token(Base):
     __tablename__ = "tokens"

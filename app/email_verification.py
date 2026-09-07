@@ -12,4 +12,4 @@ class EmailVerification(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    verified_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

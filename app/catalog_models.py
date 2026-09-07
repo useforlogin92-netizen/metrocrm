@@ -23,7 +23,7 @@ class LocationMaster(Base):
     latitude: Mapped[float | None] = mapped_column()
     longitude: Mapped[float | None] = mapped_column()
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class CustomerLocationPreference(Base):
@@ -52,7 +52,7 @@ class PropertyMedia(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_shareable: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class CatalogShare(Base):
@@ -65,7 +65,7 @@ class CatalogShare(Base):
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
 
 
 class CatalogShareVisit(Base):
@@ -75,4 +75,4 @@ class CatalogShareVisit(Base):
     visitor_key_hash: Mapped[str] = mapped_column(String(64), index=True)
     user_agent: Mapped[str | None] = mapped_column(String(500))
     page_url: Mapped[str | None] = mapped_column(String(1000))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)

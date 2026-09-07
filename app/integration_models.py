@@ -13,8 +13,8 @@ class IntegrationConfig(Base):
     mode: Mapped[str] = mapped_column(String(30), default="webhook")
     credentials_encrypted: Mapped[str | None] = mapped_column(Text)
     settings_json: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class LeadIntegrationEvent(Base):
@@ -27,7 +27,7 @@ class LeadIntegrationEvent(Base):
     payload_json: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), default="RECEIVED", index=True)
     error: Mapped[str | None] = mapped_column(Text)
-    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
@@ -42,4 +42,4 @@ class PropertyVisitAlert(Base):
     page_url: Mapped[str | None] = mapped_column(String(1000))
     status: Mapped[str] = mapped_column(String(30), default="NEW", index=True)
     notified: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
