@@ -76,6 +76,8 @@ def _json_object(raw: str) -> dict:
 def _can_manage_user(actor: User, target: User | None = None, target_role: str | None = None) -> bool:
     role = actor.role.upper()
     wanted = (target_role or (target.role if target else "")).upper()
+    if wanted not in {r.value for r in Role}:
+        return False
     if role == "SUPER_ADMIN":
         return not (target and target.id == actor.id and wanted != "SUPER_ADMIN")
     if role == "ADMIN":
@@ -85,6 +87,23 @@ def _can_manage_user(actor: User, target: User | None = None, target_role: str |
             return False
         return wanted not in {"SUPER_ADMIN", "ADMIN"}
     return False
+
+
+def _valid_reporting_manager(actor: User, manager_id: int | None, target: User | None, db: Session) -> bool:
+    if manager_id is None:
+        return True
+    if target and manager_id == target.id:
+        return False
+    manager = db.get(User, manager_id)
+    if not manager or not manager.is_active:
+        return False
+    # A lower-level user may report to management, but Admin UI/backend must
+    # never create a relationship pointing at an inactive/non-management user.
+    if manager.role.upper() not in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
+        return False
+    if actor.role.upper() == "ADMIN" and manager.role.upper() == "SUPER_ADMIN":
+        return False
+    return True
 
 
 def _audit(db: Session, actor_id: int | None, action: str, target: User | None = None, details: dict | None = None) -> None:
@@ -315,6 +334,8 @@ def create_user(request: Request, username: str = Form(...), password: str = For
     role = role.upper()
     if not actor or not _can_manage_user(actor, target_role=role):
         raise HTTPException(status_code=403, detail="user_management_not_permitted")
+    if not _valid_reporting_manager(actor, reporting_manager_id, None, db):
+        raise HTTPException(status_code=400, detail="invalid_reporting_manager")
     username = username.strip()
     if not username or len(password) < 8 or db.scalar(select(User.id).where(User.username == username)) is not None:
         return RedirectResponse("/admin/users?error=invalid_or_duplicate_user", status_code=303)
@@ -333,6 +354,8 @@ def edit_user(user_id: int, request: Request, role: str = Form(...), mobile: str
     role = role.upper()
     if not actor or not target or not _can_manage_user(actor, target, role):
         raise HTTPException(status_code=403, detail="user_management_not_permitted")
+    if not _valid_reporting_manager(actor, reporting_manager_id, target, db):
+        raise HTTPException(status_code=400, detail="invalid_reporting_manager")
     if target.id == actor.id and role != "SUPER_ADMIN":
         raise HTTPException(status_code=400, detail="cannot_remove_own_super_admin_access")
     target.role = role
