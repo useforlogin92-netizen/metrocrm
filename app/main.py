@@ -40,6 +40,39 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="MetroCRM", version="0.4.0", lifespan=lifespan)
+
+@app.middleware("http")
+async def enforce_idle_session(request: Request, call_next):
+    session = request.session
+    user_id = session.get("user_id")
+    if user_id:
+        now = time.time()
+        last_activity = session.get("last_activity")
+        try:
+            last_activity = float(last_activity) if last_activity is not None else 0.0
+        except (TypeError, ValueError):
+            last_activity = 0.0
+        if not last_activity:
+            session.clear()
+            response = RedirectResponse("/", status_code=303)
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
+        if now - last_activity >= settings.session_max_age:
+            session.clear()
+            response = RedirectResponse("/", status_code=303)
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
+        session["last_activity"] = now
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
@@ -54,7 +87,7 @@ _SUPER_ADMIN_WINDOW_SECONDS = 15 * 60
 
 def _super_admin_rate_key(request: Request, username: str) -> str:
     host = request.client.host if request.client else "unknown"
-    return f"{host}:{username.strip().lower()}:" 
+    return f"{host}:{username.strip().lower()}:"
 
 
 def _super_admin_rate_limited(request: Request, username: str) -> bool:
