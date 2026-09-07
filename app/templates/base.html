@@ -22,7 +22,7 @@
 <a class="{% if request.url.path.startswith('/caller/') %}active{% endif %}" href="/caller/search"><span class="icon">⌕</span>Caller Property Search</a>
 {% if show_user_management %}<a class="{% if request.url.path.startswith('/admin/users') %}active{% endif %}" href="/admin/users"><span class="icon">♙</span>User Management</a>{% endif %}
 {% if show_integrations %}<a class="{% if request.url.path.startswith('/integrations/providers') %}active{% endif %}" href="/integrations/providers"><span class="icon">⚙</span>Integrations</a>{% endif %}
-{% if show_alerts %}<a class="{% if request.url.path.startswith('/integrations/property-visits') %}active{% endif %}" href="/integrations/property-visits/alerts"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
+{% if show_alerts %}<a class="{% if request.url.path.startswith('/integrations/property-visits') %}active{% endif %}" href="/integrations/property-visits"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
 {% if show_approvals %}<a class="{% if request.url.path == '/admin/users/pending' %}active{% endif %}" href="/admin/users/pending"><span class="icon">✓</span>User Approvals</a>{% endif %}
 <a class="{% if request.url.path.startswith('/admin/backups') %}active{% endif %}" href="/admin/backups/status"><span class="icon">▣</span>Backup Status</a>
 </nav>
