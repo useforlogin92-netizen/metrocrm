@@ -18,72 +18,45 @@ templates = main_module.templates
 
 def _render(request: Request, error: str | None, portal: str):
     template_name = "admin_login.html" if portal == "admin" else "login.html"
-    return templates.TemplateResponse(
-        template_name,
-        {
-            "request": request,
-            "error": error,
-            "portal": portal,
-            "super_admin_only": portal == "super_admin",
-        },
-    )
+    return templates.TemplateResponse(template_name, {"request": request, "error": error, "portal": portal, "super_admin_only": portal == "super_admin"})
 
 
 def _login_flow(request: Request, username: str, password: str, method: str, portal: str, db: Session):
     user = db.scalar(select(User).where(User.username == username.strip()))
     required_role = {"admin": "ADMIN", "super_admin": "SUPER_ADMIN"}.get(portal)
-
     if required_role and (not user or user.role != required_role):
         label = "Admin" if required_role == "ADMIN" else "Super Admin"
         return _render(request, f"This portal is restricted to authorized {label} accounts.", portal), 403
-
     if not user or not authenticate_password(user, password):
         return _render(request, "Invalid username or password.", portal), 401
-
     if portal == "staff" and user.role in {"ADMIN", "SUPER_ADMIN"}:
         return _render(request, "Administrator accounts must use their dedicated secure login portal.", portal), 403
-
     methods = allowed_methods(user.role)
     if method not in methods:
         return _render(request, "This verification method is not allowed for your role.", portal), 403
-
-    # Admin OTP/email-OTP integrations are not enabled yet. Keep the backend
-    # ready for them, but the current Admin portal uses approval only.
     if portal == "admin" and method != "approval":
         return _render(request, "Admin OTP verification is not enabled yet. Use Super Admin approval.", portal), 400
 
-    email_verified = db.scalar(
-        select(EmailVerification.id).where(EmailVerification.user_id == user.id)
-    ) is not None
-
+    email_verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
     if method == "email_otp" and not user.email:
         return _render(request, "No registered email is available for this account.", portal), 400
-
     if method != "email_otp" and method != "approval" and not (user.is_approved or email_verified):
         return _render(request, "Account access requires either email verification or administrator approval.", portal), 403
 
     if method == "approval":
-        # Do not block an unapproved Admin here: this is the point where the
-        # login request is created and delivered to Super Admin for approval.
+        if portal != "admin" and not user.is_approved:
+            return _render(request, "Administrator approval has not been granted.", portal), 403
         token, _ = create_pending(user, method)
-        main_module._audit(
-            db,
-            user.id,
-            "LOGIN_APPROVAL_REQUEST",
-            user,
-            {"portal": portal, "role": user.role, "requested_at": datetime.utcnow().isoformat()},
-        )
-        db.commit()
+        if portal == "admin" and not user.is_approved:
+            main_module._audit(db, user.id, "LOGIN_APPROVAL_REQUEST", user, {"portal": "admin", "role": user.role, "requested_at": datetime.utcnow().isoformat()})
+            db.commit()
     elif method in {"mobile_otp", "email_otp"}:
         destination_value = user.mobile if method == "mobile_otp" else user.email
         if not destination_value:
             label = "mobile" if method == "mobile_otp" else "email"
             return _render(request, f"No registered {label} is available for this account.", portal), 400
         try:
-            otp, _ = generate_and_send_otp(
-                "mobile" if method == "mobile_otp" else "email",
-                destination_value,
-            )
+            otp, _ = generate_and_send_otp("mobile" if method == "mobile_otp" else "email", destination_value)
         except RuntimeError as exc:
             main_module._audit(db, user.id, "OTP_DELIVERY_FAILED", user, {"error": str(exc)})
             db.commit()
@@ -94,37 +67,11 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
 
     request.session["pending_token"] = token
     destination = "registered mobile" if method == "mobile_otp" else "registered email" if method == "email_otp" else None
-
     if method == "security_question":
-        return templates.TemplateResponse(
-            "verify.html",
-            {"request": request, "token": token, "method": "Security Question", "destination": user.security_question, "test_otp": None},
-        ), 200
-
+        return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": "Security Question", "destination": user.security_question, "test_otp": None, "approval_pending": False}), 200
     if method == "approval":
-        return templates.TemplateResponse(
-            "verify.html",
-            {
-                "request": request,
-                "token": token,
-                "method": "Administrator Approval",
-                "destination": "Waiting for Super Admin approval",
-                "test_otp": None,
-                "approval_pending": not user.is_approved,
-            },
-        ), 200
-
-    return templates.TemplateResponse(
-        "verify.html",
-        {
-            "request": request,
-            "token": token,
-            "method": method.replace("_", " ").title(),
-            "destination": destination,
-            "test_otp": otp if main_module.settings.environment != "production" else None,
-            "approval_pending": False,
-        },
-    ), 200
+        return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": "Administrator Approval", "destination": "Waiting for Super Admin approval", "test_otp": None, "approval_pending": portal == "admin" and not user.is_approved}), 200
+    return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": method.replace("_", " ").title(), "destination": destination, "test_otp": otp if main_module.settings.environment != "production" else None, "approval_pending": False}), 200
 
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -135,13 +82,7 @@ def admin_login_page(request: Request):
 
 
 @app.post("/auth/admin/login")
-def admin_login(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    method: str = Form(...),
-    db: Session = Depends(get_db),
-):
+def admin_login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), db: Session = Depends(get_db)):
     response, _ = _login_flow(request, username, password, method, "admin", db)
     return response
 
@@ -151,20 +92,13 @@ def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
     actor = main_module._current_user(request, db)
     if not actor or actor.role != "SUPER_ADMIN":
         return RedirectResponse("/super-admin/login", status_code=303)
-    requests = db.scalars(
-        select(AuditEvent)
-        .where(AuditEvent.action == "LOGIN_APPROVAL_REQUEST")
-        .order_by(AuditEvent.created_at.desc())
-        .limit(100)
-    ).all()
+    requests = db.scalars(select(AuditEvent).where(AuditEvent.action == "LOGIN_APPROVAL_REQUEST").order_by(AuditEvent.created_at.desc()).limit(100)).all()
     rows = []
     for item in requests:
         target = db.get(User, int(item.entity_id)) if item.entity_id else None
         if target and target.is_active and target.role == "ADMIN" and not target.is_approved:
             rows.append((item, target))
-    html = """<!doctype html><html><head><meta charset='utf-8'><title>MetroCRM | Login Requests</title>
-    <style>body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;padding:40px;color:#10213f}.wrap{max-width:900px;margin:auto}.card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 8px 30px #0001}.head{display:flex;justify-content:space-between;align-items:center;gap:20px}.muted{color:#64748b}.row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:18px 0;border-top:1px solid #e5eaf2}.btn{background:#1677ff;color:#fff;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}.empty{padding:30px 0;color:#64748b}</style></head><body><div class='wrap'><div class='card'>
-    <div class='head'><div><h1>Admin Login Requests</h1><p class='muted'>Pending Admin accounts waiting for Super Admin approval.</p></div><a href='/dashboard'>Dashboard</a></div>"""
+    html = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | Login Requests</title><style>body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;padding:40px;color:#10213f}.wrap{max-width:900px;margin:auto}.card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 8px 30px #0001}.head{display:flex;justify-content:space-between;align-items:center;gap:20px}.muted{color:#64748b}.row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:18px 0;border-top:1px solid #e5eaf2}.btn{background:#1677ff;color:#fff;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}.empty{padding:30px 0;color:#64748b}</style></head><body><div class='wrap'><div class='card'><div class='head'><div><h1>Admin Login Requests</h1><p class='muted'>Pending Admin accounts waiting for Super Admin approval.</p></div><a href='/dashboard'>Dashboard</a></div>"""
     if not rows:
         html += "<div class='empty'>No pending Admin login requests.</div>"
     for item, target in rows:
@@ -186,20 +120,11 @@ def approve_login_request(user_id: int, request: Request, db: Session = Depends(
 
 
 @app.post("/auth/login")
-def staff_login(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    method: str = Form(...),
-    portal: str = Form(""),
-    db: Session = Depends(get_db),
-):
+def staff_login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), portal: str = Form(""), db: Session = Depends(get_db)):
     response, _ = _login_flow(request, username, password, method, "staff", db)
     return response
 
 
-# The legacy /auth/login route already exists in app.main. FastAPI uses the
-# first matching route, so place the guarded staff route before that legacy route.
 _new_route = app.router.routes.pop()
 for _idx, _route in enumerate(app.router.routes):
     if getattr(_route, "path", None) == "/auth/login" and "POST" in getattr(_route, "methods", set()):
