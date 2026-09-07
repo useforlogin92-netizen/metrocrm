@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import time
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -33,6 +34,38 @@ app.include_router(caller_search_router)
 app.include_router(backups_router)
 app.include_router(integrations_router)
 
+# Short-lived in-process protection for the dedicated Super Admin portal.
+# This is an additional layer; password + verification + role checks remain mandatory.
+_super_admin_failures: dict[str, list[float]] = {}
+_SUPER_ADMIN_MAX_FAILURES = 5
+_SUPER_ADMIN_WINDOW_SECONDS = 15 * 60
+
+
+def _super_admin_rate_key(request: Request, username: str) -> str:
+    host = request.client.host if request.client else "unknown"
+    return f"{host}:{username.strip().lower()}"
+
+
+def _super_admin_rate_limited(request: Request, username: str) -> bool:
+    now = time.time()
+    key = _super_admin_rate_key(request, username)
+    attempts = [t for t in _super_admin_failures.get(key, []) if now - t < _SUPER_ADMIN_WINDOW_SECONDS]
+    _super_admin_failures[key] = attempts
+    return len(attempts) >= _SUPER_ADMIN_MAX_FAILURES
+
+
+def _record_super_admin_failure(request: Request, username: str) -> None:
+    now = time.time()
+    key = _super_admin_rate_key(request, username)
+    attempts = [t for t in _super_admin_failures.get(key, []) if now - t < _SUPER_ADMIN_WINDOW_SECONDS]
+    attempts.append(now)
+    _super_admin_failures[key] = attempts
+
+
+def _clear_super_admin_failures(request: Request, username: str) -> None:
+    _super_admin_failures.pop(_super_admin_rate_key(request, username), None)
+
+
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
@@ -46,7 +79,13 @@ def shutdown() -> None:
 def root(request: Request):
     if request.session.get("user_id"):
         return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse("login.html", {"request": request, "error": None, "super_admin_only": False})
+
+@app.get("/super-admin/login", response_class=HTMLResponse)
+def super_admin_login_page(request: Request):
+    if request.session.get("user_id"):
+        return RedirectResponse("/dashboard", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": None, "super_admin_only": True})
 
 @app.get("/health")
 def health() -> dict[str, str]:
@@ -99,33 +138,45 @@ def _can_approve(actor: User, target: User) -> bool:
     return False
 
 @app.post("/auth/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), db: Session = Depends(get_db)):
+def login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), portal: str = Form(""), db: Session = Depends(get_db)):
+    super_admin_only = portal == "super_admin"
+    if super_admin_only and _super_admin_rate_limited(request, username):
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Too many failed Super Admin login attempts. Please wait 15 minutes before trying again.", "super_admin_only": True}, status_code=429)
+
     user = db.scalar(select(User).where(User.username == username.strip()))
     if not authenticate_password(user, password):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid username or password."}, status_code=401)
+        if super_admin_only:
+            _record_super_admin_failure(request, username)
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid username or password.", "super_admin_only": super_admin_only}, status_code=401)
+    if super_admin_only and user.role != "SUPER_ADMIN":
+        _record_super_admin_failure(request, username)
+        return templates.TemplateResponse("login.html", {"request": request, "error": "This portal is restricted to Super Admin accounts.", "super_admin_only": True}, status_code=403)
+    if super_admin_only:
+        _clear_super_admin_failures(request, username)
+
     methods = allowed_methods(user.role)
     if method not in methods:
-        return templates.TemplateResponse("login.html", {"request": request, "error": "This verification method is not allowed for your role."}, status_code=403)
+        return templates.TemplateResponse("login.html", {"request": request, "error": "This verification method is not allowed for your role.", "super_admin_only": super_admin_only}, status_code=403)
 
     email_verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
     if method == "email_otp":
         if not user.email:
-            return templates.TemplateResponse("login.html", {"request": request, "error": "No registered email is available for this account."}, status_code=400)
+            return templates.TemplateResponse("login.html", {"request": request, "error": "No registered email is available for this account.", "super_admin_only": super_admin_only}, status_code=400)
     elif not (user.is_approved or email_verified):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Account access requires either email verification or administrator approval."}, status_code=403)
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Account access requires either email verification or administrator approval.", "super_admin_only": super_admin_only}, status_code=403)
     elif method == "approval" and not user.is_approved:
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Administrator approval has not been granted."}, status_code=403)
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Administrator approval has not been granted.", "super_admin_only": super_admin_only}, status_code=403)
 
     if method in {"mobile_otp", "email_otp"}:
         destination_value = user.mobile if method == "mobile_otp" else user.email
         if not destination_value:
-            return templates.TemplateResponse("login.html", {"request": request, "error": f"No registered {('mobile' if method == 'mobile_otp' else 'email')} is available for this account."}, status_code=400)
+            return templates.TemplateResponse("login.html", {"request": request, "error": f"No registered {('mobile' if method == 'mobile_otp' else 'email')} is available for this account.", "super_admin_only": super_admin_only}, status_code=400)
         try:
             otp, delivery = generate_and_send_otp("mobile" if method == "mobile_otp" else "email", destination_value)
         except RuntimeError as exc:
             db.add(AuditEvent(actor_user_id=user.id, action="OTP_DELIVERY_FAILED", entity_type="User", entity_id=str(user.id), details=str(exc)))
             db.commit()
-            return templates.TemplateResponse("login.html", {"request": request, "error": "OTP delivery is not configured. Contact the administrator."}, status_code=503)
+            return templates.TemplateResponse("login.html", {"request": request, "error": "OTP delivery is not configured. Contact the administrator.", "super_admin_only": super_admin_only}, status_code=503)
         token, _ = create_pending(user, method, otp=otp)
     else:
         token, _ = create_pending(user, method)
