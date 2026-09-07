@@ -198,12 +198,19 @@ def revoke_user_approval(user_id: int, request: Request, db: Session = Depends(g
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     user = _current_user(request, db)
-    if not user: return RedirectResponse("/", status_code=303)
-    integration_link = "<p><a href='/integrations/providers'>Lead / OTP / Alert Integrations API</a></p>" if user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} else ""
-    alert_link = "<p><a href='/integrations/property-visits/alerts'>Live Property Visit Alerts</a></p>" if user.role in {"SUPER_ADMIN", "ADMIN"} else ""
-    approval_link = "<p><a href='/admin/users/pending'>Pending User Approvals</a></p>" if user.role in {"SUPER_ADMIN", "ADMIN"} else ""
-    return HTMLResponse(f"<html><body><h1>MetroCRM Dashboard</h1><p>Welcome, {user.username}</p><p>Role: {user.role}</p><p><a href='/caller/search'>Caller Property Search</a></p>{integration_link}{alert_link}{approval_link}<p><a href='/admin/backups/status'>Backup Status</a></p><p><a href='/auth/logout'>Logout</a></p></body></html>")
+    if not user:
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "username": user.username,
+        "role": user.role,
+        "avatar": user.username[:1].upper(),
+        "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"},
+        "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"},
+        "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"},
+    })
 
 @app.get("/auth/logout")
 def logout(request: Request):
-    request.session.clear(); return RedirectResponse("/", status_code=303)
+    request.session.clear()
+    return RedirectResponse("/", status_code=303)
