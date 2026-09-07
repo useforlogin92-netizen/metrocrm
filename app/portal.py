@@ -75,6 +75,10 @@ def _approval_request_active(db: Session, user_id: int, request_id: int) -> tupl
     return False, "approval_pending"
 
 
+def _has_other_active_super_admin(db: Session, user_id: int) -> bool:
+    return db.scalar(select(User.id).where(User.role == "SUPER_ADMIN", User.is_active.is_(True), User.id != user_id).limit(1)) is not None
+
+
 def _csrf_token(request: Request, key: str) -> str:
     token = request.session.get(key)
     if not token:
@@ -102,6 +106,8 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
         return _render(request, "This verification method is not allowed for your role.", portal), 403
 
     if method == "approval":
+        if not _has_other_active_super_admin(db, user.id):
+            return _render(request, "Super Admin approval is currently unavailable because no other active Super Admin account is available to approve this login.", portal), 403
         latest = _latest_approval_request(db, user.id, portal)
         if latest and _approval_request_age(latest) < APPROVAL_RESEND_COOLDOWN_SECONDS:
             remaining = APPROVAL_RESEND_COOLDOWN_SECONDS - int(_approval_request_age(latest))
