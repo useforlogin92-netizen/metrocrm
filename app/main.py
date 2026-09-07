@@ -79,7 +79,11 @@ def _can_manage_user(actor: User, target: User | None = None, target_role: str |
     if role == "SUPER_ADMIN":
         return not (target and target.id == actor.id and wanted != "SUPER_ADMIN")
     if role == "ADMIN":
-        return wanted not in {"SUPER_ADMIN", "ADMIN"} and (not target or target.role != "SUPER_ADMIN")
+        # Admin may manage only lower-level roles. Existing ADMIN/SUPER_ADMIN
+        # accounts are never editable, including attempts to demote them.
+        if target and target.role.upper() in {"SUPER_ADMIN", "ADMIN"}:
+            return False
+        return wanted not in {"SUPER_ADMIN", "ADMIN"}
     return False
 
 
