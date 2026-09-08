@@ -3,7 +3,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app.models import Developer, User
-from app.routers.data_tools import _descendant_ids, _excel_value, _import_workbook, _template_workbook
+from app.routers.data_tools import _descendant_ids, _excel_value, _export_report_workbook, _import_workbook, _template_workbook
 
 
 def test_import_template_contains_leads_and_property_sheets():
@@ -69,6 +69,16 @@ def test_report_scope_for_super_admin_is_global(db_session):
     db_session.add_all([super_admin, other])
     db_session.commit()
     assert _descendant_ids(super_admin, db_session) == {super_admin.id, other.id}
+
+
+def test_report_workbook_generation(db_session):
+    super_admin = User(username="report_admin", password_hash="x", role="SUPER_ADMIN", is_active=True, is_approved=True)
+    db_session.add(super_admin)
+    db_session.commit()
+    workbook = load_workbook(_export_report_workbook(super_admin, db_session), data_only=True)
+    assert "Report Summary" in workbook.sheetnames
+    assert "Team Scope" in workbook.sheetnames
+    assert workbook["Report Summary"]["A1"].value == "Metric"
 
 
 def test_excel_export_neutralizes_formula_prefixes():
