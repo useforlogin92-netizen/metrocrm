@@ -14,7 +14,7 @@ class AccountCategory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
-    account_type: Mapped[str] = mapped_column(String(30))  # INCOME, EXPENSE, ASSET, LIABILITY, EQUITY
+    account_type: Mapped[str] = mapped_column(String(30))
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("account_categories.id"))
     is_system: Mapped[bool] = mapped_column(default=True)
 
@@ -38,6 +38,29 @@ class AccountingEntry(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+
+
+class JournalEntry(Base):
+    __tablename__ = "journal_entries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_no: Mapped[str] = mapped_column(String(60), unique=True, index=True)
+    entry_date: Mapped[datetime] = mapped_column(DateTime, default=now_utc, index=True)
+    narration: Mapped[str] = mapped_column(Text)
+    reference_no: Mapped[str | None] = mapped_column(String(150))
+    status: Mapped[str] = mapped_column(String(20), default="POSTED")
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
+
+
+class JournalLine(Base):
+    __tablename__ = "journal_lines"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    journal_entry_id: Mapped[int] = mapped_column(ForeignKey("journal_entries.id"), index=True)
+    account_code: Mapped[str] = mapped_column(String(40), index=True)
+    debit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
+    credit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
+    party_name: Mapped[str | None] = mapped_column(String(200))
+    tax_code: Mapped[str | None] = mapped_column(String(40))
 
 
 class AccountingPeriod(Base):
