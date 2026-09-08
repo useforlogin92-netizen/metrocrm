@@ -1,9 +1,8 @@
-from datetime import datetime
 from io import BytesIO
 
 from openpyxl import load_workbook
 
-from app.models import Lead, User
+from app.models import Developer, User
 from app.routers.data_tools import _descendant_ids, _import_workbook, _template_workbook
 
 
@@ -28,7 +27,7 @@ def test_import_creates_and_updates_records(db_session):
     assert errors == []
     assert created == 1
     assert updated == 0
-    developer = db_session.query(type(__import__("app.models", fromlist=["Developer"]).Developer)).filter_by(name="Test Developer").one()
+    developer = db_session.query(Developer).filter_by(name="Test Developer").one()
     developer_id = developer.id
 
     wb2 = load_workbook(_template_workbook())
@@ -41,7 +40,7 @@ def test_import_creates_and_updates_records(db_session):
     assert errors2 == []
     assert created2 == 0
     assert updated2 == 1
-    assert db_session.get(type(developer), developer_id).name == "Updated Developer"
+    assert db_session.get(Developer, developer_id).name == "Updated Developer"
 
 
 def test_report_scope_includes_manager_tree_only(db_session):
