@@ -110,7 +110,6 @@ def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, ob
     assert isinstance(destinations, dict)
     destinations.setdefault("local", {"status": "success", "path": str(encrypted), "error": None})
     destinations.setdefault("agent_pc", {"status": "pending", "path": None, "error": None})
-
     if settings.backup_external_path.strip():
         destinations.setdefault("external", {"status": "pending", "path": None, "error": None})
     for provider in configured_cloud_providers():
@@ -133,7 +132,7 @@ def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, ob
 
     required = [name for name in _destination_names() if name != "agent_pc"]
     failures = [name for name in required if destinations[name]["status"] != "success"]
-    state["status"] = "partial_failure" if failures else "success"
+    state["status"] = "partial_failure" if failures or destinations["agent_pc"]["status"] != "success" else "success"
     state["failed_destinations"] = failures
     state["updated_at"] = _now().isoformat()
     return state
@@ -148,7 +147,6 @@ def create_full_backup(label: str = "manual") -> dict[str, object]:
     local_root = Path(settings.backup_local_path).expanduser()
     folder = local_root / date_folder
     folder.mkdir(parents=True, exist_ok=True)
-
     with tempfile.TemporaryDirectory(prefix="metrocrm-backup-") as temp_dir:
         temp = Path(temp_dir)
         db_snapshot = temp / "database.snapshot"
@@ -160,15 +158,8 @@ def create_full_backup(label: str = "manual") -> dict[str, object]:
             archive.writestr("backup_metadata.txt", f"created_at={timestamp.isoformat()}\nlabel={time_label}\ndatabase={settings.database_url.split(':', 1)[0]}\n")
         encrypted = folder / filename
         _encrypted_package(zip_path, encrypted)
-
     relative_path = f"{date_folder}/{filename}"
-    state: dict[str, object] = {
-        "relative_path": relative_path,
-        "created_at": timestamp.isoformat(),
-        "label": time_label,
-        "filename": filename,
-        "destinations": {"local": {"status": "success", "path": str(encrypted), "error": None}},
-    }
+    state: dict[str, object] = {"relative_path": relative_path, "created_at": timestamp.isoformat(), "label": time_label, "filename": filename, "destinations": {"local": {"status": "success", "path": str(encrypted), "error": None}}}
     state = _retry_destinations(encrypted, relative_path, state)
     _write_state(relative_path, state)
     destinations = state["destinations"]
@@ -195,6 +186,26 @@ def retry_pending_backups() -> list[dict[str, object]]:
         _write_state(relative_path, updated)
         results.append(updated)
     return results
+
+
+def acknowledge_agent_backup(relative_path: str) -> bool:
+    """Mark a backup as delivered to the fixed desktop backup agent."""
+    root = Path(settings.backup_local_path).expanduser().resolve()
+    target = (root / relative_path).resolve()
+    if root not in target.parents or target.suffix != ".mcrmbackup" or not target.is_file():
+        return False
+    state = _read_state(_state_path(relative_path))
+    if not state:
+        return False
+    destinations = state.setdefault("destinations", {})
+    assert isinstance(destinations, dict)
+    destinations["agent_pc"] = {"status": "success", "path": relative_path, "error": None}
+    required = [name for name in _destination_names() if name != "agent_pc"]
+    state["failed_destinations"] = [name for name in required if destinations[name]["status"] != "success"]
+    state["status"] = "success" if not state["failed_destinations"] else "partial_failure"
+    state["updated_at"] = _now().isoformat()
+    _write_state(relative_path, state)
+    return True
 
 
 def backup_health() -> dict[str, object]:
