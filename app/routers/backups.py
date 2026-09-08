@@ -5,7 +5,7 @@ import hmac
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -45,6 +45,7 @@ def status_page(request: Request, db: Session = Depends(get_db)):
             "avatar": user.username[:1].upper(),
             "backup": backup_health(),
             "csrf_token": csrf_token(request),
+            "backup_result": request.query_params.get("backup"),
         },
     )
 
@@ -63,10 +64,15 @@ def run_manual(request: Request, db: Session = Depends(get_db)):
     except Exception as exc:
         db.add(AuditEvent(actor_user_id=user.id, action="BACKUP_FAILED", entity_type="Backup", entity_id=None, details=str(exc)[:1000]))
         db.commit()
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/admin/backups/status?backup=failed", status_code=303)
         raise HTTPException(status_code=500, detail="Backup failed; check server backup logs") from exc
     action = "BACKUP_CREATED" if result.get("status") == "success" else "BACKUP_PARTIAL_FAILURE"
     db.add(AuditEvent(actor_user_id=user.id, action=action, entity_type="Backup", entity_id=None, details=str(result)[:4000]))
     db.commit()
+    if "text/html" in request.headers.get("accept", ""):
+        state = "success" if result.get("status") == "success" else "partial"
+        return RedirectResponse(f"/admin/backups/status?backup={state}", status_code=303)
     return result
 
 
