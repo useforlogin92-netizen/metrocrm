@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.accounting_logic import post_transaction
-from app.accounting_models import AccountCategory, AccountingEntry, JournalEntry, JournalLine
+from app.accounting_models import AccountCategory, AccountingEntry, AccountingPeriod, JournalEntry, JournalLine
 from app.models import User
 
 
@@ -58,3 +58,10 @@ def test_duplicate_journal_number_is_rejected(db_session):
     db_session.flush()
     with pytest.raises(ValueError, match="Duplicate"):
         post_transaction(db_session, entry, user_id=user_id, entry_no="TXN-004")
+
+
+def test_closed_accounting_period_is_available_for_route_guard(db_session):
+    period = AccountingPeriod(period_name="FY 2025-26", from_date=datetime(2025, 4, 1), to_date=datetime(2026, 3, 31), status="CLOSED")
+    db_session.add(period)
+    db_session.commit()
+    assert db_session.query(AccountingPeriod).filter_by(status="CLOSED").count() == 1
