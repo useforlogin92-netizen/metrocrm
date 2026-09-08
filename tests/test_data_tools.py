@@ -76,3 +76,13 @@ def test_excel_export_neutralizes_formula_prefixes():
     assert _excel_value("@SUM(1,1)") == "'@SUM(1,1)"
     assert _excel_value("normal text") == "normal text"
     assert _excel_value(100) == 100
+
+
+def test_data_tools_routes_are_registered():
+    from app.main import app
+    paths = {route.path for route in app.routes}
+    assert "/admin/data-tools" in paths
+    assert "/admin/data-tools/import" in paths
+    assert "/admin/data-tools/export/{entity_type}" in paths
+    assert "/reports" in paths
+    assert "/super-admin/business-health" in paths
