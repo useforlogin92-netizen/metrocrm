@@ -38,8 +38,8 @@ class CallerSearchRequest(BaseModel):
 
 
 def _user(request: Request, db: Session) -> User | None:
-    user_id = request.session.get("user_id")
-    return db.get(User, user_id) if user_id else None
+    from app.main import _current_user
+    return _current_user(request, db)
 
 
 def _json_list(value: str | None) -> list[Any]:
@@ -98,7 +98,7 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
 @router.get("/options")
 def caller_search_options(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _user(request, db)
-    if not user or not user.is_active:
+    if not user:
         return {"error": "authentication_required"}
     corridors: dict[str, list[str]] = {}
     for station in MUMBAI_LOCAL_STATIONS:
@@ -118,7 +118,7 @@ def caller_search_options(request: Request, db: Session = Depends(get_db)) -> di
 @router.get("/search", response_class=HTMLResponse, response_model=None)
 def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse | RedirectResponse:
     user = _user(request, db)
-    if not user or not user.is_active:
+    if not user:
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse("caller_search.html", {
         "request": request,
@@ -135,7 +135,7 @@ def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLR
 @router.post("/search")
 def caller_search(body: CallerSearchRequest, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _user(request, db)
-    if not user or not user.is_active:
+    if not user:
         return {"error": "authentication_required"}
 
     properties = _inventory_rows(db, body.city)
