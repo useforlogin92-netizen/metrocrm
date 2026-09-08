@@ -3,6 +3,9 @@
 {% block header_title %}Backup & Disaster Recovery{% endblock %}
 {% block breadcrumb %}Backup Status{% endblock %}
 {% block content %}
+{% if backup_result == 'success' %}<div class="card" style="margin-bottom:18px;border-color:#bbf7d0;background:#f0fdf4"><strong>Backup completed successfully.</strong><div style="font-size:11px;color:#166534;margin-top:4px">The encrypted package was created and all configured destinations reported success.</div></div>{% endif %}
+{% if backup_result == 'partial' %}<div class="card" style="margin-bottom:18px;border-color:#fed7aa;background:#fff7ed"><strong>Backup completed with a destination warning.</strong><div style="font-size:11px;color:#9a3412;margin-top:4px">The local encrypted backup remains available; check the destination configuration for failed copies.</div></div>{% endif %}
+{% if backup_result == 'failed' %}<div class="card" style="margin-bottom:18px;border-color:#fecaca;background:#fef2f2"><strong>Backup could not be created.</strong><div style="font-size:11px;color:#991b1b;margin-top:4px">Check the server backup logs and encryption/database configuration.</div></div>{% endif %}
 <div class="card" style="margin-bottom:18px">
   <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap">
     <div>
