@@ -122,8 +122,13 @@ def create_full_backup(label: str = "manual") -> dict[str, object]:
             destinations[provider] = {"status": "failed", "path": None, "error": str(exc)[:1000]}
 
     failures = [name for name, item in destinations.items() if item["status"] != "success"]
+    successful_clouds = [
+        item["path"] for name, item in destinations.items()
+        if name not in {"local", "external"} and item["status"] == "success" and item["path"]
+    ]
     return {
         "local_path": str(encrypted),
+        "cloud_path": successful_clouds[0] if successful_clouds else None,
         "date": date_folder,
         "label": time_label,
         "destinations": destinations,
