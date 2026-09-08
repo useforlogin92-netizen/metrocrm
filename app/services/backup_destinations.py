@@ -51,21 +51,6 @@ def _google_upload(package: Path, relative_path: str) -> str:
         "name": Path(relative_path).name,
         "parents": [settings.backup_google_folder_id],
     }).encode()
-    status, _ = _request_json(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name",
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json; charset=UTF-8",
-            "X-Upload-Content-Type": "application/octet-stream",
-            "X-Upload-Content-Length": str(package.stat().st_size),
-        },
-        data=metadata,
-    )
-    if status not in {200, 201}:
-        raise RuntimeError(f"Google Drive upload session failed with HTTP {status}")
-    # A resumable session normally returns its upload URL in the Location header; the generic
-    # JSON helper intentionally cannot expose headers, so use a direct request for this step.
     request = urllib.request.Request(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name",
         data=metadata,
@@ -81,15 +66,16 @@ def _google_upload(package: Path, relative_path: str) -> str:
         with urllib.request.urlopen(request, timeout=60) as response:
             upload_url = response.headers.get("Location")
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Google Drive upload session failed with HTTP {exc.code}") from exc
+        detail = exc.read().decode("utf-8", errors="replace")[:1000]
+        raise RuntimeError(f"Google Drive upload session failed with HTTP {exc.code}: {detail}") from exc
     if not upload_url:
         raise RuntimeError("Google Drive did not return a resumable upload URL")
+
     payload = package.read_bytes()
     request = urllib.request.Request(
         upload_url,
         data=payload,
         headers={
-            "Authorization": f"Bearer {token}",
             "Content-Type": "application/octet-stream",
             "Content-Length": str(len(payload)),
             "Content-Range": f"bytes 0-{len(payload) - 1}/{len(payload)}",
@@ -102,7 +88,10 @@ def _google_upload(package: Path, relative_path: str) -> str:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1000]
         raise RuntimeError(f"Google Drive upload failed with HTTP {exc.code}: {detail}") from exc
-    return f"https://drive.google.com/file/d/{result.get('id', '')}"
+    file_id = result.get("id")
+    if not file_id:
+        raise RuntimeError("Google Drive upload completed without a file id")
+    return f"https://drive.google.com/file/d/{file_id}"
 
 
 def _refresh_microsoft_token() -> str:
@@ -144,8 +133,10 @@ def _onedrive_upload(package: Path, relative_path: str) -> str:
     if not upload_url:
         raise RuntimeError("OneDrive did not return an upload session URL")
 
+    # Microsoft Graph requires each fragment to be smaller than 60 MiB and aligned to 320 KiB.
     chunk_size = 10 * 1024 * 1024
     total = package.stat().st_size
+    result: dict = {}
     with package.open("rb") as source:
         start = 0
         while start < total:
@@ -162,7 +153,8 @@ def _onedrive_upload(package: Path, relative_path: str) -> str:
             )
             try:
                 with urllib.request.urlopen(request, timeout=300) as response:
-                    result = json.loads(response.read().decode("utf-8")) if response.readable() else {}
+                    raw = response.read()
+                    result = json.loads(raw.decode("utf-8")) if raw else {}
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")[:1000]
                 raise RuntimeError(f"OneDrive upload failed with HTTP {exc.code}: {detail}") from exc
