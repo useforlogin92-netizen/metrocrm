@@ -15,6 +15,7 @@ class EmailVerification(Base):
     verified_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
-# Import these modules during application startup so Base.metadata.create_all
-# registers their tables before the lifespan creates the schema.
+# Import model modules during startup so Base.metadata.create_all registers
+# every feature table before the schema is created.
 import app.crm_plus_models  # noqa: F401
+import app.realestate_finance_models  # noqa: F401
