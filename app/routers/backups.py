@@ -13,7 +13,7 @@ from app.config import settings
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, User
-from app.services.backup import backup_health, create_full_backup
+from app.services.backup import acknowledge_agent_backup, backup_health, create_full_backup
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(prefix="/admin/backups", tags=["backups"])
@@ -36,18 +36,7 @@ def require_backup_agent(token: str | None) -> None:
 @router.get("/status", response_class=HTMLResponse)
 def status_page(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
-    return templates.TemplateResponse(
-        "backup_status.html",
-        {
-            "request": request,
-            "username": user.username,
-            "role": user.role,
-            "avatar": user.username[:1].upper(),
-            "backup": backup_health(),
-            "csrf_token": csrf_token(request),
-            "backup_result": request.query_params.get("backup"),
-        },
-    )
+    return templates.TemplateResponse("backup_status.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "backup": backup_health(), "csrf_token": csrf_token(request), "backup_result": request.query_params.get("backup")})
 
 
 @router.get("/status.json")
@@ -101,3 +90,12 @@ def agent_file(relative_path: str, x_backup_agent_token: str | None = Header(def
     if root not in target.parents or not target.is_file() or target.suffix != ".mcrmbackup":
         raise HTTPException(status_code=404, detail="Backup file not found")
     return FileResponse(target, filename=target.name, media_type="application/octet-stream")
+
+
+@router.post("/agent/ack")
+def agent_ack(relative_path: str, x_backup_agent_token: str | None = Header(default=None)):
+    """Acknowledge a verified backup copied to the fixed desktop agent."""
+    require_backup_agent(x_backup_agent_token)
+    if not acknowledge_agent_backup(relative_path):
+        raise HTTPException(status_code=404, detail="Backup file not found")
+    return {"status": "success", "path": relative_path}
