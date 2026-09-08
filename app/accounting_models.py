@@ -66,7 +66,7 @@ class JournalLine(Base):
 class AccountingPeriod(Base):
     __tablename__ = "accounting_periods"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    period_name: Mapped[str] = mapped_column(String(100))
+    period_name: Mapped[str] = mapped_column(String(100), unique=True)
     from_date: Mapped[datetime] = mapped_column(DateTime)
     to_date: Mapped[datetime] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(20), default="OPEN")
