@@ -542,7 +542,7 @@ def super_admin_download_export(request_id: int, request: Request, db: Session =
     row = db.get(DataRequest, request_id)
     if not row or row.action != "EXPORT" or row.status != "APPROVED":
         return RedirectResponse("/super-admin/data-export-requests", status_code=303)
-    workbook = _export_workbook([row.entity_type], db)
+    workbook = _export_report_workbook(actor, db) if row.entity_type == "REPORTS" else _export_workbook([row.entity_type], db)
     row.status = "COMPLETED"
     _audit(db, actor.id, "DATA_EXPORT_COMPLETED", "DataRequest", str(row.id), {"entity_type": row.entity_type, "approved_requester_id": row.requester_id})
     db.commit()
