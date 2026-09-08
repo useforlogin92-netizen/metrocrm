@@ -12,9 +12,9 @@ router = APIRouter(prefix="/admin/backups", tags=["backups"])
 
 
 def require_super_admin(request: Request, db: Session) -> User:
-    user_id = request.session.get("user_id")
-    user = db.get(User, user_id) if user_id else None
-    if not user or not user.is_active or user.role != "SUPER_ADMIN":
+    from app.main import _current_user
+    user = _current_user(request, db)
+    if not user or user.role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Super Admin access required")
     return user
 
