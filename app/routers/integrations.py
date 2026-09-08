@@ -22,9 +22,9 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 def _user(request: Request, db: Session) -> User:
-    user_id = request.session.get("user_id")
-    user = db.get(User, user_id) if user_id else None
-    if not user or not user.is_active:
+    from app.main import _current_user
+    user = _current_user(request, db)
+    if not user:
         raise HTTPException(401, "authentication_required")
     return user
 
