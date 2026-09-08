@@ -12,6 +12,8 @@ def test_import_template_contains_leads_and_property_sheets():
     assert "Leads" in workbook.sheetnames
     assert "Projects" in workbook.sheetnames
     assert "Units" in workbook.sheetnames
+    assert "NearbyLocations" in workbook.sheetnames
+    assert "Examples" in workbook.sheetnames
     assert workbook["Leads"]["A1"].value == "id"
     assert workbook["Projects"]["B1"].value == "developer_id"
 
