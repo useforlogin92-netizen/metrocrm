@@ -25,6 +25,7 @@ from app.routers.integrations import router as integrations_router
 from app.routers.data_tools import router as data_tools_router
 from app.routers.crm_plus import router as crm_plus_router
 from app.routers.realestate_finance import router as realestate_finance_router
+from app.routers.advanced_reports import router as advanced_reports_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
@@ -85,6 +86,7 @@ app.include_router(integrations_router)
 app.include_router(data_tools_router)
 app.include_router(crm_plus_router)
 app.include_router(realestate_finance_router)
+app.include_router(advanced_reports_router)
 
 _super_admin_failures: dict[str, list[float]] = {}
 _SUPER_ADMIN_MAX_FAILURES = 5
@@ -333,10 +335,10 @@ def edit_user(request: Request, user_id: int, username: str = Form(...), role: s
     target.username = username.strip()
     target.role = role
     target.mobile = mobile.strip() or None
-    target.email = email.strip().lower() or None
     target.category = category.strip() or None
     target.team = team.strip() or None
     target.reporting_manager_id = manager
+    target.email = email.strip().lower() or None
     _audit(db, actor.id, "USER_UPDATED", target, {"role": role})
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
