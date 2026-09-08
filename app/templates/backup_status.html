@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Backup Status · MetroCRM{% endblock %}
+{% block header_title %}Backup & Disaster Recovery{% endblock %}
+{% block breadcrumb %}Backup Status{% endblock %}
+{% block content %}
+<div class="card" style="margin-bottom:18px">
+  <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0 0 6px;font-size:18px">Automated backup protection</h2>
+      <p style="margin:0;color:#64748b;font-size:12px">One encrypted master snapshot is created twice daily and copied to every configured destination.</p>
+    </div>
+    <form method="post" action="/admin/backups/run">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" style="border:0;border-radius:9px;background:#2563eb;color:#fff;padding:10px 14px;font-weight:800;cursor:pointer">Run Backup Now</button>
+    </form>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:18px">
+  <div class="card"><div style="font-size:11px;color:#64748b">Schedule</div><div style="font-size:22px;font-weight:900;margin-top:6px">11:00 · 19:00</div><div style="font-size:11px;color:#64748b;margin-top:5px">Asia/Kolkata</div></div>
+  <div class="card"><div style="font-size:11px;color:#64748b">Local Server</div><div style="font-size:18px;font-weight:900;margin-top:6px">{{ 'Configured' if backup.local_configured else 'Not configured' }}</div><div style="font-size:11px;color:#64748b;margin-top:5px">Encrypted master copy</div></div>
+  <div class="card"><div style="font-size:11px;color:#64748b">External Drive</div><div style="font-size:18px;font-weight:900;margin-top:6px">{{ 'Configured' if backup.external_configured else 'Desktop Agent' }}</div><div style="font-size:11px;color:#64748b;margin-top:5px">Offline recovery copy</div></div>
+  <div class="card"><div style="font-size:11px;color:#64748b">Cloud</div><div style="font-size:18px;font-weight:900;margin-top:6px">{{ backup.cloud_provider|replace('_',' ')|title }}</div><div style="font-size:11px;color:#64748b;margin-top:5px">Off-site redundancy</div></div>
+</div>
+
+<div class="card" style="margin-bottom:18px">
+  <h3 style="margin:0 0 14px;font-size:15px">Destination configuration</h3>
+  <div style="display:grid;gap:10px;font-size:12px">
+    <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:9px"><span>Local server</span><strong>{{ 'READY' if backup.local_configured else 'NOT CONFIGURED' }}</strong></div>
+    <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:9px"><span>External / desktop agent</span><strong>{{ 'READY' if backup.external_configured or backup.google_drive_configured or backup.onedrive_configured else 'PENDING SETUP' }}</strong></div>
+    <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:9px"><span>Google Drive</span><strong>{{ 'READY' if backup.google_drive_configured else 'CREDENTIALS PENDING' }}</strong></div>
+    <div style="display:flex;justify-content:space-between"><span>OneDrive</span><strong>{{ 'READY' if backup.onedrive_configured else 'CREDENTIALS PENDING' }}</strong></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin:0 0 8px;font-size:15px">Recovery design</h3>
+  <p style="margin:0;color:#64748b;font-size:12px;line-height:1.7">MetroCRM creates one encrypted backup package per cycle, then fans that same package out to Local Server, External Drive, Google Drive and OneDrive when configured. A failed destination is recorded as a partial failure without destroying successful copies.</p>
+  <div style="margin-top:14px;padding:11px;border-radius:10px;background:#f8fafc;font-size:11px;color:#475569">Google Drive and OneDrive OAuth secrets belong in deployment environment variables, never in GitHub or the application database.</div>
+</div>
+{% endblock %}
