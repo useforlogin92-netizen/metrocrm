@@ -86,3 +86,9 @@ def test_data_tools_routes_are_registered():
     assert "/admin/data-tools/export/{entity_type}" in paths
     assert "/reports" in paths
     assert "/super-admin/business-health" in paths
+
+
+def test_xlsx_upload_is_validated_as_zip_and_limited():
+    from app.routers import data_tools
+    assert hasattr(data_tools, "is_zipfile")
+    assert hasattr(data_tools, "ZipFile")

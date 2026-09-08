@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
 import json
+from html import escape
+from zipfile import BadZipFile, ZipFile, is_zipfile
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
@@ -428,6 +430,16 @@ def import_data(request: Request, file: UploadFile = File(...), db: Session = De
     content = file.file.read()
     if len(content) > 10 * 1024 * 1024:
         return _html_page("Import Error", "<div class='card'><h2>File is too large. Maximum size is 10 MB.</h2></div>")
+    if not is_zipfile(BytesIO(content)):
+        return _html_page("Import Error", "<div class='card'><h2>The uploaded file is not a valid XLSX workbook.</h2></div>")
+    try:
+        with ZipFile(BytesIO(content)) as archive:
+            infos = archive.infolist()
+            uncompressed_size = sum(info.file_size for info in infos)
+            if len(infos) > 5000 or uncompressed_size > 50 * 1024 * 1024:
+                return _html_page("Import Error", "<div class='card'><h2>Workbook contents exceed the safe processing limits.</h2></div>")
+    except BadZipFile:
+        return _html_page("Import Error", "<div class='card'><h2>The uploaded file is not a valid XLSX workbook.</h2></div>")
     created, updated, errors = _import_workbook(content, db)
     if errors:
         return _html_page("Import Validation Failed", "<div class='card'><h2>No changes were saved.</h2><p class='muted'>The complete workbook was rolled back because validation failed.</p><ul>" + "".join(f"<li>{e}</li>" for e in errors[:30]) + "</ul><a class='btn' href='/admin/data-tools'>Back</a></div>")
@@ -473,7 +485,7 @@ def export_requests(request: Request, db: Session = Depends(get_db)):
             action = f"<form class='row' method='post' action='/super-admin/data-export-requests/{row.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn' type='submit'>Approve</button><button class='btn danger' name='decision' value='reject' type='submit'>Reject</button></form>"
         elif row.status == "APPROVED":
             action = f"<a class='btn secondary' href='/super-admin/data-export-requests/{row.id}/download'>Download</a>"
-        body += f"<tr><td>#{row.id}</td><td>{user.username if user else row.requester_id}</td><td>{row.entity_type}</td><td>{row.reason}</td><td>{status}</td><td>{action}</td></tr>"
+        body += f"<tr><td>#{row.id}</td><td>{escape(user.username) if user else row.requester_id}</td><td>{row.entity_type}</td><td>{escape(str(row.reason))}</td><td>{status}</td><td>{action}</td></tr>"
     body += "</table></div>"
     return _html_page("Export Approval", body)
 
@@ -549,7 +561,7 @@ def reports_page(request: Request, db: Session = Depends(get_db)):
     body += "<div class='card'><h2>Team Scope</h2><table><tr><th>User</th><th>Role</th><th>Reporting Manager</th></tr>"
     for user in data["users"]:
         manager = db.get(type(actor), user.reporting_manager_id) if user.reporting_manager_id else None
-        body += f"<tr><td>{user.username}</td><td>{user.role}</td><td>{manager.username if manager else '—'}</td></tr>"
+        body += f"<tr><td>{escape(user.username)}</td><td>{escape(str(user.role))}</td><td>{escape(manager.username) if manager else '—'}</td></tr>"
     body += "</table></div>"
     if actor.role == "SUPER_ADMIN":
         body += "<div class='card'><h2>Business Health</h2><p class='muted'>Super Admin only.</p><a class='btn secondary' href='/super-admin/business-health'>Open Business Health Report</a></div>"
