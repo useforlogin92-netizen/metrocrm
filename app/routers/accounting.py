@@ -47,6 +47,8 @@ CATEGORIES = [
     ("OTHER_INCOME", "Other Income", "INCOME"),
     ("CASH", "Cash", "ASSET"),
     ("BANK", "Bank Account", "ASSET"),
+    ("VENDOR_PAYABLE", "Vendor / Supplier Payable", "LIABILITY"),
+    ("CUSTOMER_RECEIVABLE", "Customer / Client Receivable", "ASSET"),
     ("LOAN_LIABILITY", "Business Loan Liability", "LIABILITY"),
     ("OWNER_CAPITAL", "Owner Capital", "EQUITY"),
     ("INPUT_CGST", "Input CGST", "ASSET"),
@@ -185,33 +187,44 @@ def journal_page(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(select(JournalEntry).order_by(JournalEntry.entry_date.desc()).limit(100)).all()
     csrf = csrf_token(request)
     opts = "".join(f"<option value='{a.code}'>{a.code} — {escape(a.name)}</option>" for a in accounts)
-    body = f"<div class='card'><h2>Balanced Journal Entry</h2><p class='muted'>Manual journals are available to Admin/Super Admin for controlled adjustments. Posted entries cannot be edited here.</p><form method='post' action='/accounting/journal'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Date</label><input type='date' name='entry_date' required></div><div><label>Entry No.</label><input name='entry_no' required></div><div><label>Debit Account</label><select name='debit_account'>{opts}</select></div><div><label>Credit Account</label><select name='credit_account'>{opts}</select></div><div><label>Amount</label><input name='amount' type='number' min='0.01' step='0.01' required></div><div><label>Reference</label><input name='reference_no'></div></div><label>Narration</label><textarea name='narration' required></textarea><button class='btn' type='submit'>Post Balanced Journal</button></form></div><div class='card'><h2>Recent Journals</h2><table><tr><th>No.</th><th>Date</th><th>Narration</th><th>Status</th></tr>" + "".join(f"<tr><td>{escape(x.entry_no)}</td><td>{x.entry_date.date()}</td><td>{escape(x.narration)}</td><td>{escape(x.status)}</td></tr>" for x in rows) + "</table></div>"
+    body = f"<div class='card'><h2>Balanced Journal Entry</h2><p class='muted'>Manual journals are available to Admin/Super Admin for controlled adjustments. Posted entries cannot be edited here.</p><form method='post' action='/accounting/journal'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Date</label><input type='date' name='entry_date' required></div><div><label>Entry No.</label><input name='entry_no' required></div><div><label>Debit Account</label><select name='debit_account'>{opts}</select></div><div><label>Credit Account</label><select name='credit_account'>{opts}</select></div><div><label>Amount</label><input name='amount' type='number' min='0.01' step='0.01' required></div><div><label>Reference</label><input name='reference_no'></div></div><label>Narration</label><textarea name='narration' required></textarea><button class='btn' type='submit'>Post Balanced Journal</button></form></div>"
+    body += "<div class='card'><h2>Recent Journals</h2><table><tr><th>No.</th><th>Date</th><th>Narration</th><th>Status</th></tr>" + "".join(f"<tr><td>{escape(x.entry_no)}</td><td>{x.entry_date.date()}</td><td>{escape(x.narration)}</td><td>{escape(x.status)}</td></tr>" for x in rows) + "</table></div>"
     return page("Journal", body)
 
 
 @router.post("/accounting/journal", dependencies=[Depends(require_csrf)])
-def post_journal(request: Request, entry_date: str = Form(...), entry_no: str = Form(...), debit_account: str = Form(...), credit_account: str = Form(...), amount: Decimal = Form(...), reference_no: str = Form(""), narration: str = Form(...), db: Session = Depends(get_db)):
+def create_journal(
+    request: Request,
+    entry_date: str = Form(...),
+    entry_no: str = Form(...),
+    debit_account: str = Form(...),
+    credit_account: str = Form(...),
+    amount: Decimal = Form(...),
+    narration: str = Form(...),
+    reference_no: str = Form(""),
+    db: Session = Depends(get_db),
+):
     user = actor(request, db)
     ensure_categories(db)
     try:
         parsed_date = dt(entry_date)
     except ValueError:
         return RedirectResponse("/accounting/journal?error=date", status_code=303)
-    if not user or amount <= 0 or debit_account == credit_account:
+    debit = db.scalar(select(AccountCategory).where(AccountCategory.code == debit_account))
+    credit = db.scalar(select(AccountCategory).where(AccountCategory.code == credit_account))
+    if not user or not debit or not credit or debit_account == credit_account or amount <= 0 or period_is_closed(db, parsed_date):
         return RedirectResponse("/accounting/journal?error=validation", status_code=303)
-    if not db.scalar(select(AccountCategory.id).where(AccountCategory.code == debit_account)) or not db.scalar(select(AccountCategory.id).where(AccountCategory.code == credit_account)):
-        return RedirectResponse("/accounting/journal?error=validation", status_code=303)
-    if period_is_closed(db, parsed_date):
-        return RedirectResponse("/accounting/journal?error=period-closed", status_code=303)
-    clean_no = entry_no.strip()
-    if not clean_no or db.scalar(select(JournalEntry.id).where(JournalEntry.entry_no == clean_no)):
+    if db.scalar(select(JournalEntry.id).where(JournalEntry.entry_no == entry_no.strip())):
         return RedirectResponse("/accounting/journal?error=duplicate", status_code=303)
-    je = JournalEntry(entry_no=clean_no, entry_date=parsed_date, narration=narration.strip(), reference_no=reference_no.strip() or None, created_by_id=user.id, status="POSTED")
+    je = JournalEntry(entry_no=entry_no.strip(), entry_date=parsed_date, narration=narration.strip(), reference_no=reference_no.strip() or None, created_by_id=user.id, status="POSTED")
     db.add(je)
     db.flush()
-    db.add_all([JournalLine(journal_entry_id=je.id, account_code=debit_account, debit=amount, credit=0), JournalLine(journal_entry_id=je.id, account_code=credit_account, debit=0, credit=amount)])
+    db.add_all([
+        JournalLine(journal_entry_id=je.id, account_code=debit_account, debit=amount, credit=Decimal("0")),
+        JournalLine(journal_entry_id=je.id, account_code=credit_account, debit=Decimal("0"), credit=amount),
+    ])
     from app.main import _audit
-    _audit(db, user.id, "ACCOUNTING_MANUAL_JOURNAL_POSTED", None, {"entry_no": clean_no, "amount": str(amount)})
+    _audit(db, user.id, "ACCOUNTING_MANUAL_JOURNAL_POSTED", None, {"entry_no": entry_no.strip(), "amount": str(amount)})
     db.commit()
     return RedirectResponse("/accounting/journal", status_code=303)
 
@@ -223,46 +236,48 @@ def financials(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/dashboard", status_code=303)
     ensure_categories(db)
     accounts = db.scalars(select(AccountCategory).order_by(AccountCategory.account_type, AccountCategory.code)).all()
+    totals = {a.code: Decimal("0") for a in accounts}
     lines = db.scalars(select(JournalLine)).all()
-    balances: dict[str, Decimal] = {}
     for line in lines:
-        balances[line.account_code] = balances.get(line.account_code, Decimal(0)) + dec(line.debit) - dec(line.credit)
-    income = sum((-balances.get(a.code, Decimal(0)) for a in accounts if a.account_type == "INCOME"), Decimal(0))
-    expense = sum((balances.get(a.code, Decimal(0)) for a in accounts if a.account_type == "EXPENSE"), Decimal(0))
+        totals[line.account_code] = totals.get(line.account_code, Decimal("0")) + dec(line.debit) - dec(line.credit)
+    income = sum((-totals[a.code] for a in accounts if a.account_type == "INCOME"), Decimal(0))
+    expense = sum((totals[a.code] for a in accounts if a.account_type == "EXPENSE"), Decimal(0))
     profit = income - expense
-    assets = sum((balances.get(a.code, Decimal(0)) for a in accounts if a.account_type == "ASSET"), Decimal(0))
-    liabilities = sum((-balances.get(a.code, Decimal(0)) for a in accounts if a.account_type == "LIABILITY"), Decimal(0))
-    equity = sum((-balances.get(a.code, Decimal(0)) for a in accounts if a.account_type == "EQUITY"), Decimal(0)) + profit
-    total_debit = sum((dec(x.debit) for x in lines), Decimal(0))
-    total_credit = sum((dec(x.credit) for x in lines), Decimal(0))
-    diff = total_debit - total_credit
-    body = f"<div class='grid'><div class='stat'><div class='muted'>Income</div><div class='value'>₹ {float(income):,.2f}</div></div><div class='stat'><div class='muted'>Expenses</div><div class='value'>₹ {float(expense):,.2f}</div></div><div class='stat'><div class='muted'>Net Profit / Loss</div><div class='value'>₹ {float(profit):,.2f}</div></div><div class='stat'><div class='muted'>Trial Balance Difference</div><div class='value'>₹ {float(diff):,.2f}</div></div></div><div class='card'><h2>Profit & Loss</h2><p>Income: ₹ {float(income):,.2f} &nbsp; | &nbsp; Expenses: ₹ {float(expense):,.2f} &nbsp; | &nbsp; Net: ₹ {float(profit):,.2f}</p></div><div class='card'><h2>Balance Sheet Foundation</h2><p>Assets: ₹ {float(assets):,.2f} &nbsp; | &nbsp; Liabilities: ₹ {float(liabilities):,.2f} &nbsp; | &nbsp; Equity incl. current result: ₹ {float(equity):,.2f}</p><p class='muted'>Management accounting foundation; reconcile with final statutory books and CA review before GST/ITR filing.</p></div><div class='card'><h2>Trial Balance / Ledger Balances</h2><table><tr><th>Code</th><th>Account</th><th>Type</th><th>Debit − Credit</th></tr>" + "".join(f"<tr><td>{escape(a.code)}</td><td>{escape(a.name)}</td><td>{escape(a.account_type)}</td><td>₹ {float(balances.get(a.code, Decimal(0))):,.2f}</td></tr>" for a in accounts) + "</table></div>"
+    assets = sum((totals[a.code] for a in accounts if a.account_type == "ASSET"), Decimal(0))
+    liabilities = sum((-totals[a.code] for a in accounts if a.account_type == "LIABILITY"), Decimal(0))
+    equity = sum((-totals[a.code] for a in accounts if a.account_type == "EQUITY"), Decimal(0)) + profit
+    debit_total = sum((dec(x.debit) for x in lines), Decimal(0))
+    credit_total = sum((dec(x.credit) for x in lines), Decimal(0))
+    body = "<div class='card'><p class='muted'>Admin/Super Admin only. This is a management-accounting foundation; reconcile with statutory books and your CA/tax professional before ITR/GST filing.</p><div class='grid'>" + "".join(f"<div class='stat'><div class='muted'>{k}</div><div class='value'>₹ {float(v):,.2f}</div></div>" for k, v in [("Income", income), ("Expense", expense), ("Profit / (Loss)", profit), ("Trial Balance Difference", debit_total - credit_total)]) + "</div></div>"
+    body += f"<div class='two'><div class='card'><h2>Balance Sheet Foundation</h2><p>Assets: ₹ {float(assets):,.2f}</p><p>Liabilities: ₹ {float(liabilities):,.2f}</p><p>Equity incl. current result: ₹ {float(equity):,.2f}</p></div><div class='card'><h2>Trial Balance</h2><p>Total Debits: ₹ {float(debit_total):,.2f}</p><p>Total Credits: ₹ {float(credit_total):,.2f}</p><p>Difference: ₹ {float(debit_total - credit_total):,.2f}</p></div></div>"
+    body += "<div class='card'><h2>Account Balances</h2><table><tr><th>Code</th><th>Account</th><th>Type</th><th>Balance</th></tr>" + "".join(f"<tr><td>{escape(a.code)}</td><td>{escape(a.name)}</td><td>{a.account_type}</td><td>₹ {float(totals.get(a.code,0)):,.2f}</td></tr>" for a in accounts) + "</table></div>"
     return page("Financial Statements", body)
 
 
 @router.get("/accounting/periods", response_class=HTMLResponse)
-def periods_page(request: Request, db: Session = Depends(get_db)):
+def periods(request: Request, db: Session = Depends(get_db)):
     user = actor(request, db)
     if not user:
         return RedirectResponse("/dashboard", status_code=303)
     rows = db.scalars(select(AccountingPeriod).order_by(AccountingPeriod.from_date.desc())).all()
     csrf = csrf_token(request)
-    body = f"<div class='card'><h2>Accounting Period</h2><form method='post' action='/accounting/periods'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Name</label><input name='period_name' placeholder='FY 2026-27' required></div><div><label>From</label><input type='date' name='from_date' required></div><div><label>To</label><input type='date' name='to_date' required></div></div><button class='btn' type='submit'>Create Open Period</button></form></div><div class='card'><h2>Periods</h2><table><tr><th>Name</th><th>From</th><th>To</th><th>Status</th><th>Action</th></tr>" + "".join(f"<tr><td>{escape(x.period_name)}</td><td>{x.from_date.date()}</td><td>{x.to_date.date()}</td><td>{escape(x.status)}</td><td>" + (f"<form method='post' action='/accounting/periods/{x.id}/close' style='display:inline'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn' type='submit'>Close Period</button></form>" if x.status != "CLOSED" else "Locked") + "</td></tr>" for x in rows) + "</table></div>"
+    body = f"<div class='card'><h2>Accounting Period Control</h2><form method='post' action='/accounting/periods'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Period Name</label><input name='period_name' required></div><div><label>From</label><input type='date' name='from_date' required></div><div><label>To</label><input type='date' name='to_date' required></div></div><button class='btn' type='submit'>Create Open Period</button></form></div>"
+    body += "<div class='card'><table><tr><th>Period</th><th>From</th><th>To</th><th>Status</th><th>Action</th></tr>" + "".join(f"<tr><td>{escape(x.period_name)}</td><td>{x.from_date.date()}</td><td>{x.to_date.date()}</td><td>{x.status}</td><td>{f'<form method=\"post\" action=\"/accounting/periods/{x.id}/close\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"btn\" type=\"submit\">Close Period</button></form>' if x.status != 'CLOSED' else 'Closed'}</td></tr>" for x in rows) + "</table></div>"
     return page("Accounting Periods", body)
 
 
 @router.post("/accounting/periods", dependencies=[Depends(require_csrf)])
 def create_period(request: Request, period_name: str = Form(...), from_date: str = Form(...), to_date: str = Form(...), db: Session = Depends(get_db)):
     user = actor(request, db)
-    if not user:
-        return RedirectResponse("/dashboard", status_code=303)
     try:
         start, end = dt(from_date), dt(to_date)
     except ValueError:
         return RedirectResponse("/accounting/periods?error=date", status_code=303)
-    if start > end or not period_name.strip() or db.scalar(select(AccountingPeriod.id).where(AccountingPeriod.period_name == period_name.strip())):
+    if not user or start > end or db.scalar(select(AccountingPeriod.id).where(AccountingPeriod.period_name == period_name.strip())):
         return RedirectResponse("/accounting/periods?error=validation", status_code=303)
     db.add(AccountingPeriod(period_name=period_name.strip(), from_date=start, to_date=end, status="OPEN"))
+    from app.main import _audit
+    _audit(db, user.id, "ACCOUNTING_PERIOD_CREATED", None, {"period_name": period_name.strip()})
     db.commit()
     return RedirectResponse("/accounting/periods", status_code=303)
 
@@ -283,18 +298,18 @@ def close_period(period_id: int, request: Request, db: Session = Depends(get_db)
 
 
 @router.get("/accounting/export")
-def export_accounting(request: Request, db: Session = Depends(get_db)):
+def export_ledger(request: Request, db: Session = Depends(get_db)):
     user = actor(request, db)
     if not user:
         return RedirectResponse("/dashboard", status_code=303)
     rows = db.scalars(select(AccountingEntry).order_by(AccountingEntry.entry_date.asc(), AccountingEntry.id.asc())).all()
     wb = Workbook()
     ws = wb.active
-    ws.title = "Ledger"
-    ws.append(["Date", "Type", "Category", "Description", "Party", "Amount", "GST Rate", "GST Amount", "TDS", "Payment Mode", "Invoice No", "Reference No", "Bank Account", "Notes"])
+    ws.title = "Accounting Ledger"
+    ws.append(["Date", "Type", "Category", "Description", "Amount", "GST Rate %", "GST Amount", "TDS", "Payment Mode", "Party", "Invoice", "Reference", "Bank Account", "Notes"])
     for x in rows:
-        ws.append([x.entry_date.date(), x.entry_type, x.category_code, x.description, x.party_name, x.amount, x.gst_rate, x.gst_amount, x.tds_amount, x.payment_mode, x.invoice_no, x.reference_no, x.bank_account, x.notes])
-    bio = BytesIO()
-    wb.save(bio)
-    bio.seek(0)
-    return StreamingResponse(bio, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Accounting_Ledger.xlsx"})
+        ws.append([x.entry_date, x.entry_type, x.category_code, x.description, float(x.amount), float(x.gst_rate), float(x.gst_amount), float(x.tds_amount), x.payment_mode, x.party_name, x.invoice_no, x.reference_no, x.bank_account, x.notes])
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return StreamingResponse(out, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=metrocrm-accounting-ledger.xlsx"})
