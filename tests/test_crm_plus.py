@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 from app.crm_plus_models import CRMTask, LeadScore, SalesTarget
 from app.models import Lead, User
@@ -9,7 +9,7 @@ def test_lead_score_rewards_complete_fresh_lead(db_session):
     user = User(username="score_user", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
     db_session.add(user)
     db_session.flush()
-    lead = Lead(source="WHATSAPP", status="NEW", assigned_user_id=user.id, budget_min=5000000, budget_max=10000000, preferred_location="Thane", bhk="2 BHK", property_type="APARTMENT", created_at=datetime.utcnow())
+    lead = Lead(source="WHATSAPP", status="NEW", assigned_user_id=user.id, budget_min=5000000, budget_max=10000000, preferred_location="Thane", bhk="2 BHK", property_type="APARTMENT", created_at=datetime.now(timezone.utc).replace(tzinfo=None))
     db_session.add(lead)
     db_session.commit()
     score, grade, reasons = score_lead(lead)
