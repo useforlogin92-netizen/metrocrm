@@ -1,0 +1,54 @@
+name: One-time Data Tools Repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor == 'useforlogin92-netizen'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Repair syntax and register router in portal
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/routers/data_tools.py')
+          text = path.read_text()
+          bad = '''                status = f"<span class='{'ok' if r.status == 'APPROVED' else 'pending'}">{r.status}</span>"'''
+          good = '''                css_class = "ok" if r.status == "APPROVED" else "pending"\n                status = f"<span class='{css_class}'>{r.status}</span>"'''
+          if bad not in text:
+              raise SystemExit('Expected data_tools syntax marker was not found')
+          path.write_text(text.replace(bad, good, 1))
+
+          portal = Path('app/portal.py')
+          portal_text = portal.read_text()
+          import_anchor = 'from app.services.integrations import generate_and_send_otp\n'
+          if 'from app.routers.data_tools import router as data_tools_router' not in portal_text:
+              portal_text = portal_text.replace(import_anchor, import_anchor + 'from app.routers.data_tools import router as data_tools_router\n', 1)
+          include_anchor = 'templates = main_module.templates\n'
+          if 'app.include_router(data_tools_router)' not in portal_text:
+              portal_text = portal_text.replace(include_anchor, include_anchor + 'app.include_router(data_tools_router)\n', 1)
+          portal.write_text(portal_text)
+          PY
+      - name: Verify repair
+        run: |
+          PYTHONPATH=. python -m compileall -q app
+          PYTHONPATH=. pytest -q -W error::DeprecationWarning
+      - name: Commit repair and remove one-time workflow
+        run: |
+          rm .github/workflows/one_time_repair_data_tools.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/routers/data_tools.py app/portal.py .github/workflows/one_time_repair_data_tools.yml
+          git commit -m 'fix: integrate data tools router safely'
+          git push
