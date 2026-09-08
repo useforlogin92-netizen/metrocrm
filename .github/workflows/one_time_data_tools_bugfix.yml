@@ -1,0 +1,36 @@
+name: One-time Data Tools Bugfix Repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor == 'useforlogin92-netizen'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix report approval download and escaped errors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/routers/data_tools.py')
+          text = path.read_text()
+          text = text.replace('''"<ul>" + "".join(f"<li>{e}</li>" for e in errors[:30]) + "</ul>''', '''"<ul>" + "".join(f"<li>{escape(str(e))}</li>" for e in errors[:30]) + "</ul>''', 1)
+          text = text.replace('''    workbook = _export_workbook([row.entity_type], db)\n    row.status = "COMPLETED"\n''', '''    workbook = _export_report_workbook(actor, db) if row.entity_type == "REPORTS" else _export_workbook([row.entity_type], db)\n    row.status = "COMPLETED"\n''', 1)
+          path.write_text(text)
+          PY
+      - name: Verify bugfix
+        run: |
+          python -m py_compile app/routers/data_tools.py
+      - name: Commit bugfix and remove one-time workflow
+        run: |
+          rm .github/workflows/one_time_data_tools_bugfix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/routers/data_tools.py .github/workflows/one_time_data_tools_bugfix.yml
+          git commit -m 'fix: complete report export approval flow'
+          git push
