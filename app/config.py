@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     backup_enabled: bool = True
     backup_timezone: str = "Asia/Kolkata"
     backup_local_path: str = "./backups"
+    uploads_path: str = "./uploads"
     backup_external_path: str = ""
     backup_agent_token: str = ""
     backup_encryption_key: str = ""
