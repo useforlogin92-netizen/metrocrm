@@ -27,9 +27,8 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 def _current_user(request: Request, db: Session) -> User | None:
-    user_id = request.session.get("user_id")
-    user = db.get(User, user_id) if user_id else None
-    return user if user and user.is_active else None
+    from app.main import _current_user as get_current_user
+    return get_current_user(request, db)
 
 
 def _can_share(user: User) -> bool:
@@ -101,30 +100,24 @@ def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Dep
     db.add(share)
     db.add(AuditEvent(actor_user_id=user.id, action="CATALOG_SHARE_CREATED", entity_type="CatalogShare", entity_id="pending", details=json.dumps({"project_id": body.project_id, "unit_id": body.unit_id})))
     db.commit(); db.refresh(share)
-    return {"status": "READY", "share_id": share.id, "share_token": token, "share_path": f"/catalog/view/{token}", "catalog": payload}
+    return {"token": token, "share_id": share.id, "url": f"/catalog/public/{token}"}
 
 
-@router.get("/view/{token}", response_class=HTMLResponse)
-def public_catalog(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    share = db.scalar(select(CatalogShare).where(CatalogShare.token_hash == _token_hash(token), CatalogShare.active.is_(True)))
-    if not share or (share.expires_at and share.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)):
-        raise HTTPException(404, "catalog_link_not_found_or_expired")
-    payload = json.loads(share.payload_json)
-    return templates.TemplateResponse("catalog_public.html", {"request": request, "catalog": payload, "visit_url": f"/catalog/view/{token}/visit"})
+@router.get("/public/{token}", response_class=HTMLResponse)
+def public_catalog(request: Request, token: str, db: Session = Depends(get_db)) -> Response:
+    share = db.scalar(select(CatalogShare).where(CatalogShare.token_hash == _token_hash(token)))
+    if not share:
+        return HTMLResponse("Catalog link not found.", status_code=404)
+    if share.expires_at and share.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        return HTMLResponse("This catalog link has expired.", status_code=410)
+    visit = CatalogShareVisit(share_id=share.id, visitor_ip_hash=hashlib.sha256((settings.secret_key + (request.client.host if request.client else "unknown")).encode()).hexdigest(), user_agent=(request.headers.get("user-agent") or "")[:500])
+    db.add(visit); db.commit()
+    payload = json.loads(share.payload_json or "{}")
+    return templates.TemplateResponse("catalog_public.html", {"request": request, "payload": payload})
 
 
-@router.post("/view/{token}/visit")
-async def public_catalog_visit(token: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
-    share = db.scalar(select(CatalogShare).where(CatalogShare.token_hash == _token_hash(token), CatalogShare.active.is_(True)))
-    if not share or (share.expires_at and share.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)):
-        raise HTTPException(404, "catalog_link_not_found_or_expired")
-    client_ip = request.client.host if request.client else "unknown"
-    visitor_hash = hashlib.sha256((settings.secret_key + client_ip).encode()).hexdigest()
-    recent = db.scalar(select(CatalogShareVisit).where(CatalogShareVisit.share_id == share.id, CatalogShareVisit.visitor_key_hash == visitor_hash, CatalogShareVisit.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=settings.property_visit_alert_cooldown_seconds)))
-    if recent:
-        return {"status": "already_recorded"}
-    db.add(CatalogShareVisit(share_id=share.id, visitor_key_hash=visitor_hash, user_agent=(request.headers.get("user-agent") or "")[:500], page_url=str(request.headers.get("referer") or "")[:1000]))
-    db.add(PropertyVisitAlert(project_id=share.project_id, unit_id=share.unit_id, visitor_ip_hash=visitor_hash, user_agent=(request.headers.get("user-agent") or "")[:500], page_url=f"/catalog/view/{token}"))
-    db.add(AuditEvent(action="PROPERTY_CATALOG_VISIT", entity_type="CatalogShare", entity_id=str(share.id), details=json.dumps({"project_id": share.project_id, "unit_id": share.unit_id})))
-    db.commit()
-    return {"status": "alerted", "notify_roles": ["ADMIN", "SUPER_ADMIN"]}
+@router.get("/shares")
+def list_catalog_shares(request: Request, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    user = _require_sharing_user(request, db)
+    rows = db.scalars(select(CatalogShare).where(CatalogShare.created_by_id == user.id).order_by(CatalogShare.id.desc()).limit(100)).all()
+    return [{"id": row.id, "project_id": row.project_id, "unit_id": row.unit_id, "created_at": row.created_at.isoformat() if row.created_at else None, "expires_at": row.expires_at.isoformat() if row.expires_at else None} for row in rows]
