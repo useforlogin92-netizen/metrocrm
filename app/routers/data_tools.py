@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
@@ -35,6 +36,7 @@ def _models():
         "Projects": (Project, ["id", "developer_id", "name", "state", "district", "city", "locality", "sector", "address", "pincode", "latitude", "longitude", "rera", "possession_date", "builder_commitment_date", "construction_status", "amenities_json", "photos_json", "brochure", "description"]),
         "Towers": (Tower, ["id", "project_id", "name", "floors", "possession_date", "details"]),
         "Units": (Unit, ["id", "project_id", "tower_id", "unit_number", "floor", "total_building_floors", "bhk", "property_type", "carpet_area", "built_up_area", "super_built_up_area", "plot_area", "price", "price_per_sqft", "parking", "facing", "furnishing", "possession", "rera", "availability", "status", "latitude", "longitude", "amenities_json", "photos_json", "floor_plan", "brochure", "description", "other_details"]),
+        "NearbyLocations": (__import__("app.models", fromlist=["NearbyLocation"]).NearbyLocation, ["id", "project_id", "category", "name", "distance", "details", "verified", "verified_at"]),
     }
 
 
@@ -145,11 +147,23 @@ def _template_workbook() -> BytesIO:
             cell.comment = Comment("Leave id blank for new record; use an existing id to update.", "MetroCRM") if cell.value == "id" else None
         sh.freeze_panes = "A2"
         sh.auto_filter.ref = sh.dimensions
-        example = [_sample_value(sheet, f) for f in fields]
-        sh.append(example)
         for idx, field in enumerate(fields, start=1):
-            sh.column_dimensions[chr(64 + idx) if idx <= 26 else "A"].width = min(34, max(12, len(field) + 4))
+            sh.column_dimensions[get_column_letter(idx)].width = min(34, max(12, len(field) + 4))
         sh.sheet_view.showGridLines = False
+    examples = wb.create_sheet("Examples")
+    examples.append(["Sheet", "Field", "Example Value"])
+    for cell in examples[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+    for sheet, (_, fields) in sheets.items():
+        for field in fields:
+            example = _sample_value(sheet, field)
+            if example is not None:
+                examples.append([sheet, field, example])
+    examples.freeze_panes = "A2"
+    examples.column_dimensions["A"].width = 26
+    examples.column_dimensions["B"].width = 32
+    examples.column_dimensions["C"].width = 55
     return _save_workbook(wb)
 
 
@@ -204,6 +218,24 @@ def _export_workbook(entity_names: list[str], db: Session, scope_ids: set[int] |
         sh.auto_filter.ref = sh.dimensions
     if not wb.sheetnames:
         wb.create_sheet("Export")
+    return _save_workbook(wb)
+
+
+def _export_report_workbook(actor, db: Session) -> BytesIO:
+    data = _report_data(actor, db)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Report Summary"
+    ws.append(["Metric", "Value"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+    for key, value in data["metrics"].items():
+        ws.append([key, _excel_value(value)])
+    team = wb.create_sheet("Team Scope")
+    team.append(["User ID", "Username", "Role", "Reporting Manager ID"])
+    for user in data["users"]:
+        team.append([user.id, user.username, user.role, user.reporting_manager_id])
     return _save_workbook(wb)
 
 
@@ -289,7 +321,7 @@ def _import_workbook(content: bytes, db: Session) -> tuple[int, int, list[str]]:
 
 def _descendant_ids(actor, db: Session) -> set[int]:
     if actor.role in {"SUPER_ADMIN", "ADMIN"}:
-        return {u.id for u in db.scalars(select(type(actor).id)).all()}
+        return set(db.scalars(select(type(actor).id)).all())
     ids = {actor.id}
     changed = True
     while changed:
@@ -369,7 +401,8 @@ def data_tools_page(request: Request, db: Session = Depends(get_db)):
                 status = "<span class='ok'>APPROVED</span>" if r.status == "APPROVED" else "<span class='pending'>PENDING</span>"
                 action = f"<a class='btn' href='/super-admin/data-export-requests'>Review</a>"
             else:
-                status = f"<span class='{'ok' if r.status == 'APPROVED' else 'pending'}">{r.status}</span>"
+                css_class = "ok" if r.status == "APPROVED" else "pending"
+                status = f"<span class='{css_class}'>{r.status}</span>"
                 action = f"<a class='btn' href='/admin/data-tools/export/{r.entity_type}?request_id={r.id}'>Download</a>" if r.status == "APPROVED" else "Waiting for Super Admin"
             body += f"<tr><td>#{r.id}</td><td>{r.requester_id}</td><td>{r.entity_type}</td><td>{status}</td><td>{action}</td></tr>"
         body += "</table></div>"
@@ -466,7 +499,7 @@ def export_data(request: Request, entity_type: str, request_id: int | None = Non
     actor = _guard_admin(request, db)
     if not actor:
         return RedirectResponse("/dashboard", status_code=303)
-    if entity_type not in _models():
+    if entity_type != "REPORTS" and entity_type not in _models():
         return _html_page("Export", "<div class='card'><h2>Unknown dataset.</h2></div>")
     from app.models import DataRequest
     if actor.role == "ADMIN":
@@ -475,12 +508,12 @@ def export_data(request: Request, entity_type: str, request_id: int | None = Non
         approval = db.get(DataRequest, request_id)
         if not approval or approval.requester_id != actor.id or approval.action != "EXPORT" or approval.entity_type != entity_type or approval.status != "APPROVED":
             return _html_page("Export Denied", "<div class='card'><h2>This export is not approved.</h2><a class='btn' href='/admin/data-tools'>Back</a></div>")
-        workbook = _export_workbook([entity_type], db)
+        workbook = _export_report_workbook(actor, db) if entity_type == "REPORTS" else _export_workbook([entity_type], db)
         approval.status = "COMPLETED"
         _audit(db, actor.id, "DATA_EXPORT_COMPLETED", "DataRequest", str(approval.id), {"entity_type": entity_type})
         db.commit()
     else:
-        workbook = _export_workbook([entity_type], db)
+        workbook = _export_report_workbook(actor, db) if entity_type == "REPORTS" else _export_workbook([entity_type], db)
         _audit(db, actor.id, "DATA_EXPORT_COMPLETED", entity_type, None, {"approval": "super_admin_direct"})
         db.commit()
     return StreamingResponse(workbook, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename=MetroCRM_{entity_type}.xlsx"})

@@ -18,6 +18,9 @@ def test_import_template_contains_leads_and_property_sheets():
 
 def test_import_creates_and_updates_records(db_session):
     wb = load_workbook(_template_workbook())
+    for sheet in wb.sheetnames:
+        if sheet not in {"Developers", "Instructions", "Examples"}:
+            wb[sheet].delete_rows(2, wb[sheet].max_row)
     ws = wb["Developers"]
     ws.delete_rows(2, ws.max_row)
     ws.append([None, "Test Developer", "9999999999", "First import"])
