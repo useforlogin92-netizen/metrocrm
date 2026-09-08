@@ -3,7 +3,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.accounting_models import AccountingEntry, JournalEntry, JournalLine
+from app.accounting_models import AccountCategory, AccountingEntry, JournalEntry, JournalLine
 
 
 def dec(value) -> Decimal:
@@ -26,19 +26,40 @@ def post_transaction(db: Session, entry: AccountingEntry, user_id: int, entry_no
     if tds > gross:
         raise ValueError("TDS cannot exceed gross transaction value")
 
-    lines: list[tuple[str, Decimal, Decimal, str | None]] = []
-    mode = (entry.payment_mode or "").lower()
-    cash_account = "CASH" if mode == "cash" else "BANK"
+    # Verify all ledger accounts used by the posting actually exist. This keeps
+    # the helper safe even when called outside the HTTP route.
+    mode = (entry.payment_mode or "").strip().lower()
+    if entry.entry_type == "EXPENSE" and mode == "credit":
+        settlement_account = "VENDOR_PAYABLE"
+    elif entry.entry_type == "INCOME" and mode == "credit":
+        settlement_account = "CUSTOMER_RECEIVABLE"
+    elif mode == "cash":
+        settlement_account = "CASH"
+    else:
+        settlement_account = "BANK"
 
+    required = {entry.category_code, settlement_account}
+    if entry.entry_type == "EXPENSE" and gst:
+        required.add("INPUT_CGST")
+    if entry.entry_type == "EXPENSE" and tds:
+        required.add("TDS_PAYABLE")
+    if entry.entry_type == "INCOME" and gst:
+        required.add("OUTPUT_CGST")
+    existing = set(db.scalars(select(AccountCategory.code).where(AccountCategory.code.in_(required))).all())
+    missing = required - existing
+    if missing:
+        raise ValueError("Missing accounting account: " + ", ".join(sorted(missing)))
+
+    lines: list[tuple[str, Decimal, Decimal, str | None]] = []
     if entry.entry_type == "EXPENSE":
         lines.append((entry.category_code, amount, Decimal("0"), entry.party_name))
         if gst:
             lines.append(("INPUT_CGST", gst, Decimal("0"), entry.party_name))
         if tds:
             lines.append(("TDS_PAYABLE", Decimal("0"), tds, entry.party_name))
-        lines.append((cash_account, Decimal("0"), gross - tds, entry.party_name))
+        lines.append((settlement_account, Decimal("0"), gross - tds, entry.party_name))
     else:
-        lines.append((cash_account, gross, Decimal("0"), entry.party_name))
+        lines.append((settlement_account, gross, Decimal("0"), entry.party_name))
         lines.append((entry.category_code, Decimal("0"), amount, entry.party_name))
         if gst:
             lines.append(("OUTPUT_CGST", Decimal("0"), gst, entry.party_name))
