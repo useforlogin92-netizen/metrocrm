@@ -5,10 +5,11 @@ import hmac
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, User
 from app.services.backup import backup_health, create_full_backup
@@ -30,13 +31,29 @@ def require_backup_agent(token: str | None) -> None:
         raise HTTPException(status_code=401, detail="Backup agent authentication required")
 
 
-@router.get("/status")
-def status(request: Request, db: Session = Depends(get_db)):
+@router.get("/status", response_class=HTMLResponse)
+def status_page(request: Request, db: Session = Depends(get_db)):
+    user = require_super_admin(request, db)
+    return request.app.state.templates.TemplateResponse(
+        "backup_status.html",
+        {
+            "request": request,
+            "username": user.username,
+            "role": user.role,
+            "avatar": user.username[:1].upper(),
+            "backup": backup_health(),
+            "csrf_token": csrf_token(request),
+        },
+    )
+
+
+@router.get("/status.json")
+def status_json(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
     return {"user": user.username, **backup_health()}
 
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_csrf)])
 def run_manual(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
     try:
@@ -45,7 +62,8 @@ def run_manual(request: Request, db: Session = Depends(get_db)):
         db.add(AuditEvent(actor_user_id=user.id, action="BACKUP_FAILED", entity_type="Backup", entity_id=None, details=str(exc)[:1000]))
         db.commit()
         raise HTTPException(status_code=500, detail="Backup failed; check server backup logs") from exc
-    db.add(AuditEvent(actor_user_id=user.id, action="BACKUP_CREATED", entity_type="Backup", entity_id=None, details=str(result)[:4000]))
+    action = "BACKUP_CREATED" if result.get("status") == "success" else "BACKUP_PARTIAL_FAILURE"
+    db.add(AuditEvent(actor_user_id=user.id, action=action, entity_type="Backup", entity_id=None, details=str(result)[:4000]))
     db.commit()
     return result
 
