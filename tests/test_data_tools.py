@@ -3,7 +3,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app.models import Developer, User
-from app.routers.data_tools import _descendant_ids, _import_workbook, _template_workbook
+from app.routers.data_tools import _descendant_ids, _excel_value, _import_workbook, _template_workbook
 
 
 def test_import_template_contains_leads_and_property_sheets():
@@ -67,3 +67,10 @@ def test_report_scope_for_super_admin_is_global(db_session):
     db_session.add_all([super_admin, other])
     db_session.commit()
     assert _descendant_ids(super_admin, db_session) == {super_admin.id, other.id}
+
+
+def test_excel_export_neutralizes_formula_prefixes():
+    assert _excel_value("=1+1") == "'=1+1"
+    assert _excel_value("@SUM(1,1)") == "'@SUM(1,1)"
+    assert _excel_value("normal text") == "normal text"
+    assert _excel_value(100) == 100

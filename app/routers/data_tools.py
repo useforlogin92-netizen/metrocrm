@@ -181,6 +181,8 @@ def _excel_value(value: Any):
         return float(value)
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, str) and value[:1] in {"=", "+", "-", "@", "\t", "\r", "\n", "\x00", "＝", "＋", "－", "＠"}:
+        return "'" + value
     return value
 
 
