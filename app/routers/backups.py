@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -14,6 +15,7 @@ from app.database import get_db
 from app.models import AuditEvent, User
 from app.services.backup import backup_health, create_full_backup
 
+templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(prefix="/admin/backups", tags=["backups"])
 
 
@@ -34,7 +36,7 @@ def require_backup_agent(token: str | None) -> None:
 @router.get("/status", response_class=HTMLResponse)
 def status_page(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
-    return request.app.state.templates.TemplateResponse(
+    return templates.TemplateResponse(
         "backup_status.html",
         {
             "request": request,
