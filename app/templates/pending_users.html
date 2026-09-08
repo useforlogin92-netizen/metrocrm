@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | User Approvals{% endblock %}
+{% block header_title %}User Approvals{% endblock %}
+{% block breadcrumb %}User Approvals{% endblock %}
+{% block content %}
+<style>
+.hero{margin-bottom:20px}.hero h2{margin:0 0 5px;font-size:28px}.hero p{margin:0;color:var(--muted);font-size:13px}.panel{background:#fff;border:1px solid var(--line);border-radius:15px;padding:20px;box-shadow:0 4px 16px rgba(15,23,42,.04)}.users{display:grid;gap:12px}.user{border:1px solid var(--line);border-radius:12px;padding:15px}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px}.name{font-weight:850;font-size:14px}.muted{color:var(--muted);font-size:10px;margin-top:4px}.role{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:999px;padding:4px 8px;font-size:9px;font-weight:850}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.btn{border:0;border-radius:8px;padding:10px 14px;font-size:11px;font-weight:800;cursor:pointer;background:#2563eb;color:#fff}.btn.secondary{background:#fff;color:#334155;border:1px solid var(--line)}.empty{padding:30px 10px;text-align:center;color:var(--muted);font-size:12px}.notice{padding:10px 12px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:9px;font-size:11px;margin-bottom:14px}@media(max-width:700px){.head{display:block}.actions form{margin-top:8px}}
+</style>
+<div class="hero"><h2>Pending User Approvals</h2><p>Review users who are waiting for administrator approval before account access is granted.</p></div>
+<div class="panel">
+<div class="notice">Only active Super Admins and Admins can approve users. Super Admins can approve all lower-level roles; Admins cannot approve administrator accounts.</div>
+<div class="users">
+{% for u in users %}
+<article class="user">
+<div class="head">
+<div><div class="name">{{ u.username }}</div><div class="muted">{{ u.email or 'No email' }} · {{ u.mobile or 'No mobile' }}</div><div class="muted">{{ u.category or 'No category' }} · {{ u.team or 'No team' }}</div></div>
+<div><span class="role">{{ u.role }}</span><div class="muted">PENDING APPROVAL</div></div>
+</div>
+<div class="actions">
+<form method="post" action="/admin/users/{{ u.id }}/approve"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn" type="submit">Approve User</button></form>
+<a class="btn secondary" href="/admin/users">Back to User Management</a>
+</div>
+</article>
+{% else %}
+<div class="empty">No users are currently waiting for approval.</div>
+{% endfor %}
+</div>
+</div>
+{% endblock %}
