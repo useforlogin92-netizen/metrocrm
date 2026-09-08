@@ -1,0 +1,51 @@
+name: One-time Data Tools Security Hardening
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.actor == 'useforlogin92-netizen'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Harden workbook validation and HTML output
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/routers/data_tools.py')
+          text = path.read_text()
+          text = text.replace('from io import BytesIO\nimport json\n', 'from io import BytesIO\nimport json\nfrom html import escape\nfrom zipfile import BadZipFile, ZipFile, is_zipfile\n', 1)
+          text = text.replace('''    content = file.file.read()\n    if len(content) > 10 * 1024 * 1024:\n        return _html_page("Import Error", "<div class='card'><h2>File is too large. Maximum size is 10 MB.</h2></div>")\n    created, updated, errors = _import_workbook(content, db)\n''', '''    content = file.file.read()\n    if len(content) > 10 * 1024 * 1024:\n        return _html_page("Import Error", "<div class='card'><h2>File is too large. Maximum size is 10 MB.</h2></div>")\n    if not is_zipfile(BytesIO(content)):\n        return _html_page("Import Error", "<div class='card'><h2>The uploaded file is not a valid XLSX workbook.</h2></div>")\n    try:\n        with ZipFile(BytesIO(content)) as archive:\n            infos = archive.infolist()\n            uncompressed_size = sum(info.file_size for info in infos)\n            if len(infos) > 5000 or uncompressed_size > 50 * 1024 * 1024:\n                return _html_page("Import Error", "<div class='card'><h2>Workbook contents exceed the safe processing limits.</h2></div>")\n    except BadZipFile:\n        return _html_page("Import Error", "<div class='card'><h2>The uploaded file is not a valid XLSX workbook.</h2></div>")\n    created, updated, errors = _import_workbook(content, db)\n''', 1)
+          text = text.replace('''"<ul>" + "".join(f"<li>{e}</li>" for e in errors[:30]) + "</ul>''', '''"<ul>" + "".join(f"<li>{escape(str(e))}</li>" for e in errors[:30]) + "</ul>''', 1)
+          text = text.replace('''<td>{row.reason}</td>''', '''<td>{escape(str(row.reason))}</td>''', 1)
+          text = text.replace('''<td>{user.username if user else row.requester_id}</td>''', '''<td>{escape(user.username) if user else row.requester_id}</td>''', 1)
+          text = text.replace('''<td>{manager.username if manager else '—'}</td>''', '''<td>{escape(manager.username) if manager else '—'}</td>''', 1)
+          text = text.replace('''<td>{user.username}</td><td>{user.role}</td>''', '''<td>{escape(user.username)}</td><td>{escape(str(user.role))}</td>''', 1)
+          path.write_text(text)
+
+          test = Path('tests/test_data_tools.py')
+          test_text = test.read_text()
+          test_text += '''\n\ndef test_xlsx_upload_is_validated_as_zip_and_limited():\n    from app.routers import data_tools\n    assert hasattr(data_tools, "is_zipfile")\n    assert hasattr(data_tools, "ZipFile")\n'''
+          test.write_text(test_text)
+          PY
+      - name: Verify hardening
+        run: |
+          PYTHONPATH=. python -m compileall -q app
+          PYTHONPATH=. pytest -q -W error::DeprecationWarning
+      - name: Commit hardening and remove one-time workflow
+        run: |
+          rm .github/workflows/one_time_data_tools_security.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/routers/data_tools.py tests/test_data_tools.py .github/workflows/one_time_data_tools_security.yml
+          git commit -m 'security: harden data import validation and output encoding'
+          git push
