@@ -1,6 +1,7 @@
 """Protected backup management endpoints."""
 from __future__ import annotations
 
+import hashlib
 import hmac
 from pathlib import Path
 
@@ -31,6 +32,14 @@ def require_backup_agent(token: str | None) -> None:
     configured = settings.backup_agent_token.strip()
     if not configured or not token or not hmac.compare_digest(token, configured):
         raise HTTPException(status_code=401, detail="Backup agent authentication required")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @router.get("/status", response_class=HTMLResponse)
@@ -77,7 +86,7 @@ def agent_manifest(x_backup_agent_token: str | None = Header(default=None)):
         if path.is_file():
             relative = path.relative_to(root).as_posix()
             stat = path.stat()
-            files.append({"path": relative, "size": stat.st_size, "modified": stat.st_mtime_ns})
+            files.append({"path": relative, "size": stat.st_size, "modified": stat.st_mtime_ns, "sha256": _sha256(path)})
     return {"files": files}
 
 
