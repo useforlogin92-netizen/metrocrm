@@ -13,3 +13,8 @@ class EmailVerification(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     verified_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+# Import these modules during application startup so Base.metadata.create_all
+# registers their tables before the lifespan creates the schema.
+import app.crm_plus_models  # noqa: F401
