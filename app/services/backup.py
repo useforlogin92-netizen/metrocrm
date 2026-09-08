@@ -1,7 +1,8 @@
-"""Secure full CRM backup service with local + optional cloud destinations."""
+"""Secure full CRM backup service with durable destination retry state."""
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 import subprocess
@@ -58,8 +59,7 @@ def _database_snapshot(target: Path) -> None:
         _sqlite_snapshot(url, target)
         return
     if url.startswith("postgresql") or url.startswith("postgres"):
-        env = os.environ.copy()
-        subprocess.run(["pg_dump", url, "-Fc", "-f", str(target)], check=True, env=env)
+        subprocess.run(["pg_dump", url, "-Fc", "-f", str(target)], check=True, env=os.environ.copy())
         return
     raise RuntimeError("Unsupported database URL for backup")
 
@@ -72,12 +72,75 @@ def _add_tree(archive: zipfile.ZipFile, root: Path, arc_prefix: str) -> None:
             archive.write(path, f"{arc_prefix}/{path.relative_to(root).as_posix()}")
 
 
-def create_full_backup(label: str = "manual") -> dict[str, object]:
-    """Create one encrypted backup and fan it out to every configured destination.
+def _state_root() -> Path:
+    root = Path(settings.backup_local_path).expanduser() / ".queue"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
-    A destination failure is recorded as a partial failure instead of destroying the
-    local master backup. This allows other destinations to remain usable.
-    """
+
+def _state_path(relative_path: str) -> Path:
+    safe = relative_path.replace("/", "__").replace("\\", "__")
+    return _state_root() / f"{safe}.json"
+
+
+def _write_state(relative_path: str, state: dict[str, object]) -> None:
+    target = _state_path(relative_path)
+    temp = target.with_suffix(".tmp")
+    temp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+    temp.replace(target)
+
+
+def _read_state(path: Path) -> dict[str, object] | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _destination_names() -> list[str]:
+    names = ["local", "agent_pc"]
+    if settings.backup_external_path.strip():
+        names.append("external")
+    names.extend(configured_cloud_providers())
+    return names
+
+
+def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, object]) -> dict[str, object]:
+    destinations = state.setdefault("destinations", {})
+    assert isinstance(destinations, dict)
+    destinations.setdefault("local", {"status": "success", "path": str(encrypted), "error": None})
+    destinations.setdefault("agent_pc", {"status": "pending", "path": None, "error": None})
+
+    if settings.backup_external_path.strip():
+        destinations.setdefault("external", {"status": "pending", "path": None, "error": None})
+    for provider in configured_cloud_providers():
+        destinations.setdefault(provider, {"status": "pending", "path": None, "error": None})
+
+    if settings.backup_external_path.strip() and destinations["external"]["status"] != "success":
+        try:
+            destinations["external"] = {"status": "success", "path": copy_to_external_drive(encrypted, relative_path), "error": None}
+        except Exception as exc:
+            destinations["external"] = {"status": "failed", "path": None, "error": str(exc)[:1000]}
+
+    for provider in configured_cloud_providers():
+        if destinations[provider]["status"] == "success":
+            continue
+        try:
+            uri = upload_cloud(encrypted, relative_path, provider)
+            destinations[provider] = {"status": "success", "path": uri, "error": None}
+        except Exception as exc:
+            destinations[provider] = {"status": "failed", "path": None, "error": str(exc)[:1000]}
+
+    required = [name for name in _destination_names() if name != "agent_pc"]
+    failures = [name for name in required if destinations[name]["status"] != "success"]
+    state["status"] = "partial_failure" if failures else "success"
+    state["failed_destinations"] = failures
+    state["updated_at"] = _now().isoformat()
+    return state
+
+
+def create_full_backup(label: str = "manual") -> dict[str, object]:
+    """Create one encrypted master snapshot, then fan it out and persist retries."""
     timestamp = _now()
     date_folder = timestamp.strftime("%Y-%m-%d")
     time_label = "start" if label.lower() == "start" else "end" if label.lower() == "end" else label.lower()
@@ -94,60 +157,50 @@ def create_full_backup(label: str = "manual") -> dict[str, object]:
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(db_snapshot, "database/database.snapshot")
             _add_tree(archive, Path(settings.uploads_path), "uploads")
-            metadata = (
-                f"created_at={timestamp.isoformat()}\n"
-                f"label={time_label}\n"
-                f"database={settings.database_url.split(':', 1)[0]}\n"
-            )
-            archive.writestr("backup_metadata.txt", metadata)
+            archive.writestr("backup_metadata.txt", f"created_at={timestamp.isoformat()}\nlabel={time_label}\ndatabase={settings.database_url.split(':', 1)[0]}\n")
         encrypted = folder / filename
         _encrypted_package(zip_path, encrypted)
 
     relative_path = f"{date_folder}/{filename}"
-    destinations: dict[str, dict[str, str | None]] = {
-        "local": {"status": "success", "path": str(encrypted), "error": None}
-    }
-
-    if settings.backup_external_path.strip():
-        try:
-            destinations["external"] = {"status": "success", "path": copy_to_external_drive(encrypted, relative_path), "error": None}
-        except Exception as exc:
-            destinations["external"] = {"status": "failed", "path": None, "error": str(exc)[:1000]}
-
-    for provider in configured_cloud_providers():
-        try:
-            uri = upload_cloud(encrypted, relative_path, provider)
-            destinations[provider] = {"status": "success", "path": uri, "error": None}
-        except Exception as exc:
-            destinations[provider] = {"status": "failed", "path": None, "error": str(exc)[:1000]}
-
-    failures = [name for name, item in destinations.items() if item["status"] != "success"]
-    successful_clouds = [
-        item["path"] for name, item in destinations.items()
-        if name not in {"local", "external"} and item["status"] == "success" and item["path"]
-    ]
-    return {
-        "local_path": str(encrypted),
-        "cloud_path": successful_clouds[0] if successful_clouds else None,
-        "date": date_folder,
+    state: dict[str, object] = {
+        "relative_path": relative_path,
+        "created_at": timestamp.isoformat(),
         "label": time_label,
-        "destinations": destinations,
-        "status": "partial_failure" if failures else "success",
-        "failed_destinations": failures,
+        "filename": filename,
+        "destinations": {"local": {"status": "success", "path": str(encrypted), "error": None}},
     }
+    state = _retry_destinations(encrypted, relative_path, state)
+    _write_state(relative_path, state)
+    destinations = state["destinations"]
+    assert isinstance(destinations, dict)
+    cloud_path = next((item["path"] for name, item in destinations.items() if name not in {"local", "agent_pc", "external"} and item["status"] == "success"), None)
+    return {"local_path": str(encrypted), "cloud_path": cloud_path, "date": date_folder, "label": time_label, "destinations": destinations, "status": state["status"], "failed_destinations": state["failed_destinations"]}
+
+
+def retry_pending_backups() -> list[dict[str, object]]:
+    """Retry every queued destination for existing encrypted backups."""
+    root = Path(settings.backup_local_path).expanduser()
+    results: list[dict[str, object]] = []
+    if not root.exists():
+        return results
+    for state_file in sorted(_state_root().glob("*.json")):
+        state = _read_state(state_file)
+        if not state:
+            continue
+        relative_path = str(state.get("relative_path", ""))
+        target = (root / relative_path).resolve()
+        if root.resolve() not in target.parents or not target.is_file() or target.suffix != ".mcrmbackup":
+            continue
+        updated = _retry_destinations(target, relative_path, state)
+        _write_state(relative_path, updated)
+        results.append(updated)
+    return results
 
 
 def backup_health() -> dict[str, object]:
     providers = configured_cloud_providers()
-    return {
-        "local_configured": bool(settings.backup_local_path),
-        "external_configured": bool(settings.backup_external_path.strip()),
-        "backup_agent_configured": bool(settings.backup_agent_token.strip()),
-        "cloud_provider": ",".join(providers) if providers else "none",
-        "cloud_providers": providers,
-        "cloud_configured": bool(providers),
-        "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id),
-        "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token),
-        "timezone": settings.backup_timezone,
-        "schedule": ["11:00", "19:00"],
-    }
+    queue_root = Path(settings.backup_local_path).expanduser() / ".queue"
+    queued = 0
+    if queue_root.exists():
+        queued = sum(1 for p in queue_root.glob("*.json") if (_read_state(p) or {}).get("status") != "success")
+    return {"local_configured": bool(settings.backup_local_path), "external_configured": bool(settings.backup_external_path.strip()), "backup_agent_configured": bool(settings.backup_agent_token.strip()), "cloud_provider": ",".join(providers) if providers else "none", "cloud_providers": providers, "cloud_configured": bool(providers), "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id), "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token), "queued_retries": queued, "timezone": settings.backup_timezone, "schedule": ["11:00", "19:00"]}
