@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     backup_timezone: str = "Asia/Kolkata"
     backup_local_path: str = "./backups"
     backup_external_path: str = ""
+    backup_agent_token: str = ""
     backup_encryption_key: str = ""
     backup_cloud_provider: str = "none"  # legacy single-provider setting
     backup_cloud_providers: str = ""  # comma-separated: s3,google_drive,onedrive
