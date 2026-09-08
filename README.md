@@ -15,3 +15,6 @@ FastAPI + SQLAlchemy + SQLite (local) / PostgreSQL-ready + Jinja2.
 - Admin exports/deletes require Super Admin approval.
 - Non-admin staff do not receive export rights by default.
 - No real credentials, OTPs, or security answers belong in source control.
+
+## CI validation
+The full test suite is required before the build is considered testing-ready.
