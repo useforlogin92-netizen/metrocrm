@@ -92,3 +92,8 @@ def test_xlsx_upload_is_validated_as_zip_and_limited():
     from app.routers import data_tools
     assert hasattr(data_tools, "is_zipfile")
     assert hasattr(data_tools, "ZipFile")
+
+
+def test_data_tools_html_output_uses_html_escaping():
+    from app.routers.data_tools import escape
+    assert escape("<script>alert(1)</script>") == "&lt;script&gt;alert(1)&lt;/script&gt;"
