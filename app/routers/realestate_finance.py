@@ -13,8 +13,10 @@ from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import Unit
 from app.realestate_finance_models import CostSheet, PropertyQuotation
+from app.routers.accounting import router as accounting_router
 
 router = APIRouter(tags=["real-estate-finance"])
+router.include_router(accounting_router)
 
 
 def current_user(request: Request, db: Session):
