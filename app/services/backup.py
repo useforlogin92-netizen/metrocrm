@@ -137,6 +137,7 @@ def backup_health() -> dict[str, object]:
     return {
         "local_configured": bool(settings.backup_local_path),
         "external_configured": bool(settings.backup_external_path.strip()),
+        "backup_agent_configured": bool(settings.backup_agent_token.strip()),
         "cloud_provider": ",".join(providers) if providers else "none",
         "cloud_providers": providers,
         "cloud_configured": bool(providers),
