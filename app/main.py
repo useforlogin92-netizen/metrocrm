@@ -23,6 +23,7 @@ from app.routers.caller_search import router as caller_search_router
 from app.routers.backups import router as backups_router
 from app.routers.integrations import router as integrations_router
 from app.routers.data_tools import router as data_tools_router
+from app.routers.crm_plus import router as crm_plus_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
@@ -81,6 +82,7 @@ app.include_router(caller_search_router)
 app.include_router(backups_router)
 app.include_router(integrations_router)
 app.include_router(data_tools_router)
+app.include_router(crm_plus_router)
 
 _super_admin_failures: dict[str, list[float]] = {}
 _SUPER_ADMIN_MAX_FAILURES = 5
