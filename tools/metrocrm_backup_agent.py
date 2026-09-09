@@ -16,10 +16,14 @@ import urllib.request
 from pathlib import Path
 
 
+class AgentError(RuntimeError):
+    """Raised when the backup agent receives an unsafe local target."""
+
+
 def _required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise RuntimeError(f"{name} is required")
+        raise AgentError(f"{name} is required")
     return value
 
 
@@ -37,6 +41,15 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _safe_target(root: Path, relative: str) -> Path:
+    """Resolve a manifest path while preventing traversal outside *root*."""
+    root = root.expanduser().resolve()
+    target = (root / relative.replace("/", os.sep)).resolve()
+    if target == root or root not in target.parents:
+        raise AgentError(f"unsafe backup path: {relative}")
+    return target
+
+
 def _download(base: str, token: str, relative: str, target: Path, expected_size: int, expected_hash: str) -> None:
     url = f"{base}/admin/backups/agent/file/{urllib.parse.quote(relative, safe='/')}"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +64,7 @@ def _download(base: str, token: str, relative: str, target: Path, expected_size:
                         break
                     tmp.write(chunk)
         if temp_path.stat().st_size != expected_size or _sha256(temp_path) != expected_hash:
-            raise RuntimeError(f"integrity check failed: {relative}")
+            raise AgentError(f"integrity check failed: {relative}")
         temp_path.replace(target)
     finally:
         if temp_path:
@@ -81,11 +94,8 @@ def sync_once() -> dict[str, int]:
         relative = str(item["path"])
         expected_size = int(item["size"])
         expected_hash = str(item["sha256"])
-        local_file = (local_root / relative.replace("/", os.sep)).resolve()
-        if local_root not in local_file.parents:
-            failed += 1
-            continue
         try:
+            local_file = _safe_target(local_root, relative)
             if not local_file.is_file() or local_file.stat().st_size != expected_size or _sha256(local_file) != expected_hash:
                 _download(base, token, relative, local_file, expected_size, expected_hash)
                 downloaded += 1
@@ -94,10 +104,7 @@ def sync_once() -> dict[str, int]:
             _ack(base, token, relative)
 
             if external_root and external_root.exists():
-                external_file = (external_root / relative.replace("/", os.sep)).resolve()
-                if external_root not in external_file.parents:
-                    failed += 1
-                    continue
+                external_file = _safe_target(external_root, relative)
                 external_file.parent.mkdir(parents=True, exist_ok=True)
                 if not external_file.is_file() or external_file.stat().st_size != expected_size or _sha256(external_file) != expected_hash:
                     temp = external_file.with_suffix(external_file.suffix + ".part")
@@ -109,10 +116,10 @@ def sync_once() -> dict[str, int]:
                                 break
                             target.write(chunk)
                     if temp.stat().st_size != expected_size or _sha256(temp) != expected_hash:
-                        raise RuntimeError(f"external HDD integrity check failed: {relative}")
+                        raise AgentError(f"external HDD integrity check failed: {relative}")
                     temp.replace(external_file)
                     external_copied += 1
-        except (OSError, urllib.error.URLError, RuntimeError):
+        except (OSError, urllib.error.URLError, AgentError, RuntimeError, ValueError, KeyError):
             failed += 1
 
     return {"downloaded": downloaded, "skipped": skipped, "external_copied": external_copied, "failed": failed}
