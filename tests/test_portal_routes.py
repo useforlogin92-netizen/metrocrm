@@ -4,6 +4,7 @@ from app.portal import app
 
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "app" / "templates"
+BACKUP_ROUTER = Path(__file__).resolve().parents[1] / "app" / "routers" / "backups.py"
 
 
 def _post_routes(path: str):
@@ -28,3 +29,10 @@ def test_staff_login_guard_is_before_legacy_login_route():
 def test_login_template_posts_super_admin_to_dedicated_endpoint():
     template = (TEMPLATES / "login.html").read_text(encoding="utf-8")
     assert 'action="{% if super_admin_only %}/auth/super-admin/login{% else %}/auth/login{% endif %}"' in template
+
+
+def test_backup_status_redirects_expired_or_invalid_sessions():
+    source = BACKUP_ROUTER.read_text(encoding="utf-8")
+    assert 'if not user:' in source
+    assert 'request.session.clear()' in source
+    assert 'RedirectResponse("/super-admin/login", status_code=303)' in source
