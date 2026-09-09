@@ -63,11 +63,12 @@ def test_backup_scheduler_registers_11am_and_7pm(monkeypatch):
     module.start_backup_scheduler()
     scheduler = module._scheduler
     assert scheduler is not None
-    assert [job[2]["id"] for job in scheduler.jobs] == ["metrocrm_backup_start", "metrocrm_backup_end"]
+    assert [job[2]["id"] for job in scheduler.jobs] == ["metrocrm_backup_start", "metrocrm_backup_end", "metrocrm_backup_retry"]
 
     def cron_field(trigger, name):
         return next(field for field in trigger.fields if field.name == name)
 
-    assert [str(cron_field(job[1], "hour")) for job in scheduler.jobs] == ["11", "19"]
-    assert [str(cron_field(job[1], "minute")) for job in scheduler.jobs] == ["0", "0"]
+    assert [str(cron_field(job[1], "hour")) for job in scheduler.jobs[:2]] == ["11", "19"]
+    assert [str(cron_field(job[1], "minute")) for job in scheduler.jobs[:2]] == ["0", "0"]
+    assert str(cron_field(scheduler.jobs[2][1], "minute")) == "*/10"
     module.stop_backup_scheduler()
