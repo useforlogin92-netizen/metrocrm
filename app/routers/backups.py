@@ -44,7 +44,13 @@ def _sha256(path: Path) -> str:
 
 @router.get("/status", response_class=HTMLResponse)
 def status_page(request: Request, db: Session = Depends(get_db)):
-    user = require_super_admin(request, db)
+    from app.main import _current_user
+    user = _current_user(request, db)
+    if not user:
+        request.session.clear()
+        return RedirectResponse("/super-admin/login", status_code=303)
+    if user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Super Admin access required")
     return templates.TemplateResponse("backup_status.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "backup": backup_health(), "csrf_token": csrf_token(request), "backup_result": request.query_params.get("backup")})
 
 
