@@ -6,7 +6,7 @@ from app.routers.sales_property import _configuration_unit_number, _parse_varian
 def test_multiple_bhk_and_multiple_carpet_areas_are_preserved():
     variants = _parse_variants('[{"bhk":"1 BHK","carpet_areas":["150","400","420"]},{"bhk":"2 BHK","carpet_areas":["650","720"]},{"bhk":"3 BHK","carpet_areas":["900"]},{"bhk":"4 BHK","carpet_areas":["1200"]},{"bhk":"Jodi","carpet_areas":["1800"]}]')
     assert len(variants) == 5
-    assert variants[0]["carpet_areas"] == ["1.5E+2", "4E+2", "4.2E+2"] or variants[0]["carpet_areas"] == ["150", "400", "420"]
+    assert variants[0]["carpet_areas"] == ["150", "400", "420"]
     assert variants[1]["bhk"] == "2 BHK"
     assert variants[4]["bhk"] == "Jodi"
 
