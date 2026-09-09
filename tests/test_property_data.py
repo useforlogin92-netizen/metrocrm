@@ -21,6 +21,7 @@ def test_property_data_routes_are_registered_in_production_app():
     assert "/admin/property-data/import" in paths
     assert "/admin/property-data/save" in paths
     assert "/admin/property-data/export" in paths
+    assert "/admin/property-data/export/request" in paths
     assert "/admin/property-data/export/download/{request_id}" in paths
     assert "/super-admin/property-data-export-requests" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/approve" in paths
@@ -34,9 +35,11 @@ def test_property_data_ui_has_import_export_and_online_edit_controls():
     assert "/admin/property-data/template" in template
     assert "/admin/property-data/import" in template
     assert "/admin/property-data/save" in template
+    assert "/admin/property-data/export/request" in template
     assert "/admin/property-data/export" in template
     assert "/super-admin/property-data-export-requests" in template
     assert "/admin/property-data/export/download/" in template
+    assert "csrf_token" in template
     assert "Edit" in template
     assert "Download Property Template" in template
 
