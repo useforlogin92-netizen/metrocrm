@@ -10,24 +10,25 @@
 select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #dbe3ef;border-radius:9px;font:inherit;background:#fff}label{display:block;font-size:11px;font-weight:800;color:#475569;margin:10px 0 5px}.pd-table{width:100%;border-collapse:collapse;font-size:11px}.pd-table th,.pd-table td{padding:9px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}.pd-table th{font-size:10px;text-transform:uppercase;color:#64748b}.pd-table-wrap{overflow:auto;max-height:480px}.pd-form{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}.pd-form .wide{grid-column:1/-1}.pd-small{font-size:10px;color:#64748b}.pd-title{margin:0 0 5px;font-size:18px}.pd-sub{margin:0;color:#64748b;font-size:12px}
 @media(max-width:900px){.pd-grid{grid-template-columns:1fr}.pd-form{grid-template-columns:1fr}.pd-form .wide{grid-column:auto}}
 </style>
-
 {% if message %}<div class="pd-alert ok">✓ {{ message }}</div>{% endif %}
 {% if error %}<div class="pd-alert err">{{ error }}</div>{% endif %}
 
 <div class="pd-card" style="margin-bottom:18px">
-  <h2 class="pd-title">Property data import & quick update</h2>
-  <p class="pd-sub">Bulk upload ke liye ready Excel template download karein. Sirf 1–2 records ke liye neeche online editor use karein.</p>
+  <h2 class="pd-title">Property data import & export</h2>
+  <p class="pd-sub">Bulk upload ke liye ready Excel template download karein. Chhote changes ke liye online editor use karein.</p>
   <div class="pd-actions">
     <a class="pd-btn primary" href="/admin/property-data/template">⬇ Download Property Template</a>
-    <a class="pd-btn" href="/admin/data-tools">Open Full Data Tools</a>
+    <a class="pd-btn" href="/admin/property-data/export">⬆ Export Property Data</a>
+    {% if role == 'SUPER_ADMIN' %}<a class="pd-btn" href="/super-admin/property-data-export-requests">✓ Export Approval Requests</a>{% endif %}
   </div>
-  <p class="pd-note"><b>Template rule:</b> <code>id</code> blank = new record. Existing <code>id</code> = उसी record ka update. Template mein Projects, Towers, Units aur NearbyLocations ke saath Developers sheet bhi included hai. Upload atomic validation ke saath process hota hai.</p>
+  <p class="pd-note"><b>Export rule:</b> Super Admin direct export kar sakta hai. Admin ke export ke liye Super Admin approval mandatory hai. Approval ke baad Admin apna approved export download kar sakta hai.</p>
+  <p class="pd-note"><b>Template rule:</b> <code>id</code> blank = new record. Existing <code>id</code> = उसी record ka update. Template mein Projects, Towers, Units, NearbyLocations aur Developers sheets included hain.</p>
 </div>
 
 <div class="pd-grid">
   <div class="pd-card">
-    <h3 style="margin-top:0">Excel Upload</h3>
-    <p class="pd-note">Filled <b>MetroCRM_Property_Data_Template.xlsx</b> upload karein. Unsupported columns aur invalid JSON/date values reject hongi.</p>
+    <h3 style="margin-top:0">Excel Import</h3>
+    <p class="pd-note">Filled <b>MetroCRM_Property_Data_Template.xlsx</b> upload karein. Import ke liye approval ki zarurat nahi hai.</p>
     <form method="post" action="/admin/property-data/import" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Excel file (.xlsx)</label>
@@ -35,10 +36,9 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
       <div class="pd-actions"><button class="pd-btn primary" type="submit">Upload & Import Property Data</button></div>
     </form>
   </div>
-
   <div class="pd-card">
     <h3 style="margin-top:0">Quick Online Editor</h3>
-    <p class="pd-note">Chhote changes ke liye Excel ki zarurat nahi. Existing record ke <b>Edit</b> button se open karke update karein, ya New Record se naya record banayein.</p>
+    <p class="pd-note">1–2 records ke liye Excel ki zarurat nahi. Existing record ke <b>Edit</b> button se open karke update karein, ya New Record se naya record banayein.</p>
     <form method="get" action="/admin/property-data">
       <label>Property data type</label>
       <select name="entity" onchange="this.form.submit()">
@@ -47,6 +47,44 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
     </form>
   </div>
 </div>
+
+<div class="pd-card" style="margin-top:18px">
+  <h3 style="margin-top:0">My Export Requests</h3>
+  <p class="pd-note">Admin ke export requests Super Admin approval ke baad hi downloadable hote hain.</p>
+  {% for req in export_requests %}
+    <div style="padding:10px 0;border-bottom:1px solid #eef2f7;font-size:12px">
+      <b>Request #{{ req.id }}</b> · <span>{{ req.status }}</span> · {{ req.created_at }}
+      {% if req.status == 'APPROVED' %} · <a href="/admin/property-data/export/download/{{ req.id }}">Download approved export</a>{% endif %}
+    </div>
+  {% else %}
+    <div class="pd-note">No export requests yet.</div>
+  {% endfor %}
+</div>
+
+{% if role == 'SUPER_ADMIN' %}
+<div class="pd-card" style="margin-top:18px">
+  <h3 style="margin-top:0">Super Admin Notifications</h3>
+  <p class="pd-note">Admin ke property import, create/update aur export request ki recent activity yahan automatically dikhegi.</p>
+  <div id="property-notices" class="pd-note">Loading notifications…</div>
+</div>
+<script>
+(async function(){
+  try{
+    const r = await fetch('/super-admin/property-data-notifications', {credentials:'same-origin', cache:'no-store'});
+    const data = await r.json();
+    const box = document.getElementById('property-notices');
+    if(!r.ok){ box.textContent='Notifications unavailable.'; return; }
+    if(!data.items || !data.items.length){ box.textContent='No recent Admin property-data activity.'; return; }
+    data.items.forEach(function(x){
+      const row=document.createElement('div'); row.style.cssText='padding:10px 0;border-bottom:1px solid #eef2f7';
+      const strong=document.createElement('b'); strong.textContent=x.message;
+      row.appendChild(strong); row.appendChild(document.createTextNode(' · '+x.username)); row.appendChild(document.createElement('br'));
+      const small=document.createElement('span'); small.style.cssText='font-size:10px;color:#94a3b8'; small.textContent=x.created_at||''; row.appendChild(small); box.appendChild(row);
+    });
+  }catch(e){ document.getElementById('property-notices').textContent='Notifications unavailable.'; }
+})();
+</script>
+{% endif %}
 
 <div class="pd-card" style="margin-top:18px">
   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
@@ -76,6 +114,6 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
     {% endfor %}
     <div class="wide pd-actions"><button class="pd-btn primary" type="submit">{{ 'Update Record' if edit_row else 'Create Record' }}</button>{% if edit_row %}<a class="pd-btn" href="/admin/property-data?entity={{ selected }}">Cancel</a>{% endif %}</div>
   </form>
-  <p class="pd-note">Online editor bhi wahi database fields use karta hai jo MetroCRM ke property configuration mein defined hain. JSON fields mein valid JSON use karein.</p>
+  <p class="pd-note">Online editor wahi database fields use karta hai jo MetroCRM ke property configuration mein defined hain. JSON fields mein valid JSON use karein.</p>
 </div>
 {% endblock %}
