@@ -1,12 +1,9 @@
 """Normalized location, property-catalog media and persistent share tables."""
 
 from datetime import datetime, timezone
-
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.database import Base
-
 
 class LocationMaster(Base):
     __tablename__ = "location_master"
@@ -25,7 +22,6 @@ class LocationMaster(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
-
 class CustomerLocationPreference(Base):
     __tablename__ = "customer_location_preferences"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -36,7 +32,6 @@ class CustomerLocationPreference(Base):
     locality: Mapped[str | None] = mapped_column(String(150), index=True)
     pincode: Mapped[str | None] = mapped_column(String(10), index=True)
     min_priority: Mapped[int] = mapped_column(Integer, default=0)
-
 
 class PropertyMedia(Base):
     __tablename__ = "property_media"
@@ -53,7 +48,6 @@ class PropertyMedia(Base):
     is_shareable: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
-
 
 class PropertySocialProfile(Base):
     __tablename__ = "property_social_profiles"
@@ -73,6 +67,23 @@ class PropertySocialProfile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
+class SalesPropertySubmission(Base):
+    __tablename__ = "sales_property_submissions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    property_type: Mapped[str] = mapped_column(String(40), default="Projects")
+    record_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    submitted_by_name: Mapped[str | None] = mapped_column(String(150))
+    submitted_by_mobile: Mapped[str | None] = mapped_column(String(30))
+    submitted_by_email: Mapped[str | None] = mapped_column(String(255))
+    data_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(30), default="DRAFT", index=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    review_note: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 class CatalogShare(Base):
     __tablename__ = "catalog_shares"
@@ -85,7 +96,6 @@ class CatalogShare(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
-
 
 class CatalogShareVisit(Base):
     __tablename__ = "catalog_share_visits"
