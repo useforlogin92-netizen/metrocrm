@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Project, User
+from app.models import AuditEvent, Project
 from app.catalog_models import PropertySocialProfile
 
 router = APIRouter(tags=["property-social"])
@@ -71,7 +71,12 @@ def save_social_profile(
     if not actor or not project:
         return RedirectResponse("/dashboard", status_code=303)
     try:
-        values = {field: _clean_url(locals()[field]) for field in SOCIAL_FIELDS}
+        raw_values = {
+            "facebook_url": facebook_url, "instagram_url": instagram_url, "youtube_url": youtube_url,
+            "whatsapp_url": whatsapp_url, "x_url": x_url, "linkedin_url": linkedin_url,
+            "website_url": website_url, "google_business_url": google_business_url,
+        }
+        values = {field: _clean_url(raw_values[field]) for field in SOCIAL_FIELDS}
         profile = db.scalar(select(PropertySocialProfile).where(PropertySocialProfile.project_id == project_id))
         if profile is None:
             profile = PropertySocialProfile(project_id=project_id)
