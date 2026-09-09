@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.catalog_models import CatalogShare, CatalogShareVisit
+from app.catalog_models import CatalogShare, CatalogShareVisit, PropertySocialProfile
 from app.integration_models import PropertyVisitAlert
 from app.models import AuditEvent, User
 from app.permissions import Access, Role, user_allows
@@ -66,9 +66,25 @@ class CatalogShareRequest(BaseModel):
     expires_hours: int | None = Field(default=None, ge=1, le=720)
 
 
-def _payload(request: CatalogShareRequest) -> dict[str, Any]:
+def _payload(request: CatalogShareRequest, db: Session | None = None) -> dict[str, Any]:
     selections = tuple(ContactSelection(item.contact_type, frozenset(item.fields)) for item in request.contact_selections)
-    return build_share_payload(request.property_data, selected_fields=frozenset(request.selected_fields), selected_media_ids=frozenset(request.selected_media_ids), media=request.media, contacts=request.contacts, contact_selections=selections)
+    payload = build_share_payload(request.property_data, selected_fields=frozenset(request.selected_fields), selected_media_ids=frozenset(request.selected_media_ids), media=request.media, contacts=request.contacts, contact_selections=selections)
+    if db and request.project_id:
+        profile = db.scalar(select(PropertySocialProfile).where(PropertySocialProfile.project_id == request.project_id, PropertySocialProfile.is_active.is_(True)))
+        if profile:
+            payload["social_links"] = {label: value for label, value in {
+                "facebook": profile.facebook_url,
+                "instagram": profile.instagram_url,
+                "youtube": profile.youtube_url,
+                "whatsapp": profile.whatsapp_url,
+                "x": profile.x_url,
+                "linkedin": profile.linkedin_url,
+                "website": profile.website_url,
+                "google_business": profile.google_business_url,
+            }.items() if value}
+            payload["social_brand"] = profile.brand_name or "Metro Property"
+            payload["share_message"] = profile.share_message or ""
+    return payload
 
 
 def _token_hash(token: str) -> str:
@@ -88,13 +104,13 @@ def share_catalog_page(request: Request, db: Session = Depends(get_db)) -> Respo
 @router.post("/preview")
 def preview_catalog_share(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     _require_sharing_user(request, db)
-    return _payload(body)
+    return _payload(body, db)
 
 
 @router.post("/share")
 def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _require_sharing_user(request, db)
-    payload = _payload(body)
+    payload = _payload(body, db)
     token = secrets.token_urlsafe(32)
     share = CatalogShare(token_hash=_token_hash(token), project_id=body.project_id, unit_id=body.unit_id, payload_json=json.dumps(payload, default=str), created_by_id=user.id, expires_at=(datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=body.expires_hours)) if body.expires_hours else None)
     db.add(share)
