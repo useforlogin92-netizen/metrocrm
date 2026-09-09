@@ -26,9 +26,13 @@ def _now() -> datetime:
 
 
 def _key() -> bytes:
-    raw = settings.backup_encryption_key
-    if not raw:
-        raise RuntimeError("BACKUP_ENCRYPTION_KEY is not configured")
+    # Prefer the dedicated backup key. For existing deployments that only have
+    # the mandatory application SECRET_KEY configured, use it as a stable
+    # encryption root so manual backups do not fail merely because the optional
+    # BACKUP_ENCRYPTION_KEY variable is absent. The placeholder is never accepted.
+    raw = settings.backup_encryption_key.strip() or settings.secret_key.strip()
+    if not raw or raw == "CHANGE-ME-IN-ENV":
+        raise RuntimeError("A secure BACKUP_ENCRYPTION_KEY or SECRET_KEY must be configured")
     return hashlib.sha256(raw.encode("utf-8")).digest()
 
 
