@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 from datetime import datetime, timezone
+from decimal import Decimal
 from html import escape
 
 from fastapi import APIRouter, Depends, Request
@@ -15,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.catalog_models import SalesPropertySubmission
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, User
+from app.models import AuditEvent, Unit
 from app.routers.data_tools import _convert_excel_value, _models
 
 router = APIRouter(tags=["sales-property-submissions"])
@@ -47,6 +49,62 @@ def _fields(entity: str):
     return model, fields
 
 
+def _parse_variants(raw):
+    try:
+        variants = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        raise ValueError("Invalid BHK/Carpet Area configuration")
+    if not isinstance(variants, list) or not variants:
+        raise ValueError("At least one BHK and Carpet Area configuration is required")
+    clean = []
+    for item in variants:
+        if not isinstance(item, dict):
+            raise ValueError("Invalid BHK/Carpet Area row")
+        bhk = str(item.get("bhk", "")).strip()[:50]
+        areas = item.get("carpet_areas", [])
+        if not bhk or not isinstance(areas, list) or not areas:
+            raise ValueError("Every BHK row must contain at least one Carpet Area")
+        clean_areas = []
+        for area in areas:
+            text = str(area).strip()
+            try:
+                value = Decimal(text)
+            except Exception:
+                raise ValueError(f"Invalid Carpet Area: {text}")
+            if value <= 0:
+                raise ValueError("Carpet Area must be greater than zero")
+            clean_areas.append(str(value.normalize()))
+        clean.append({"bhk": bhk, "carpet_areas": clean_areas})
+    return clean
+
+
+def _configuration_unit_number(bhk: str, area: str, index: int = 0) -> str:
+    base = re.sub(r"[^A-Za-z0-9]+", "-", f"CONFIG-{bhk}-{area}").strip("-")[:45]
+    return f"{base}-{index}" if index else base
+
+
+def _publish_unit_configurations(db: Session, project_id: int, data: dict):
+    variants = _parse_variants(data.get("_unit_variants"))
+    existing = {u.unit_number for u in db.scalars(select(Unit).where(Unit.project_id == project_id)).all()}
+    columns = {column.name: column for column in Unit.__table__.columns}
+    property_fields = (
+        "property_type", "parking", "facing", "furnishing", "possession", "rera",
+        "availability", "status", "latitude", "longitude", "amenities_json",
+        "photos_json", "floor_plan", "brochure", "description", "other_details",
+    )
+    for variant in variants:
+        for area in variant["carpet_areas"]:
+            unit_number = _configuration_unit_number(variant["bhk"], area)
+            if unit_number in existing:
+                continue
+            unit = Unit(project_id=project_id, unit_number=unit_number, bhk=variant["bhk"], carpet_area=Decimal(area))
+            for field in property_fields:
+                if field in columns and field in data and data[field] not in (None, ""):
+                    setattr(unit, field, _convert_excel_value(columns[field], data[field]))
+            db.add(unit)
+            existing.add(unit_number)
+
+
 @router.get("/admin/property-data/sales-link", response_class=HTMLResponse)
 def create_sales_link_page(request: Request, db: Session = Depends(get_db)):
     actor = _admin_actor(request, db)
@@ -58,8 +116,8 @@ def create_sales_link_page(request: Request, db: Session = Depends(get_db)):
     raw_token = secrets.token_urlsafe(32)
     row = SalesPropertySubmission(token_hash=_hash_token(raw_token), property_type=entity, created_by_id=actor.id, status="DRAFT")
     db.add(row)
-    db.add(AuditEvent(actor_user_id=actor.id, action="SALES_PROPERTY_LINK_CREATED", entity_type=entity, entity_id=str(row.id) if row.id else None, details=json.dumps({"entity": entity})))
     db.flush()
+    db.add(AuditEvent(actor_user_id=actor.id, action="SALES_PROPERTY_LINK_CREATED", entity_type=entity, entity_id=str(row.id), details=json.dumps({"entity": entity})))
     db.commit()
     link = str(request.base_url).rstrip("/") + f"/sales/property/{raw_token}"
     return templates.TemplateResponse("sales_property_link.html", {"request": request, "username": actor.username, "role": actor.role, "csrf_token": csrf_token(request), "entity": entity, "link": link})
@@ -94,6 +152,13 @@ async def save_sales_property(token: str, request: Request, db: Session = Depend
             except ValueError:
                 return RedirectResponse(f"/sales/property/{token}?error=Invalid+JSON+in+{field}", status_code=303)
         data[field] = value
+    try:
+        if row.property_type == "Projects":
+            data["_unit_variants"] = _parse_variants(str(form.get("unit_variants", "[]")))
+        else:
+            data.pop("_unit_variants", None)
+    except ValueError as exc:
+        return RedirectResponse(f"/sales/property/{token}?error={escape(str(exc))}", status_code=303)
     row.submitted_by_name = str(form.get("submitted_by_name", "")).strip()[:150] or None
     row.submitted_by_mobile = str(form.get("submitted_by_mobile", "")).strip()[:30] or None
     row.submitted_by_email = str(form.get("submitted_by_email", "")).strip()[:255] or None
@@ -137,12 +202,14 @@ def approve_sales_property(submission_id: int, request: Request, db: Session = D
             setattr(obj, field, _convert_excel_value(columns[field], value))
         db.add(obj)
         db.flush()
+        if row.property_type == "Projects":
+            _publish_unit_configurations(db, obj.id, data)
         row.record_id = obj.id
         row.status = "APPROVED"
         row.reviewed_by_id = actor.id
         row.review_note = "Approved and published to CRM"
         row.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        db.add(AuditEvent(actor_user_id=actor.id, action="SALES_PROPERTY_APPROVED", entity_type=row.property_type, entity_id=str(obj.id), details=json.dumps({"submission_id": row.id, "published": True})))
+        db.add(AuditEvent(actor_user_id=actor.id, action="SALES_PROPERTY_APPROVED", entity_type=row.property_type, entity_id=str(obj.id), details=json.dumps({"submission_id": row.id, "published": True, "unit_configurations_published": row.property_type == "Projects"})))
         db.commit()
     except Exception as exc:
         db.rollback()
