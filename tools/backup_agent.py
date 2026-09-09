@@ -14,8 +14,8 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
-def _request_json(url: str, token: str) -> dict:
-    request = Request(url, headers={"X-Backup-Agent-Token": token, "Accept": "application/json"})
+def _request_json(url: str, token: str, method: str = "GET") -> dict:
+    request = Request(url, method=method, headers={"X-Backup-Agent-Token": token, "Accept": "application/json"})
     with urlopen(request, timeout=60) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -61,7 +61,7 @@ def sync_once(server: str, token: str, destination: Path) -> int:
             target.unlink(missing_ok=True)
             continue
         ack_url = f"{base}/admin/backups/agent/ack?relative_path={quote(relative, safe='/')}"
-        _request_json(ack_url, token)
+        _request_json(ack_url, token, method="POST")
         synced += 1
     return synced
 
