@@ -145,25 +145,43 @@ async def save_property_data(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(f"/admin/property-data?entity={entity}&id={obj.id}&message=Property+record+saved", status_code=303)
 
 
-@router.get("/admin/property-data/export")
-def export_property_data(request: Request, db: Session = Depends(get_db)):
-    actor = _guard(request, db)
-    if not actor:
-        return RedirectResponse("/", status_code=303)
+def _create_export_request(actor: User, db: Session):
     entities = list(PROPERTY_SHEETS)
-    if actor.role == "SUPER_ADMIN":
-        workbook = _export_workbook(entities, db)
-        db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_EXPORTED", entity_type="PropertyData", entity_id=None, details=json.dumps({"entities": entities, "approval": "direct"})))
-        db.commit()
-        return StreamingResponse(workbook, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Property_Data_Export.xlsx"})
     pending = db.scalar(select(DataRequest).where(DataRequest.requester_id == actor.id, DataRequest.action == "EXPORT", DataRequest.entity_type == "PropertyData", DataRequest.status == "PENDING").order_by(DataRequest.id.desc()))
     if pending:
-        return RedirectResponse("/admin/property-data?error=Export+approval+already+pending", status_code=303)
+        return False
     request_row = DataRequest(requester_id=actor.id, action="EXPORT", entity_type="PropertyData", filters_json=json.dumps({"entities": entities}), reason="Admin requested property data export", status="PENDING")
     db.add(request_row)
     db.flush()
     db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_EXPORT_REQUESTED", entity_type="PropertyData", entity_id=str(request_row.id), details=json.dumps({"entities": entities, "status": "PENDING"})))
     db.commit()
+    return True
+
+
+@router.get("/admin/property-data/export")
+def export_property_data(request: Request, db: Session = Depends(get_db)):
+    actor = _guard(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    if actor.role == "ADMIN":
+        return RedirectResponse("/admin/property-data?error=Admin+must+submit+an+export+approval+request", status_code=303)
+    entities = list(PROPERTY_SHEETS)
+    workbook = _export_workbook(entities, db)
+    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_EXPORTED", entity_type="PropertyData", entity_id=None, details=json.dumps({"entities": entities, "approval": "direct"})))
+    db.commit()
+    return StreamingResponse(workbook, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Property_Data_Export.xlsx"})
+
+
+@router.post("/admin/property-data/export/request", dependencies=[Depends(require_csrf)])
+def request_property_export(request: Request, db: Session = Depends(get_db)):
+    actor = _guard(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    if actor.role != "ADMIN":
+        return RedirectResponse("/admin/property-data/export", status_code=303)
+    created = _create_export_request(actor, db)
+    if not created:
+        return RedirectResponse("/admin/property-data?error=Export+approval+already+pending", status_code=303)
     return RedirectResponse("/admin/property-data?message=Export+request+sent+to+Super+Admin+for+approval", status_code=303)
 
 
@@ -203,8 +221,7 @@ def property_export_requests(request: Request, db: Session = Depends(get_db)):
             actions = f"<div class='actions'><form method='post' action='/super-admin/property-data-export-requests/{row.id}/approve'><input type='hidden' name='csrf_token' value='{csrf_token(request)}'><button class='btn approve'>Approve Export</button></form><form method='post' action='/super-admin/property-data-export-requests/{row.id}/reject'><input type='hidden' name='csrf_token' value='{csrf_token(request)}'><button class='btn reject'>Reject</button></form></div>"
         else:
             actions = ""
-        download = f" <a href='/admin/property-data/export/download/{row.id}'>Download approved export</a>" if status == "APPROVED" else ""
-        html.append(f"<div class='row'><b>{user.username if user else 'Unknown user'}</b> · <span class='pill'>{status}</span><div class='muted'>Request #{row.id} · {row.created_at} · {row.reason}</div>{actions}{download}</div>")
+        html.append(f"<div class='row'><b>{user.username if user else 'Unknown user'}</b> · <span class='pill'>{status}</span><div class='muted'>Request #{row.id} · {row.created_at} · {row.reason}</div>{actions}</div>")
     if not rows:
         html.append("<div class='row muted'>No property export requests.</div>")
     html.append("</div></div></body></html>")
@@ -242,17 +259,9 @@ def property_data_notifications(request: Request, db: Session = Depends(get_db))
     if not actor or actor.role != "SUPER_ADMIN":
         return JSONResponse({"error": "forbidden"}, status_code=403)
     actions = {"PROPERTY_DATA_IMPORTED", "PROPERTY_RECORD_CREATED", "PROPERTY_RECORD_UPDATED", "PROPERTY_EXPORT_REQUESTED"}
-    events = db.scalars(
-        select(AuditEvent).join(User, User.id == AuditEvent.actor_user_id).where(User.role == "ADMIN", AuditEvent.action.in_(actions)).order_by(AuditEvent.id.desc()).limit(20)
-    ).all()
+    events = db.scalars(select(AuditEvent).join(User, User.id == AuditEvent.actor_user_id).where(User.role == "ADMIN", AuditEvent.action.in_(actions)).order_by(AuditEvent.id.desc()).limit(20)).all()
     items = []
     for event in events:
         actor_user = db.get(User, event.actor_user_id) if event.actor_user_id else None
-        items.append({
-            "id": event.id,
-            "action": event.action,
-            "message": {"PROPERTY_DATA_IMPORTED": "Admin imported property data", "PROPERTY_RECORD_CREATED": "Admin created a property record", "PROPERTY_RECORD_UPDATED": "Admin updated a property record", "PROPERTY_EXPORT_REQUESTED": "Admin requested a property data export"}.get(event.action, event.action),
-            "username": actor_user.username if actor_user else "Admin",
-            "created_at": event.created_at.isoformat() if event.created_at else None,
-        })
+        items.append({"id": event.id, "action": event.action, "message": {"PROPERTY_DATA_IMPORTED": "Admin imported property data", "PROPERTY_RECORD_CREATED": "Admin created a property record", "PROPERTY_RECORD_UPDATED": "Admin updated a property record", "PROPERTY_EXPORT_REQUESTED": "Admin requested a property data export"}.get(event.action, event.action), "username": actor_user.username if actor_user else "Admin", "created_at": event.created_at.isoformat() if event.created_at else None})
     return JSONResponse({"count": len(items), "items": items})
