@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from app.portal import app
+
+
+TEMPLATES = Path(__file__).resolve().parents[1] / "app" / "templates"
 
 
 def _post_routes(path: str):
@@ -18,3 +23,8 @@ def test_staff_login_guard_is_before_legacy_login_route():
     routes = _post_routes("/auth/login")
     assert routes
     assert routes[0].endpoint.__name__ == "staff_login"
+
+
+def test_login_template_posts_super_admin_to_dedicated_endpoint():
+    template = (TEMPLATES / "login.html").read_text(encoding="utf-8")
+    assert 'action="{% if super_admin_only %}/auth/super-admin/login{% else %}/auth/login{% endif %}"' in template
