@@ -31,6 +31,12 @@ def test_login_template_posts_super_admin_to_dedicated_endpoint():
     assert 'action="{% if super_admin_only %}/auth/super-admin/login{% else %}/auth/login{% endif %}"' in template
 
 
+def test_login_template_has_no_unrelated_om_krishna_group_branding():
+    template = (TEMPLATES / "login.html").read_text(encoding="utf-8").lower()
+    assert "om krishna group" not in template
+    assert "om krishna" not in template
+
+
 def test_backup_status_redirects_expired_or_invalid_sessions():
     source = BACKUP_ROUTER.read_text(encoding="utf-8")
     assert 'if not user:' in source
