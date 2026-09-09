@@ -49,62 +49,64 @@ def _fields(entity: str):
     return model, fields
 
 
+def _money(value, label):
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(f"{label} is required")
+    try:
+        number = Decimal(text)
+    except Exception:
+        raise ValueError(f"Invalid {label}: {text}")
+    if number < 0:
+        raise ValueError(f"{label} cannot be negative")
+    return format(number, "f")
+
+
 def _parse_variants(raw):
     try:
         variants = json.loads(raw or "[]")
     except (TypeError, ValueError):
-        raise ValueError("Invalid BHK/Carpet Area configuration")
+        raise ValueError("Invalid BHK configuration")
     if not isinstance(variants, list) or not variants:
-        raise ValueError("At least one BHK and Carpet Area configuration is required")
+        raise ValueError("At least one BHK configuration is required")
     clean = []
     for item in variants:
         if not isinstance(item, dict):
-            raise ValueError("Invalid BHK/Carpet Area row")
+            raise ValueError("Invalid BHK configuration row")
         bhk = str(item.get("bhk", "")).strip()[:50]
-        areas = item.get("carpet_areas", [])
-        if not bhk or not isinstance(areas, list) or not areas:
-            raise ValueError("Every BHK row must contain at least one Carpet Area")
-        clean_areas = []
-        for area in areas:
-            text = str(area).strip()
-            try:
-                value = Decimal(text)
-            except Exception:
-                raise ValueError(f"Invalid Carpet Area: {text}")
-            if value <= 0:
-                raise ValueError("Carpet Area must be greater than zero")
-            fixed = format(value, "f")
-            if "." in fixed:
-                fixed = fixed.rstrip("0").rstrip(".")
-            clean_areas.append(fixed or "0")
-        clean.append({"bhk": bhk, "carpet_areas": clean_areas})
-    return clean
-
-
-def _parse_parking(raw):
-    try:
-        values = json.loads(raw or "{}")
-    except (TypeError, ValueError):
-        raise ValueError("Invalid parking configuration")
-    if values in (None, ""):
-        return {}
-    if not isinstance(values, dict):
-        raise ValueError("Invalid parking configuration")
-    clean = {}
-    for bhk, count in values.items():
-        name = str(bhk).strip()[:50]
-        if not name:
-            continue
-        text = str(count).strip()
-        if not text:
-            continue
+        area = str(item.get("carpet_area", "")).strip()
+        if not bhk or not area:
+            raise ValueError("Every configuration needs BHK and Carpet Area")
         try:
-            number = int(text)
-        except (TypeError, ValueError):
-            raise ValueError(f"Invalid parking count for {name}")
-        if number < 0:
-            raise ValueError("Parking count cannot be negative")
-        clean[name] = number
+            area_value = Decimal(area)
+        except Exception:
+            raise ValueError(f"Invalid Carpet Area: {area}")
+        if area_value <= 0:
+            raise ValueError("Carpet Area must be greater than zero")
+        fixed = format(area_value, "f")
+        if "." in fixed:
+            fixed = fixed.rstrip("0").rstrip(".")
+        parking = str(item.get("parking", "")).strip()
+        if parking:
+            try:
+                parking_count = int(parking)
+            except (TypeError, ValueError):
+                raise ValueError(f"Invalid parking count for {bhk}")
+            if parking_count < 0:
+                raise ValueError("Parking count cannot be negative")
+        else:
+            parking_count = None
+        negotiable = str(item.get("negotiable", "")).strip().upper()
+        if negotiable not in {"YES", "NO"}:
+            raise ValueError("Negotiable must be Yes or No")
+        clean.append({
+            "bhk": bhk,
+            "carpet_area": fixed,
+            "parking": parking_count,
+            "price_per_sqft": _money(item.get("price_per_sqft"), "Rate per Sq.Ft."),
+            "all_inclusive_price": _money(item.get("all_inclusive_price"), "All Inclusive / Bundle Price"),
+            "negotiable": negotiable,
+        })
     return clean
 
 
@@ -115,28 +117,44 @@ def _configuration_unit_number(bhk: str, area: str, index: int = 0) -> str:
 
 def _publish_unit_configurations(db: Session, project_id: int, data: dict):
     variants = _parse_variants(json.dumps(data.get("_unit_variants", [])))
-    parking_by_bhk = _parse_parking(json.dumps(data.get("_parking_by_bhk", {})))
     existing = {u.unit_number for u in db.scalars(select(Unit).where(Unit.project_id == project_id)).all()}
     columns = {column.name: column for column in Unit.__table__.columns}
     property_fields = (
         "property_type", "facing", "furnishing", "possession", "rera",
         "availability", "status", "latitude", "longitude", "amenities_json",
-        "photos_json", "floor_plan", "brochure", "description", "other_details",
+        "photos_json", "floor_plan", "brochure", "description",
     )
     for variant in variants:
-        parking = parking_by_bhk.get(variant["bhk"])
-        for area in variant["carpet_areas"]:
-            unit_number = _configuration_unit_number(variant["bhk"], area)
-            if unit_number in existing:
-                continue
-            unit = Unit(project_id=project_id, unit_number=unit_number, bhk=variant["bhk"], carpet_area=Decimal(area))
-            if parking is not None and "parking" in columns:
-                unit.parking = parking
-            for field in property_fields:
-                if field in columns and field in data and data[field] not in (None, ""):
-                    setattr(unit, field, _convert_excel_value(columns[field], data[field]))
-            db.add(unit)
-            existing.add(unit_number)
+        unit_number = _configuration_unit_number(variant["bhk"], variant["carpet_area"])
+        if unit_number in existing:
+            continue
+        unit = Unit(
+            project_id=project_id,
+            unit_number=unit_number,
+            bhk=variant["bhk"],
+            carpet_area=Decimal(variant["carpet_area"]),
+        )
+        if "parking" in columns and variant["parking"] is not None:
+            unit.parking = str(variant["parking"])
+        if "price_per_sqft" in columns:
+            unit.price_per_sqft = Decimal(variant["price_per_sqft"])
+        if "price" in columns:
+            unit.price = Decimal(variant["all_inclusive_price"])
+        for field in property_fields:
+            if field in columns and field in data and data[field] not in (None, ""):
+                setattr(unit, field, _convert_excel_value(columns[field], data[field]))
+        # Unit has no dedicated negotiable column yet; retain this per-configuration
+        # commercial flag in other_details without overwriting existing notes.
+        pricing_meta = json.dumps({
+            "rate_per_sqft": variant["price_per_sqft"],
+            "all_inclusive_bundle_price": variant["all_inclusive_price"],
+            "negotiable": variant["negotiable"],
+        }, ensure_ascii=False)
+        if "other_details" in columns:
+            base_details = str(data.get("other_details") or "").strip()
+            unit.other_details = f"{base_details}\nPricing: {pricing_meta}".strip()
+        db.add(unit)
+        existing.add(unit_number)
 
 
 @router.get("/admin/property-data/sales-link", response_class=HTMLResponse)
@@ -189,10 +207,8 @@ async def save_sales_property(token: str, request: Request, db: Session = Depend
     try:
         if row.property_type == "Projects":
             data["_unit_variants"] = _parse_variants(str(form.get("unit_variants", "[]")))
-            data["_parking_by_bhk"] = _parse_parking(str(form.get("parking_by_bhk", "{}")))
         else:
             data.pop("_unit_variants", None)
-            data.pop("_parking_by_bhk", None)
     except ValueError as exc:
         return RedirectResponse(f"/sales/property/{token}?error={escape(str(exc))}", status_code=303)
     row.submitted_by_name = str(form.get("submitted_by_name", "")).strip()[:150] or None
