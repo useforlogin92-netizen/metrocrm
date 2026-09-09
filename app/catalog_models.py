@@ -18,7 +18,7 @@ class LocationMaster(Base):
     locality: Mapped[str | None] = mapped_column(String(150), index=True)
     pincode: Mapped[str | None] = mapped_column(String(10), index=True)
     level: Mapped[str] = mapped_column(String(30), index=True)
-    priority: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    priority: Mapped[int] = mapped_column(Integer, index=True)
     aliases_json: Mapped[str] = mapped_column(Text, default="[]")
     latitude: Mapped[float | None] = mapped_column()
     longitude: Mapped[float | None] = mapped_column()
@@ -53,6 +53,25 @@ class PropertyMedia(Base):
     is_shareable: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class PropertySocialProfile(Base):
+    __tablename__ = "property_social_profiles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), unique=True, index=True)
+    brand_name: Mapped[str | None] = mapped_column(String(150))
+    facebook_url: Mapped[str | None] = mapped_column(String(1000))
+    instagram_url: Mapped[str | None] = mapped_column(String(1000))
+    youtube_url: Mapped[str | None] = mapped_column(String(1000))
+    whatsapp_url: Mapped[str | None] = mapped_column(String(1000))
+    x_url: Mapped[str | None] = mapped_column(String(1000))
+    linkedin_url: Mapped[str | None] = mapped_column(String(1000))
+    website_url: Mapped[str | None] = mapped_column(String(1000))
+    google_business_url: Mapped[str | None] = mapped_column(String(1000))
+    share_message: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class CatalogShare(Base):
