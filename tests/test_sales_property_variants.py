@@ -26,7 +26,7 @@ def test_invalid_or_empty_configuration_is_rejected():
     with pytest.raises(ValueError):
         _parse_variants('[]')
     with pytest.raises(ValueError):
-        _parse_variants('[{"bhk":"2 BHK","carpet_area":"650","price_per_sqft":"10000","all_inclusive_price":"6500000","negotiable":"YES"}]')
+        _parse_variants('[{"bhk":"2 BHK","carpet_area":"650","price_per_sqft":"10000","all_inclusive_price":"","negotiable":"YES"}]')
     with pytest.raises(ValueError):
         _parse_variants('[{"bhk":"2 BHK","carpet_area":"abc","price_per_sqft":"10000","all_inclusive_price":"6500000","negotiable":"YES"}]')
     with pytest.raises(ValueError):
