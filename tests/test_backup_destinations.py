@@ -20,6 +20,7 @@ def test_backup_fans_out_to_external_destination(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "database_url", f"sqlite:///{database}")
     monkeypatch.setattr(settings, "backup_local_path", str(local_root))
     monkeypatch.setattr(settings, "backup_external_path", str(external_root))
+    monkeypatch.setattr(settings, "backup_agent_token", "")
     monkeypatch.setattr(settings, "backup_cloud_providers", "")
     monkeypatch.setattr(settings, "backup_cloud_provider", "none")
     monkeypatch.setattr(settings, "uploads_path", str(tmp_path / "uploads"))
