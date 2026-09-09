@@ -73,9 +73,38 @@ def _parse_variants(raw):
                 raise ValueError(f"Invalid Carpet Area: {text}")
             if value <= 0:
                 raise ValueError("Carpet Area must be greater than zero")
-            normalized = format(value.normalize(), "f").rstrip("0").rstrip(".")
-            clean_areas.append(normalized or "0")
+            fixed = format(value, "f")
+            if "." in fixed:
+                fixed = fixed.rstrip("0").rstrip(".")
+            clean_areas.append(fixed or "0")
         clean.append({"bhk": bhk, "carpet_areas": clean_areas})
+    return clean
+
+
+def _parse_parking(raw):
+    try:
+        values = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        raise ValueError("Invalid parking configuration")
+    if values in (None, ""):
+        return {}
+    if not isinstance(values, dict):
+        raise ValueError("Invalid parking configuration")
+    clean = {}
+    for bhk, count in values.items():
+        name = str(bhk).strip()[:50]
+        if not name:
+            continue
+        text = str(count).strip()
+        if not text:
+            continue
+        try:
+            number = int(text)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid parking count for {name}")
+        if number < 0:
+            raise ValueError("Parking count cannot be negative")
+        clean[name] = number
     return clean
 
 
@@ -85,20 +114,24 @@ def _configuration_unit_number(bhk: str, area: str, index: int = 0) -> str:
 
 
 def _publish_unit_configurations(db: Session, project_id: int, data: dict):
-    variants = _parse_variants(data.get("_unit_variants"))
+    variants = _parse_variants(json.dumps(data.get("_unit_variants", [])))
+    parking_by_bhk = _parse_parking(json.dumps(data.get("_parking_by_bhk", {})))
     existing = {u.unit_number for u in db.scalars(select(Unit).where(Unit.project_id == project_id)).all()}
     columns = {column.name: column for column in Unit.__table__.columns}
     property_fields = (
-        "property_type", "parking", "facing", "furnishing", "possession", "rera",
+        "property_type", "facing", "furnishing", "possession", "rera",
         "availability", "status", "latitude", "longitude", "amenities_json",
         "photos_json", "floor_plan", "brochure", "description", "other_details",
     )
     for variant in variants:
+        parking = parking_by_bhk.get(variant["bhk"])
         for area in variant["carpet_areas"]:
             unit_number = _configuration_unit_number(variant["bhk"], area)
             if unit_number in existing:
                 continue
             unit = Unit(project_id=project_id, unit_number=unit_number, bhk=variant["bhk"], carpet_area=Decimal(area))
+            if parking is not None and "parking" in columns:
+                unit.parking = parking
             for field in property_fields:
                 if field in columns and field in data and data[field] not in (None, ""):
                     setattr(unit, field, _convert_excel_value(columns[field], data[field]))
@@ -156,8 +189,10 @@ async def save_sales_property(token: str, request: Request, db: Session = Depend
     try:
         if row.property_type == "Projects":
             data["_unit_variants"] = _parse_variants(str(form.get("unit_variants", "[]")))
+            data["_parking_by_bhk"] = _parse_parking(str(form.get("parking_by_bhk", "{}")))
         else:
             data.pop("_unit_variants", None)
+            data.pop("_parking_by_bhk", None)
     except ValueError as exc:
         return RedirectResponse(f"/sales/property/{token}?error={escape(str(exc))}", status_code=303)
     row.submitted_by_name = str(form.get("submitted_by_name", "")).strip()[:150] or None
