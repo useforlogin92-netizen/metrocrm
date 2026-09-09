@@ -32,6 +32,7 @@ def test_sync_once_downloads_verifies_and_mirrors(monkeypatch, tmp_path):
     digest = hashlib.sha256(payload).hexdigest()
     local_root = tmp_path / "pc"
     external_root = tmp_path / "hdd"
+    external_root.mkdir()
     monkeypatch.setenv("METROCRM_URL", "https://crm.example")
     monkeypatch.setenv("METROCRM_BACKUP_AGENT_TOKEN", "secret")
     monkeypatch.setenv("METROCRM_LOCAL_PATH", str(local_root))
