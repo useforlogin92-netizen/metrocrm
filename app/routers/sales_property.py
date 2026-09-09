@@ -73,7 +73,8 @@ def _parse_variants(raw):
                 raise ValueError(f"Invalid Carpet Area: {text}")
             if value <= 0:
                 raise ValueError("Carpet Area must be greater than zero")
-            clean_areas.append(str(value.normalize()))
+            normalized = format(value.normalize(), "f").rstrip("0").rstrip(".")
+            clean_areas.append(normalized or "0")
         clean.append({"bhk": bhk, "carpet_areas": clean_areas})
     return clean
 
