@@ -7,18 +7,17 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Developer, NearbyLocation, Project, Tower, Unit
+from app.models import AuditEvent
 from app.routers.data_tools import _convert_excel_value, _import_workbook, _models, _save_workbook, _template_workbook
 
 router = APIRouter(tags=["property-data"])
+templates = Jinja2Templates(directory="app/templates")
 PROPERTY_SHEETS = ("Developers", "Projects", "Towers", "Units", "NearbyLocations")
 PROPERTY_MODELS = {name: _models()[name] for name in PROPERTY_SHEETS}
 
@@ -45,7 +44,7 @@ def _property_workbook() -> BytesIO:
             del full[sheet]
     ws = full["Instructions"]
     ws.append(["Property-only workflow"])
-    ws.append(["Use the Projects, Towers, Units and NearbyLocations sheets for property inventory. Use an existing id to update; leave id blank for a new record."])
+    ws.append(["Use Projects, Towers, Units and NearbyLocations for property inventory. Use an existing id to update; leave id blank for a new record."])
     return _save_workbook(full)
 
 
@@ -71,10 +70,10 @@ def property_data_page(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(select(model).order_by(model.id.desc()).limit(100)).all()
     editing_id = request.query_params.get("id")
     edit_row = db.get(model, int(editing_id)) if editing_id and editing_id.isdigit() else None
-    return request.app.state.property_templates.TemplateResponse("property_data.html", {
+    return templates.TemplateResponse("property_data.html", {
         "request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(),
         "csrf_token": csrf_token(request), "entities": PROPERTY_SHEETS, "selected": selected, "fields": fields,
-        "rows": rows, "edit_row": edit_row, "display_value": _display_value,
+        "rows": rows, "edit_row": edit_row, "display_value": _display_value, "getattr": getattr,
         "message": request.query_params.get("message"), "error": request.query_params.get("error"),
         "show_user_management": actor.role in {"SUPER_ADMIN", "ADMIN"}, "show_integrations": False,
         "show_alerts": False, "show_approvals": actor.role in {"SUPER_ADMIN", "ADMIN"},
