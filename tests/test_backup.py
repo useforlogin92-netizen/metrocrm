@@ -42,6 +42,29 @@ def test_backup_schedule_and_dual_destination_defaults(monkeypatch):
         assert "backup_metadata.txt" in archive.namelist()
 
 
+def test_backup_uses_application_secret_when_dedicated_key_is_missing(monkeypatch):
+    from app.config import settings
+    from app.services.backup import _key
+
+    monkeypatch.setattr(settings, "backup_encryption_key", "")
+    monkeypatch.setattr(settings, "secret_key", "production-secret")
+    assert _key() == __import__('hashlib').sha256(b"production-secret").digest()
+
+
+def test_backup_rejects_placeholder_secrets(monkeypatch):
+    from app.config import settings
+    from app.services.backup import _key
+
+    monkeypatch.setattr(settings, "backup_encryption_key", "")
+    monkeypatch.setattr(settings, "secret_key", "CHANGE-ME-IN-ENV")
+    try:
+        _key()
+    except RuntimeError as exc:
+        assert "secure BACKUP_ENCRYPTION_KEY or SECRET_KEY" in str(exc)
+    else:
+        raise AssertionError("placeholder secret must not be accepted")
+
+
 def test_backup_scheduler_registers_11am_and_7pm(monkeypatch):
     from app.config import settings
     import app.services.backup_scheduler as module
