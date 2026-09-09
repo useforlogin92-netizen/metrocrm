@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     environment: str = "development"
     secret_key: str = "CHANGE-ME-IN-ENV"
     database_url: str = "sqlite:///./metrocrm.db"
-    # Security baseline: authenticated browser sessions expire after 15 minutes.
     session_max_age: int = 900
     otp_expiry_seconds: int = 300
     otp_max_attempts: int = 5
@@ -19,21 +18,17 @@ class Settings(BaseSettings):
     backup_external_path: str = ""
     backup_agent_token: str = ""
     backup_encryption_key: str = ""
-    backup_cloud_provider: str = "none"  # legacy single-provider setting
-    backup_cloud_providers: str = ""  # comma-separated: s3,google_drive,onedrive
+    backup_cloud_provider: str = "none"
+    backup_cloud_providers: str = ""
     backup_s3_endpoint: str = ""
     backup_s3_bucket: str = ""
     backup_s3_access_key: str = ""
     backup_s3_secret_key: str = ""
     backup_s3_region: str = ""
-
-    # Google Drive delegated OAuth configuration. Keep all secrets in the deployment environment.
     backup_google_client_id: str = ""
     backup_google_client_secret: str = ""
     backup_google_refresh_token: str = ""
     backup_google_folder_id: str = ""
-
-    # Microsoft OneDrive / Graph delegated OAuth configuration.
     backup_onedrive_tenant: str = "common"
     backup_onedrive_client_id: str = ""
     backup_onedrive_client_secret: str = ""
@@ -53,7 +48,6 @@ class Settings(BaseSettings):
     integration_webhook_secret: str = ""
     integration_encryption_key: str = ""
 
-    # OTP delivery providers are intentionally disabled until real credentials are configured.
     otp_mobile_provider: str = "test"
     otp_email_provider: str = "test"
     sms_provider: str = "test"
@@ -65,9 +59,16 @@ class Settings(BaseSettings):
     email_api_key: str = ""
     email_from: str = ""
 
-    # Instant property/project visit alerts.
     property_visit_alerts_enabled: bool = True
     property_visit_alert_cooldown_seconds: int = 60
+
+    # AI caller/voice gateway. Provider credentials and voice IDs stay in deployment env vars.
+    ai_caller_provider: str = ""
+    ai_caller_provider_secret: str = ""
+    ai_caller_default_language: str = "hi-IN"
+    ai_caller_male_voice: str = ""
+    ai_caller_female_voice: str = ""
+    ai_caller_store_transcript: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
