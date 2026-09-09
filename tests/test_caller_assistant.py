@@ -33,5 +33,5 @@ def test_property_speech_contains_sales_details():
         "description": "Near station",
     }
     text = _property_speech(property_data, customer)
-    for expected in ("ABC Residency", "Borivali West", "2 BHK", "650", "12,000", "78,00,000", "2", "negotiable", "Dec 2027", "P123"):
+    for expected in ("ABC Residency", "Borivali West", "2 BHK", "650", "12,000", "7,800,000", "2", "negotiable", "Dec 2027", "P123"):
         assert expected in text
