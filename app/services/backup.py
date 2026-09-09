@@ -98,7 +98,9 @@ def _read_state(path: Path) -> dict[str, object] | None:
 
 
 def _destination_names() -> list[str]:
-    names = ["local", "agent_pc"]
+    names = ["local"]
+    if settings.backup_agent_token.strip():
+        names.append("agent_pc")
     if settings.backup_external_path.strip():
         names.append("external")
     names.extend(configured_cloud_providers())
@@ -109,7 +111,10 @@ def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, ob
     destinations = state.setdefault("destinations", {})
     assert isinstance(destinations, dict)
     destinations.setdefault("local", {"status": "success", "path": str(encrypted), "error": None})
-    destinations.setdefault("agent_pc", {"status": "pending", "path": None, "error": None})
+    if settings.backup_agent_token.strip():
+        destinations.setdefault("agent_pc", {"status": "pending", "path": None, "error": None})
+    else:
+        destinations.pop("agent_pc", None)
     if settings.backup_external_path.strip():
         destinations.setdefault("external", {"status": "pending", "path": None, "error": None})
     for provider in configured_cloud_providers():
@@ -132,7 +137,8 @@ def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, ob
 
     required = [name for name in _destination_names() if name != "agent_pc"]
     failures = [name for name in required if destinations[name]["status"] != "success"]
-    state["status"] = "partial_failure" if failures or destinations["agent_pc"]["status"] != "success" else "success"
+    agent_pending = "agent_pc" in destinations and destinations["agent_pc"]["status"] != "success"
+    state["status"] = "partial_failure" if failures or agent_pending else "success"
     state["failed_destinations"] = failures
     state["updated_at"] = _now().isoformat()
     return state
@@ -190,6 +196,8 @@ def retry_pending_backups() -> list[dict[str, object]]:
 
 def acknowledge_agent_backup(relative_path: str) -> bool:
     """Mark a backup as delivered to the fixed desktop backup agent."""
+    if not settings.backup_agent_token.strip():
+        return False
     root = Path(settings.backup_local_path).expanduser().resolve()
     target = (root / relative_path).resolve()
     if root not in target.parents or target.suffix != ".mcrmbackup" or not target.is_file():
