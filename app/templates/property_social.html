@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Property Social & Share{% endblock %}
+{% block header_title %}Property Social & Share{% endblock %}
+{% block breadcrumb %}Property Social & Share{% endblock %}
+{% block content %}
+<style>
+.ss-card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:18px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
+.ss-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.ss-wide{grid-column:1/-1}label{display:block;font-size:11px;font-weight:800;color:#475569;margin:8px 0 5px}input,textarea,select{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #dbe3ef;border-radius:9px;font:inherit}textarea{min-height:90px;resize:vertical}.ss-btn{display:inline-flex;border:0;border-radius:9px;padding:10px 15px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;text-decoration:none}.ss-note{font-size:12px;color:#64748b;line-height:1.55}.ss-alert{padding:12px 14px;border-radius:10px;margin-bottom:15px;font-size:12px}.ok{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}.err{background:#fff1f2;color:#b42318;border:1px solid #fecdd3}
+@media(max-width:800px){.ss-grid{grid-template-columns:1fr}.ss-wide{grid-column:auto}}
+</style>
+{% if message %}<div class="ss-alert ok">✓ {{ message }}</div>{% endif %}
+{% if error %}<div class="ss-alert err">{{ error }}</div>{% endif %}
+<div class="ss-card">
+<h2 style="margin:0 0 6px">Property-wise Social Accounts</h2>
+<p class="ss-note">Har property/project ke liye Metro Property ke Facebook, Instagram, YouTube, WhatsApp aur other customer-facing links save karein. Ye links customer-facing property share page par clearly show honge.</p>
+{% if not projects %}<p class="ss-note">Pehle Property Data mein ek Project create karein.</p>{% else %}
+<form method="get" action="/admin/property-data/social">
+<label>Select Property / Project</label>
+<select name="project_id" onchange="this.form.submit()">{% for p in projects %}<option value="{{ p.id }}" {% if selected and selected.id == p.id %}selected{% endif %}>{{ p.name }}{% if p.city %} — {{ p.city }}{% endif %}</option>{% endfor %}</select>
+</form>
+<form method="post" action="/admin/property-data/social">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="project_id" value="{{ selected.id }}">
+<div class="ss-grid">
+<div class="ss-wide"><label>Customer-facing Brand Name</label><input name="brand_name" value="{{ profile.brand_name if profile else 'Metro Property' }}" placeholder="Metro Property"></div>
+<div><label>Facebook</label><input name="facebook_url" type="url" value="{{ profile.facebook_url if profile else '' }}" placeholder="https://facebook.com/..."></div>
+<div><label>Instagram</label><input name="instagram_url" type="url" value="{{ profile.instagram_url if profile else '' }}" placeholder="https://instagram.com/..."></div>
+<div><label>YouTube</label><input name="youtube_url" type="url" value="{{ profile.youtube_url if profile else '' }}" placeholder="https://youtube.com/..."></div>
+<div><label>WhatsApp</label><input name="whatsapp_url" type="url" value="{{ profile.whatsapp_url if profile else '' }}" placeholder="https://wa.me/..."></div>
+<div><label>X / Twitter</label><input name="x_url" type="url" value="{{ profile.x_url if profile else '' }}" placeholder="https://x.com/..."></div>
+<div><label>LinkedIn</label><input name="linkedin_url" type="url" value="{{ profile.linkedin_url if profile else '' }}" placeholder="https://linkedin.com/..."></div>
+<div><label>Website</label><input name="website_url" type="url" value="{{ profile.website_url if profile else '' }}" placeholder="https://..."></div>
+<div><label>Google Business</label><input name="google_business_url" type="url" value="{{ profile.google_business_url if profile else '' }}" placeholder="https://maps.google.com/..."></div>
+<div class="ss-wide"><label>Customer Share Message</label><textarea name="share_message" placeholder="Example: New 2 BHK homes at Thane West. Photos, pricing and site-visit details...">{{ profile.share_message if profile else '' }}</textarea></div>
+</div>
+<div style="margin-top:15px"><button class="ss-btn" type="submit">Save Property Social Profile</button></div>
+</form>
+{% endif %}
+</div>
+<div class="ss-card"><h3 style="margin-top:0">Customer-friendly sharing</h3><p class="ss-note">Property share page mein social account buttons ke saath WhatsApp/share-friendly presentation rakha jayega, taaki sales team ek property link customer ko directly share kar sake.</p></div>
+{% endblock %}
