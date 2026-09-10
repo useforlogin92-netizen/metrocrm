@@ -25,7 +25,9 @@ def test_super_admin_queue_shows_latest_pending_admin_request(db_session):
     body = response.body.decode("utf-8")
     assert response.status_code == 200
     assert "Satyapal_Admin" in body
-    assert f"/super-admin/login-requests/{event.id}/decision" in body
+    assert f"/super-admin/login-requests/{event.id}/approve" in body
+    assert f"/super-admin/login-requests/{event.id}/reject" in body
+    assert f"/super-admin/login-requests/{event.id}/decision" not in body
 
 
 def test_super_admin_queue_hides_decided_request(db_session):
