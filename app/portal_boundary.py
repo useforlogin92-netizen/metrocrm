@@ -1,6 +1,8 @@
 """Enforce dedicated browser-session and sensitive-operation boundaries."""
 from __future__ import annotations
 
+from html import escape
+
 from fastapi import Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -29,13 +31,14 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
     path = request.url.path
     if getattr(request, "method", "GET") != "GET":
         return None
-    csrf = csrf_token(request)
+    csrf = escape(csrf_token(request), quote=True)
     if path.startswith("/admin/data-tools/export/"):
-        entity = path.rsplit("/", 1)[-1]
+        entity = escape(path.rsplit("/", 1)[-1], quote=True)
         params = getattr(request, "query_params", {})
         request_id = params.get("request_id")
-        query = f"?request_id={request_id}" if request_id else ""
-        action = f"/admin/data-tools/export/{entity}{query}"
+        safe_request_id = escape(str(request_id), quote=True) if request_id else None
+        query = f"?request_id={safe_request_id}" if safe_request_id else ""
+        action = escape(f"/admin/data-tools/export/{entity}{query}", quote=True)
         body = (
             "<!doctype html><html><body><h1>Confirm data export</h1>"
             "<p>This sensitive operation requires an explicit POST request.</p>"
@@ -46,8 +49,8 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
         )
         return HTMLResponse(body, status_code=405, headers={"Allow": "POST"})
     if path.startswith("/super-admin/data-export-requests/") and path.endswith("/download"):
-        request_id = path.split("/")[3]
-        action = f"/super-admin/data-export-requests/{request_id}/download"
+        request_id = escape(path.split("/")[3], quote=True)
+        action = escape(f"/super-admin/data-export-requests/{request_id}/download", quote=True)
         body = (
             "<!doctype html><html><body><h1>Confirm data export</h1>"
             "<p>This sensitive operation requires an explicit POST request.</p>"
@@ -68,11 +71,12 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
         )
         return HTMLResponse(body, status_code=405, headers={"Allow": "POST"})
     if path.startswith("/admin/property-data/export/download/"):
-        request_id = path.rsplit("/", 1)[-1]
+        request_id = escape(path.rsplit("/", 1)[-1], quote=True)
+        action = escape(f"/admin/property-data/export/download/{request_id}", quote=True)
         body = (
             "<!doctype html><html><body><h1>Confirm property data export</h1>"
             "<p>This sensitive operation requires an explicit POST request.</p>"
-            f"<form method='post' action='/admin/property-data/export/download/{request_id}'>"
+            f"<form method='post' action='{action}'>"
             f"<input type='hidden' name='csrf_token' value='{csrf}'>"
             "<button type='submit'>Continue to export</button></form>"
             "</body></html>"
