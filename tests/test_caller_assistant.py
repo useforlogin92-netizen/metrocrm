@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app.routers.caller_assistant import _lead_locations, _opening_speech, _property_speech
+from app.routers.caller_assistant import _lead_locations, _opening_speeches, _property_speeches
 
 
 def test_multiple_locations_preserve_side_and_priority():
@@ -16,7 +16,13 @@ def test_opening_speech_uses_source_and_caller_name():
     user = SimpleNamespace(username="Suresh")
     lead = SimpleNamespace(source="MagicBricks", preferred_location="Borivali, Andheri", bhk="2 BHK")
     customer = SimpleNamespace(name="Rahul")
-    text = _opening_speech(user, lead, customer, [{"name":"Borivali","side":"Both","priority":"Primary"},{"name":"Andheri","side":"Both","priority":"Primary"}])
+    speeches = _opening_speeches(
+        user,
+        lead,
+        customer,
+        [{"name":"Borivali","side":"Both","priority":"Primary"},{"name":"Andheri","side":"Both","priority":"Primary"}],
+    )
+    text = speeches["en"]
     assert "Suresh" in text
     assert "MagicBricks" in text
     assert "Rahul" in text
@@ -32,8 +38,9 @@ def test_property_speech_contains_sales_details():
         "parking":"2", "negotiable":"Yes", "possession":"Dec 2027", "rera":"P123",
         "description":"Near station",
     }
-    text = _property_speech(property_data, customer)
+    speeches = _property_speeches(property_data, customer)
+    text = speeches["en"]
     for expected in ("ABC Residency","Borivali West","2 BHK","650","12,000","7,800,000","2","negotiable","Dec 2027","P123"):
         assert expected in text
 
-# CI trigger after the call-assistant integration.
+# CI trigger after the call-assistant language integration.
