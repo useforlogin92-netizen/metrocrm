@@ -28,11 +28,11 @@ _WINDOW_SECONDS = 15 * 60
 _failures: dict[str, list[float]] = {}
 
 SECURITY_QUESTIONS = (
-    "Whose credit card did you use for the first time? Enter your friend's full FIRST NAME and LAST NAME in CAPITAL LETTERS.",
-    "Which company did you purchase your first health insurance policy from?",
-    "Who is your current favourite manager? Enter the full FIRST NAME and LAST NAME in CAPITAL LETTERS.",
-    "Which female person do you consider your biggest professional adversary—someone whose presence has felt like a major disruption in your life? Enter the full FIRST NAME and LAST NAME in CAPITAL LETTERS.",
-    "What is your wife's bank account number? Enter the complete account number exactly as registered.",
+    "What was the full name of the first friend whose credit card you used?",
+    "Which insurance company provided the first health insurance policy you purchased?",
+    "What is the full name of your favourite manager you have worked with so far?",
+    "What is the full name of the female person you consider your biggest enemy in the office, someone you regard as a disaster in your professional life?",
+    "What is the name of the local railway station closest to the location where your son was born?",
 )
 _UPPERCASE_NAME_QUESTION_NUMBERS = {1, 3, 4}
 
@@ -100,7 +100,7 @@ def security_questions_page(request: Request, db: Session = Depends(get_db)):
     for number, question in enumerate(SECURITY_QUESTIONS, 1):
         fields.append(f"<div class='question'><strong>{number}. {question}</strong><div class='field'><label for='answer_{number}'>Answer</label><input id='answer_{number}' name='answer_{number}' type='password' autocomplete='off' placeholder='Enter your private answer'></div></div>")
     status = "<div class='ok'>All five recovery questions are configured.</div>" if len(rows) == 5 else "<div class='alert'>Configure all five questions before relying on password recovery. During recovery, any two questions will be selected at random.</div>"
-    guidance = "<p><strong>Security guidance:</strong> Use answers that are known only to you and are not publicly discoverable. For questions 1, 3, and 4, enter the required full name in CAPITAL LETTERS. Answers are stored only as password hashes.</p>"
+    guidance = "<p><strong>Security guidance:</strong> Use answers that are known only to you and are not publicly discoverable. Answers are stored only as password hashes.</p>"
     body = "<h1>Super Admin Recovery Questions</h1>" + guidance + status + "<form method='post' action='/super-admin/security-questions'>" + "".join(fields) + f"<input type='hidden' name='csrf_token' value='{csrf_token(request)}'><button class='button' type='submit'>Save Recovery Questions</button></form><a class='back' href='/dashboard'>← Back to Dashboard</a>"
     return _page("Recovery Questions", body)
 
