@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp | MetroCRM{% endblock %}
+{% block header_title %}WhatsApp{% endblock %}
+{% block breadcrumb %}WhatsApp{% endblock %}
+{% block content %}
+<div class="card" style="max-width:980px">
+  <h2 style="margin-top:0">WhatsApp Communication</h2>
+  <p style="color:#64748b">Send approved CRM messages to a lead or share a selected property with a customer. Customer numbers and provider credentials stay server-side.</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin:18px 0">
+    <span style="padding:7px 10px;border-radius:999px;background:#f1f5f9;font-size:12px;font-weight:700">Gateway: {{ 'Enabled' if whatsapp_enabled else 'Test / Not enabled' }}</span>
+    <span style="padding:7px 10px;border-radius:999px;background:#f1f5f9;font-size:12px;font-weight:700">Mode: {{ whatsapp_mode|upper }}</span>
+  </div>
+
+  <form method="post" action="/whatsapp/send" style="display:grid;gap:12px;margin-top:22px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 style="margin:0">Send Message</h3>
+    <label>Lead ID<input name="lead_id" type="number" min="1" required placeholder="Lead ID"></label>
+    <label>Message<textarea name="message" rows="5" required placeholder="Type the customer message here"></textarea></label>
+    <button type="submit" style="width:max-content">Send WhatsApp Message</button>
+  </form>
+
+  <hr style="margin:28px 0;border:0;border-top:1px solid #e2e8f0">
+  <form method="post" action="/whatsapp/property-share" style="display:grid;gap:12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 style="margin:0">Share Property</h3>
+    <p style="color:#64748b;margin:0">Creates a controlled customer-facing property link and sends the property summary through WhatsApp.</p>
+    <label>Lead ID<input name="lead_id" type="number" min="1" required></label>
+    <label>Project ID<input name="project_id" type="number" min="1" required></label>
+    <label>Unit ID<input name="unit_id" type="number" min="1" required></label>
+    <button type="submit" style="width:max-content">Share Property on WhatsApp</button>
+  </form>
+</div>
+{% endblock %}
