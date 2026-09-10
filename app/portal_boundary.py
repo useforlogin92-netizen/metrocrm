@@ -27,12 +27,13 @@ def _is_portal_login(path: str, required: str) -> bool:
 def _sensitive_export_get(request: Request) -> HTMLResponse | None:
     """Turn legacy export GET links into explicit CSRF-protected POST forms."""
     path = request.url.path
-    if request.method != "GET":
+    if getattr(request, "method", "GET") != "GET":
         return None
     csrf = csrf_token(request)
     if path.startswith("/admin/data-tools/export/"):
         entity = path.rsplit("/", 1)[-1]
-        request_id = request.query_params.get("request_id")
+        params = getattr(request, "query_params", {})
+        request_id = params.get("request_id")
         query = f"?request_id={request_id}" if request_id else ""
         action = f"/admin/data-tools/export/{entity}{query}"
         body = (
