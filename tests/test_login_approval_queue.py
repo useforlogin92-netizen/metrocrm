@@ -25,7 +25,7 @@ def test_super_admin_queue_shows_latest_pending_admin_request(db_session):
     body = response.body.decode("utf-8")
     assert response.status_code == 200
     assert "Satyapal_Admin" in body
-    assert f"/super-admin/login-requests/{event.id}/approve" in body
+    assert f"/super-admin/login-requests/{event.id}/decision" in body
 
 
 def test_super_admin_queue_hides_decided_request(db_session):
@@ -42,7 +42,7 @@ def test_super_admin_queue_hides_decided_request(db_session):
     response = super_admin_login_requests(_request_for_session(super_admin.id, super_admin.session_version), db_session)
     body = response.body.decode("utf-8")
     assert response.status_code == 200
-    assert "No pending login approval requests." in body
+    assert "No pending login requests." in body
 
 
 def test_super_admin_queue_hides_expired_request(db_session):
@@ -57,4 +57,4 @@ def test_super_admin_queue_hides_expired_request(db_session):
     response = super_admin_login_requests(_request_for_session(super_admin.id, super_admin.session_version), db_session)
     body = response.body.decode("utf-8")
     assert response.status_code == 200
-    assert "No pending login approval requests." in body
+    assert "No pending login requests." in body
