@@ -39,3 +39,33 @@ def test_super_admin_export_get_is_blocked_and_returns_csrf_post_form():
     body = response.body.decode()
     assert "method='post'" in body
     assert "name='csrf_token'" in body
+
+
+def test_property_direct_export_get_is_blocked_and_returns_csrf_post_form():
+    request = _request("/admin/property-data/export", {"user_id": 1, "login_portal": "admin"})
+
+    async def call_next(_request):
+        raise AssertionError("legacy property export GET handler must not execute")
+
+    response = _run_boundary(request, call_next)
+    assert response.status_code == 405
+    assert response.headers["allow"] == "POST"
+    body = response.body.decode()
+    assert "method='post'" in body
+    assert "action='/admin/property-data/export'" in body
+    assert "name='csrf_token'" in body
+
+
+def test_property_approved_download_get_is_blocked_and_returns_csrf_post_form():
+    request = _request("/admin/property-data/export/download/42", {"user_id": 1, "login_portal": "admin"})
+
+    async def call_next(_request):
+        raise AssertionError("legacy approved property export GET handler must not execute")
+
+    response = _run_boundary(request, call_next)
+    assert response.status_code == 405
+    assert response.headers["allow"] == "POST"
+    body = response.body.decode()
+    assert "method='post'" in body
+    assert "action='/admin/property-data/export/download/42'" in body
+    assert "name='csrf_token'" in body
