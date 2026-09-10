@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from app import main_portal
 from app.routers import password_recovery
@@ -24,15 +24,31 @@ def test_super_admin_recovery_routes_are_registered():
     assert "/super-admin/security-questions" in paths
 
 
-def test_super_admin_login_get_receives_forgot_password_link():
-    request = _request()
+def test_super_admin_login_template_contains_forgot_password_link():
+    from pathlib import Path
 
-    async def call_next(_request):
-        return HTMLResponse("<form></form>")
+    template = Path("app/templates/login.html").read_text(encoding="utf-8")
+    assert "/super-admin/forgot-password" in template
+    assert "Forgot your password?" in template
 
-    response = asyncio.run(password_recovery.add_recovery_link_to_super_admin_login(request, call_next))
-    assert b"/super-admin/forgot-password" in response.body
-    assert b"Forgot your password?" in response.body
+
+def test_super_admin_recovery_questions_are_private_and_specific():
+    questions = password_recovery.SECURITY_QUESTIONS
+    assert len(questions) == 5
+    assert "credit card" in questions[0].lower()
+    assert "health insurance" in questions[1].lower()
+    assert "favourite manager" in questions[2].lower()
+    assert "female" in questions[3].lower()
+    assert "bank account number" in questions[4].lower()
+    for number in (1, 3, 4):
+        assert "CAPITAL LETTERS" in questions[number - 1]
+
+
+def test_named_recovery_answers_are_normalized_to_capitals():
+    assert password_recovery._normalize_answer(1, "  john smith  ") == "JOHN SMITH"
+    assert password_recovery._normalize_answer(3, "Jane Manager") == "JANE MANAGER"
+    assert password_recovery._normalize_answer(4, "Alex Example") == "ALEX EXAMPLE"
+    assert password_recovery._normalize_answer(2, "HealthCare Co") == "HealthCare Co"
 
 
 def test_recovery_requires_exactly_five_configured_questions():
@@ -73,8 +89,8 @@ def test_start_recovery_randomly_selects_two_questions():
 def test_two_correct_random_answers_open_password_reset():
     user = SimpleNamespace(id=7, username="Satya", role="SUPER_ADMIN", is_active=True)
     questions = [
-        SimpleNamespace(id=11, user_id=7, question="School?", answer_hash=hash_password("school"), is_active=True),
-        SimpleNamespace(id=22, user_id=7, question="City?", answer_hash=hash_password("city"), is_active=True),
+        SimpleNamespace(id=11, user_id=7, question_no=1, question="Credit card?", answer_hash=hash_password("JOHN SMITH"), is_active=True),
+        SimpleNamespace(id=22, user_id=7, question_no=2, question="Insurance?", answer_hash=hash_password("Health Co"), is_active=True),
     ]
     request = _request({
         password_recovery.RECOVERY_SESSION_USER: 7,
@@ -89,7 +105,7 @@ def test_two_correct_random_answers_open_password_reset():
         def scalars(self, _statement):
             return SimpleNamespace(all=lambda: questions)
 
-    response = password_recovery.verify_recovery(request, "school", "city", FakeDB())
+    response = password_recovery.verify_recovery(request, "john smith", "Health Co", FakeDB())
     assert isinstance(response, RedirectResponse)
     assert response.headers["location"] == "/super-admin/forgot-password/reset"
     assert request.session["super_admin_recovery_verified"] is True
@@ -97,7 +113,7 @@ def test_two_correct_random_answers_open_password_reset():
 
 def test_wrong_answer_closes_recovery_session():
     user = SimpleNamespace(id=7, username="Satya", role="SUPER_ADMIN", is_active=True)
-    questions = [SimpleNamespace(id=11, user_id=7, question="School?", answer_hash=hash_password("school"), is_active=True), SimpleNamespace(id=22, user_id=7, question="City?", answer_hash=hash_password("city"), is_active=True)]
+    questions = [SimpleNamespace(id=11, user_id=7, question_no=1, question="Credit card?", answer_hash=hash_password("JOHN SMITH"), is_active=True), SimpleNamespace(id=22, user_id=7, question_no=2, question="Insurance?", answer_hash=hash_password("city"), is_active=True)]
     request = _request({
         password_recovery.RECOVERY_SESSION_USER: 7,
         password_recovery.RECOVERY_SESSION_EXPIRES: 9999999999,
