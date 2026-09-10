@@ -1,6 +1,7 @@
 """Production entrypoint that loads the core app and the separated login portals."""
 from app import main
 from app import portal  # noqa: F401,E402
+from app import portal_boundary  # noqa: F401,E402
 from app.routers.accounting import router as accounting_router
 from app.routers.ai_caller import router as ai_caller_router
 from app.routers.caller_assistant import router as caller_assistant_router
