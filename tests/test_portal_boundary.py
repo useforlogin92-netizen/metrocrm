@@ -62,3 +62,21 @@ def test_unauthenticated_portal_request_passes_through_to_route_guard():
         return "next"
 
     assert _run_boundary(request, call_next) == "next"
+
+
+def test_mismatched_session_can_reach_admin_login_page():
+    request = _request("/admin/login", {"user_id": 1, "login_portal": "super_admin"})
+
+    async def call_next(_request):
+        return "login-page"
+
+    assert _run_boundary(request, call_next) == "login-page"
+
+
+def test_mismatched_session_can_reach_super_admin_login_page():
+    request = _request("/super-admin/login", {"user_id": 2, "login_portal": "admin"})
+
+    async def call_next(_request):
+        return "login-page"
+
+    assert _run_boundary(request, call_next) == "login-page"
