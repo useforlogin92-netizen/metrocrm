@@ -25,7 +25,7 @@ APPROVAL_RESEND_COOLDOWN_SECONDS = 60
 
 def _render(request: Request, error: str | None, portal: str):
     template_name = "admin_login.html" if portal == "admin" else "login.html"
-    return templates.TemplateResponse(template_name, {"request": request, "error": error, "portal": portal, "super_admin_only": portal == "super_admin"})
+    return templates.TemplateResponse(request, template_name, {"request": request, "error": error, "portal": portal, "super_admin_only": portal == "super_admin"})
 
 
 def _portal_session_matches(request: Request, portal: str) -> bool:
@@ -123,7 +123,7 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
         request.session["approval_request_id"] = request_event.id
         request.session["login_portal"] = portal
         request.session["approval_csrf"] = secrets.token_urlsafe(32)
-        return templates.TemplateResponse("verify.html", {"request": request, "token": str(request_event.id), "method": "Super Admin Approval", "destination": "Waiting for Super Admin approval", "test_otp": None, "approval_pending": True, "approval_request_id": request_event.id, "approval_expiry_seconds": APPROVAL_EXPIRY_SECONDS, "approval_resend_seconds": APPROVAL_RESEND_COOLDOWN_SECONDS}), 200
+        return templates.TemplateResponse(request, "verify.html", {"request": request, "token": str(request_event.id), "method": "Super Admin Approval", "destination": "Waiting for Super Admin approval", "test_otp": None, "approval_pending": True, "approval_request_id": request_event.id, "approval_expiry_seconds": APPROVAL_EXPIRY_SECONDS, "approval_resend_seconds": APPROVAL_RESEND_COOLDOWN_SECONDS}), 200
     email_verified = db.scalar(select(EmailVerification.id).where(EmailVerification.user_id == user.id)) is not None
     if method == "email_otp" and not user.email:
         return _render(request, "No registered email is available for this account.", portal), 400
@@ -147,8 +147,8 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
     request.session["login_portal"] = portal
     destination = "registered mobile" if method == "mobile_otp" else "registered email" if method == "email_otp" else None
     if method == "security_question":
-        return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": "Security Question", "destination": user.security_question, "test_otp": None}), 200
-    return templates.TemplateResponse("verify.html", {"request": request, "token": token, "method": method.replace("_", " ").title(), "destination": destination, "test_otp": otp if settings.environment != "production" else None, "approval_pending": False}), 200
+        return templates.TemplateResponse(request, "verify.html", {"request": request, "token": token, "method": "Security Question", "destination": user.security_question, "test_otp": None}), 200
+    return templates.TemplateResponse(request, "verify.html", {"request": request, "token": token, "method": method.replace("_", " ").title(), "destination": destination, "test_otp": otp if settings.environment != "production" else None, "approval_pending": False}), 200
 
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -261,69 +261,48 @@ def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
         html += "<div class='empty'>No pending login requests.</div>"
     else:
         for item, target, portal in rows:
-            csrf = _csrf_token(request, "login_approval_csrf")
-            html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>{target.role} · {portal.title()} portal · request #{item.id}</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn approve' type='submit'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn reject' type='submit'>Reject</button></form></div></div>"
+            html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>Role: {target.role} · Portal: {portal} · Request #{item.id}</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn approve'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn reject'>Reject</button></form></div></div>"
     html += "</div></div></body></html>"
     return HTMLResponse(html)
 
 
 @app.post("/super-admin/login-requests/{request_id}/approve")
-def approve_login_request(request: Request, request_id: int, csrf_token: str = Form(""), db: Session = Depends(get_db)):
+def approve_login_request(request: Request, request_id: int, csrf_token: str = Form(...), db: Session = Depends(get_db)):
     actor = main_module._current_user(request, db)
-    if not actor or actor.role != "SUPER_ADMIN":
+    if not actor or actor.role != "SUPER_ADMIN" or not _valid_csrf(request, "login_approval_csrf", csrf_token):
         return JSONResponse({"error": "forbidden"}, status_code=403)
-    if not _valid_csrf(request, "login_approval_csrf", csrf_token):
-        return JSONResponse({"error": "csrf_invalid"}, status_code=403)
     event = db.get(AuditEvent, request_id)
-    if not event or event.action != "LOGIN_APPROVAL_REQUEST":
-        return JSONResponse({"error": "approval_request_not_found"}, status_code=404)
-    if _approval_request_age(event) > APPROVAL_EXPIRY_SECONDS:
-        return JSONResponse({"error": "approval_request_expired"}, status_code=403)
-    try:
-        user_id = int(event.entity_id)
-    except (TypeError, ValueError):
-        return JSONResponse({"error": "approval_request_invalid"}, status_code=403)
-    user = db.get(User, user_id)
-    if not user or not user.is_active or user.role == "SUPER_ADMIN":
-        return JSONResponse({"error": "approval_target_invalid"}, status_code=403)
-    if _approval_decision_after(db, user.id, event.id):
-        return JSONResponse({"error": "approval_already_decided"}, status_code=409)
-    details = _approval_details(event)
-    portal = details.get("portal", "staff")
-    if portal == "super_admin":
-        return JSONResponse({"error": "invalid_approval_portal"}, status_code=403)
-    decision = AuditEvent(actor_user_id=actor.id, action="LOGIN_APPROVAL_GRANTED", entity_type="User", entity_id=str(user.id), details=json.dumps({"request_id": event.id, "portal": portal, "reason": "super_admin_approved"}))
-    db.add(decision)
+    if not event:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    target = db.get(User, int(event.entity_id)) if event.entity_id and event.entity_id.isdigit() else None
+    if not target or target.role == "SUPER_ADMIN":
+        return JSONResponse({"error": "invalid_target"}, status_code=400)
+    allowed, reason = _approval_request_active(db, target.id, request_id)
+    if allowed:
+        return JSONResponse({"error": "already_decided"}, status_code=409)
+    if reason != "approval_pending":
+        return JSONResponse({"error": reason}, status_code=409)
+    db.add(AuditEvent(actor_user_id=actor.id, action="LOGIN_APPROVAL_GRANTED", entity_type="User", entity_id=str(target.id), details=json.dumps({"request_id": request_id, "portal": _approval_details(event).get("portal"), "reason": "approved_by_super_admin"})))
     db.commit()
     return RedirectResponse("/super-admin/login-requests", status_code=303)
 
 
 @app.post("/super-admin/login-requests/{request_id}/reject")
-def reject_login_request(request: Request, request_id: int, csrf_token: str = Form(""), db: Session = Depends(get_db)):
+def reject_login_request(request: Request, request_id: int, csrf_token: str = Form(...), db: Session = Depends(get_db)):
     actor = main_module._current_user(request, db)
-    if not actor or actor.role != "SUPER_ADMIN":
+    if not actor or actor.role != "SUPER_ADMIN" or not _valid_csrf(request, "login_approval_csrf", csrf_token):
         return JSONResponse({"error": "forbidden"}, status_code=403)
-    if not _valid_csrf(request, "login_approval_csrf", csrf_token):
-        return JSONResponse({"error": "csrf_invalid"}, status_code=403)
     event = db.get(AuditEvent, request_id)
-    if not event or event.action != "LOGIN_APPROVAL_REQUEST":
-        return JSONResponse({"error": "approval_request_not_found"}, status_code=404)
-    if _approval_request_age(event) > APPROVAL_EXPIRY_SECONDS:
-        return JSONResponse({"error": "approval_request_expired"}, status_code=403)
-    try:
-        user_id = int(event.entity_id)
-    except (TypeError, ValueError):
-        return JSONResponse({"error": "approval_request_invalid"}, status_code=403)
-    user = db.get(User, user_id)
-    if not user or not user.is_active or user.role == "SUPER_ADMIN":
-        return JSONResponse({"error": "approval_target_invalid"}, status_code=403)
-    if _approval_decision_after(db, user.id, event.id):
-        return JSONResponse({"error": "approval_already_decided"}, status_code=409)
-    details = _approval_details(event)
-    portal = details.get("portal", "staff")
-    if portal == "super_admin":
-        return JSONResponse({"error": "invalid_approval_portal"}, status_code=403)
-    decision = AuditEvent(actor_user_id=actor.id, action="LOGIN_APPROVAL_REJECTED", entity_type="User", entity_id=str(user.id), details=json.dumps({"request_id": event.id, "portal": portal, "reason": "super_admin_rejected"}))
-    db.add(decision)
+    if not event:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    target = db.get(User, int(event.entity_id)) if event.entity_id and event.entity_id.isdigit() else None
+    if not target or target.role == "SUPER_ADMIN":
+        return JSONResponse({"error": "invalid_target"}, status_code=400)
+    allowed, reason = _approval_request_active(db, target.id, request_id)
+    if allowed:
+        return JSONResponse({"error": "already_decided"}, status_code=409)
+    if reason != "approval_pending":
+        return JSONResponse({"error": reason}, status_code=409)
+    db.add(AuditEvent(actor_user_id=actor.id, action="LOGIN_APPROVAL_REJECTED", entity_type="User", entity_id=str(target.id), details=json.dumps({"request_id": request_id, "portal": _approval_details(event).get("portal"), "reason": "rejected_by_super_admin"})))
     db.commit()
     return RedirectResponse("/super-admin/login-requests", status_code=303)
