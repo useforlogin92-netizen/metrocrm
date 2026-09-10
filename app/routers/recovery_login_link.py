@@ -22,8 +22,8 @@ async def add_recovery_links(request: Request, call_next):
     links = []
     if request.url.path == "/":
         links.append(b'<a class="forgot-link" href="/forgot-password">Forgot your password?</a>')
-    role = str(request.session.get("role", "")).upper()
-    if request.url.path == "/dashboard" and role in {"ADMIN", "SUPER_ADMIN"}:
+    login_portal = str(request.session.get("login_portal", "")).lower()
+    if request.url.path == "/dashboard" and login_portal in {"admin", "super_admin"}:
         links.append(b'<a class="forgot-link" href="/password-reset-requests">Password Recovery Requests</a>')
     if not links:
         return response
