@@ -179,7 +179,7 @@ def root(request: Request):
 
 @app.get("/super-admin/login", response_class=HTMLResponse)
 def super_admin_login_page(request: Request):
-    if request.session.get("user_id"):
+    if request.session.get("user_id") and request.session.get("login_portal") == "super_admin":
         return RedirectResponse("/dashboard", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": None, "super_admin_only": True})
 
@@ -230,16 +230,6 @@ def _current_user(request: Request, db: Session) -> User | None:
     if not user or not user.is_active or user.session_version != request.session.get("session_version"):
         return None
     return user
-
-
-def _can_approve(actor: User, target: User) -> bool:
-    if actor.id == target.id:
-        return False
-    if actor.role == "SUPER_ADMIN":
-        return target.role != "SUPER_ADMIN"
-    if actor.role == "ADMIN":
-        return target.role not in {"SUPER_ADMIN", "ADMIN"}
-    return False
 
 
 @app.get("/profile", response_class=HTMLResponse)
