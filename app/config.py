@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     integration_webhook_secret: str = ""
     integration_encryption_key: str = ""
 
+    # WhatsApp gateway. Keep access tokens and provider credentials in deployment env vars, never Git.
+    whatsapp_enabled: bool = False
+    whatsapp_mode: str = "test"
+    whatsapp_api_url: str = ""
+    whatsapp_access_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_sender_name: str = "MetroCRM"
+    whatsapp_public_base_url: str = ""
+
     otp_mobile_provider: str = "test"
     otp_email_provider: str = "test"
     sms_provider: str = "test"
