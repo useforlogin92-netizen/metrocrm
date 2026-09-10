@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from fastapi.responses import RedirectResponse
 
+from app.main import super_admin_login_page
 from app.portal import _portal_session_matches, admin_login_page
 
 
@@ -20,6 +21,11 @@ def test_super_admin_session_does_not_redirect_from_admin_login():
     assert not isinstance(response, RedirectResponse)
 
 
-def test_unauthenticated_admin_login_still_renders_login():
-    response = admin_login_page(_request({}))
+def test_admin_session_does_not_redirect_from_super_admin_login():
+    response = super_admin_login_page(_request({"user_id": 1, "login_portal": "admin"}))
     assert not isinstance(response, RedirectResponse)
+
+
+def test_unauthenticated_dedicated_login_pages_still_render():
+    assert not isinstance(admin_login_page(_request({})), RedirectResponse)
+    assert not isinstance(super_admin_login_page(_request({})), RedirectResponse)
