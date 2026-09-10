@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from html import escape
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from app.models import Customer, CustomerRequirement, Lead, Project, Tower, Unit
 from app.services.caller_search import filter_and_rank_properties
 
 router = APIRouter(prefix="/caller", tags=["caller-assistant"])
+templates = Jinja2Templates(directory="app/templates")
 
 
 def _current_user(request: Request, db: Session) -> User | None:
@@ -156,7 +157,7 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
                 item["negotiable"] = meta.get("negotiable")
             except (TypeError, ValueError, json.JSONDecodeError):
                 pass
-    return request.app.state.templates.TemplateResponse("caller_lead_assistant.html", {
+    return templates.TemplateResponse("caller_lead_assistant.html", {
         "request": request, "user": user, "lead": lead, "customer": customer,
         "requirement": requirement, "locations": locations, "properties": properties,
         "opening_speech": _opening_speech(user, lead, customer, locations),
