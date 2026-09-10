@@ -2,17 +2,15 @@
 from __future__ import annotations
 import json
 import secrets
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog_models import CatalogShare
-from app.catalog_sharing import _token_hash as catalog_token_hash
-from app.csrf import require_csrf
+from app.routers.catalog_sharing import _token_hash as catalog_token_hash
+from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Customer, Lead, Project, Unit, User
 from app.services.catalog_sharing import build_share_payload
@@ -51,7 +49,7 @@ def _lead_for_user(lead_id: int, user: User, db: Session) -> tuple[Lead, Custome
 def _shell(request: Request, user: User) -> dict:
     return {
         "request": request, "username": user.username, "role": user.role,
-        "avatar": user.username[:1].upper(),
+        "avatar": user.username[:1].upper(), "csrf_token": csrf_token(request),
         "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"},
         "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"},
         "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"},
@@ -62,11 +60,11 @@ def _shell(request: Request, user: User) -> dict:
 
 @router.get("", response_class=HTMLResponse)
 def whatsapp_page(request: Request, db: Session = Depends(get_db)):
+    from app.config import settings
     user = _user(request, db)
-    return templates.TemplateResponse("whatsapp.html", _shell(request, user) | {
-        "whatsapp_enabled": bool(__import__("app.config", fromlist=["settings"]).settings.whatsapp_enabled),
-        "whatsapp_mode": __import__("app.config", fromlist=["settings"]).settings.whatsapp_mode,
-    })
+    context = _shell(request, user)
+    context.update({"whatsapp_enabled": bool(settings.whatsapp_enabled), "whatsapp_mode": settings.whatsapp_mode})
+    return templates.TemplateResponse("whatsapp.html", context)
 
 
 @router.post("/send", dependencies=[Depends(require_csrf)])
@@ -82,14 +80,10 @@ def send_whatsapp(request: Request, lead_id: int = Form(...), message: str = For
         provider_id = result.get("provider_message_id")
         error = None
     except RuntimeError as exc:
-        status = "FAILED"
-        provider_id = None
-        error = str(exc)
-        result = {"status": status, "error": error}
+        status = "FAILED"; provider_id = None; error = str(exc); result = {"status": status, "error": error}
     log = WhatsAppMessage(actor_user_id=user.id, lead_id=lead.id, customer_id=customer.id,
                           destination_hash=destination_hash(customer.mobile), message_type="text",
-                          body_preview=body[:500], status=status, provider_message_id=provider_id,
-                          error=error)
+                          body_preview=body[:500], status=status, provider_message_id=provider_id, error=error)
     db.add(log)
     db.add(AuditEvent(actor_user_id=user.id, action="WHATSAPP_MESSAGE_SENT", entity_type="Lead", entity_id=str(lead.id),
                       details=json.dumps({"status": status, "message_type": "text"})))
@@ -100,13 +94,7 @@ def send_whatsapp(request: Request, lead_id: int = Form(...), message: str = For
 
 
 @router.post("/property-share", dependencies=[Depends(require_csrf)])
-def share_property_whatsapp(
-    request: Request,
-    lead_id: int = Form(...),
-    project_id: int = Form(...),
-    unit_id: int = Form(...),
-    db: Session = Depends(get_db),
-):
+def share_property_whatsapp(request: Request, lead_id: int = Form(...), project_id: int = Form(...), unit_id: int = Form(...), db: Session = Depends(get_db)):
     user = _user(request, db)
     lead, customer = _lead_for_user(lead_id, user, db)
     project = db.get(Project, project_id)
@@ -126,16 +114,13 @@ def share_property_whatsapp(
     token = secrets.token_urlsafe(32)
     share = CatalogShare(token_hash=catalog_token_hash(token), project_id=project.id, unit_id=unit.id,
                          payload_json=json.dumps(payload, default=str), created_by_id=user.id)
-    db.add(share)
-    db.flush()
+    db.add(share); db.flush()
     from app.config import settings
     share_url = f"{settings.whatsapp_public_base_url.rstrip('/')}/catalog/view/{token}" if settings.whatsapp_public_base_url else f"/catalog/view/{token}"
     body = build_property_message(property_data, share_url)
     try:
         result = send_text(customer.mobile, body)
-        status = result.get("status", "TEST")
-        provider_id = result.get("provider_message_id")
-        error = None
+        status = result.get("status", "TEST"); provider_id = result.get("provider_message_id"); error = None
     except RuntimeError as exc:
         status = "FAILED"; provider_id = None; error = str(exc); result = {"status": status, "error": error}
     log = WhatsAppMessage(actor_user_id=user.id, lead_id=lead.id, customer_id=customer.id,
