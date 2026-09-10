@@ -14,6 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.integration_models import IntegrationConfig, PropertyVisitAlert
 from app.models import AuditEvent, User
+from app.csrf import require_csrf
 from app.services.integrations import SUPPORTED_LEAD_PROVIDERS, ingest_lead, verify_webhook_signature
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -58,7 +59,7 @@ def providers(request: Request, db: Session = Depends(get_db)):
             "property_visit_alerts": settings.property_visit_alerts_enabled}
 
 
-@router.post("/providers/{provider}")
+@router.post("/providers/{provider}", dependencies=[Depends(require_csrf)])
 def configure_provider(provider: str, body: dict, request: Request, db: Session = Depends(get_db)):
     user = _management(request, db)
     provider = provider.lower().strip()
