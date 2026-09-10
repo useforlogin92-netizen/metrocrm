@@ -35,11 +35,14 @@ async def add_recovery_links(request: Request, call_next):
         login_portal = str(request.session.get("login_portal", "")).lower()
         if login_portal not in {"admin", "super_admin"}:
             return response
-        link = b'<a class="forgot-link" href="/password-reset-requests">Password Recovery Requests</a>'
-        if b'href="/password-reset-requests"' in body:
-            return response
-        marker = b"</body>"
-        body = body.replace(marker, link + marker, 1) if marker in body else body + link
+        if b'href="/password-reset-requests"' not in body:
+            link = b'<a class="forgot-link" href="/password-reset-requests">Password Recovery Requests</a>'
+            marker = b"</body>"
+            body = body.replace(marker, link + marker, 1) if marker in body else body + link
+        if b'href="/whatsapp"' not in body:
+            link = b'<a class="forgot-link" href="/whatsapp">WhatsApp</a>'
+            marker = b"</body>"
+            body = body.replace(marker, link + marker, 1) if marker in body else body + link
     else:
         return response
 
