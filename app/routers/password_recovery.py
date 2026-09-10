@@ -58,7 +58,7 @@ def _record_failure(request: Request, username: str) -> None:
 
 
 def _clear_recovery(request: Request) -> None:
-    for key in (RECOVERY_SESSION_USER, RECOVERY_SESSION_EXPIRES, RECOVERY_SESSION_QUESTIONS):
+    for key in (RECOVERY_SESSION_USER, RECOVERY_SESSION_EXPIRES, RECOVERY_SESSION_QUESTIONS, "super_admin_recovery_verified"):
         request.session.pop(key, None)
 
 
@@ -70,21 +70,6 @@ def _page(title: str, body: str) -> HTMLResponse:
         "<style>body{margin:0;background:#f4f7fb;color:#10213f;font-family:Inter,Arial,sans-serif;display:grid;place-items:center;min-height:100vh;padding:24px}.card{width:min(560px,100%);background:#fff;border:1px solid #dbe4ef;border-radius:20px;padding:30px;box-shadow:0 20px 60px #10213f18}h1{margin:0 0 10px;font-size:28px}p{color:#64748b;line-height:1.55}.field{margin:18px 0}.field label{display:block;font-weight:700;font-size:13px;margin-bottom:7px}.field input,.field select{width:100%;height:48px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:0 13px;font-size:14px}.button{width:100%;height:50px;border:0;border-radius:10px;background:#1677ff;color:#fff;font-weight:800;cursor:pointer}.alert{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3;padding:11px 13px;border-radius:10px;margin:15px 0}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:11px 13px;border-radius:10px;margin:15px 0}.back{display:inline-block;margin-top:18px;color:#1677ff;text-decoration:none;font-weight:700;font-size:13px}.question{padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin:14px 0}</style></head><body>"
         f"<main class='card'>{body}</main></body></html>"
     )
-
-
-@app.middleware("http")
-async def add_recovery_link_to_super_admin_login(request: Request, call_next):
-    response = await call_next(request)
-    if request.url.path == "/super-admin/login" and response.status_code == 200:
-        content_type = response.headers.get("content-type", "")
-        body = getattr(response, "body", None)
-        if "text/html" in content_type and isinstance(body, bytes) and b"/super-admin/forgot-password" not in body:
-            marker = b"</form>"
-            link = b"<p style='text-align:center;margin:14px 0 0'><a href='/super-admin/forgot-password' style='color:#1677ff;font-weight:800;text-decoration:none'>Forgot your password?</a></p>"
-            if marker in body:
-                response.body = body.replace(marker, marker + link, 1)
-                response.headers["content-length"] = str(len(response.body))
-    return response
 
 
 def _super_admin_from_session(request: Request, db: Session) -> User | None:
@@ -105,7 +90,7 @@ def security_questions_page(request: Request, db: Session = Depends(get_db)):
     rows = {row.question_no: row for row in db.scalars(select(SuperAdminSecurityQuestion).where(SuperAdminSecurityQuestion.user_id == user.id, SuperAdminSecurityQuestion.is_active.is_(True))).all()}
     fields = []
     for number, question in enumerate(SECURITY_QUESTIONS, 1):
-        fields.append(f"<div class='question'><strong>{number}. {question}</strong><div class='field'><label for='answer_{number}'>Answer</label><input id='answer_{number}' name='answer_{number}' type='password' autocomplete='off' placeholder='Enter your private answer' value=''></div></div>")
+        fields.append(f"<div class='question'><strong>{number}. {question}</strong><div class='field'><label for='answer_{number}'>Answer</label><input id='answer_{number}' name='answer_{number}' type='password' autocomplete='off' placeholder='Enter your private answer'></div></div>")
     status = "<div class='ok'>All five recovery questions are configured.</div>" if len(rows) == 5 else "<div class='alert'>Configure all five questions before relying on password recovery. During recovery, any two questions will be selected at random.</div>"
     body = "<h1>Super Admin Recovery Questions</h1><p>Set five private answers. MetroCRM stores only password hashes for the answers. During password recovery, two of these five questions are selected at random.</p>" + status + "<form method='post' action='/super-admin/security-questions'>" + "".join(fields) + f"<input type='hidden' name='csrf_token' value='{csrf_token(request)}'><button class='button' type='submit'>Save Recovery Questions</button></form><a class='back' href='/dashboard'>← Back to Dashboard</a>"
     return _page("Recovery Questions", body)
@@ -130,12 +115,10 @@ def save_security_questions(request: Request, answer_1: str = Form(""), answer_2
 @app.get("/super-admin/forgot-password", response_class=HTMLResponse)
 def forgot_password_page(request: Request, db: Session = Depends(get_db)):
     token = csrf_token(request)
-    configured = db.scalar(select(SuperAdminSecurityQuestion.id).limit(1)) is not None
     body = (
         "<h1>Reset Super Admin Password</h1>"
         "<p>Enter your Super Admin username. MetroCRM will then ask two security questions selected at random from your five configured recovery questions.</p>"
-        + ("" if configured else "<div class='alert'>Recovery questions have not been configured yet. Another authorized Super Admin should configure them from the Super Admin dashboard.</div>")
-        + "<form method='post' action='/super-admin/forgot-password'>"
+        "<form method='post' action='/super-admin/forgot-password'>"
         "<div class='field'><label for='username'>Username</label><input id='username' name='username' required autocomplete='username'></div>"
         f"<input type='hidden' name='csrf_token' value='{token}'>"
         "<button class='button' type='submit'>Continue to Security Verification</button></form>"
@@ -180,7 +163,10 @@ def verify_recovery(request: Request, answer_1: str = Form(...), answer_2: str =
         return RedirectResponse("/super-admin/forgot-password", status_code=303)
     rows = db.scalars(select(SuperAdminSecurityQuestion).where(SuperAdminSecurityQuestion.id.in_(question_ids), SuperAdminSecurityQuestion.user_id == user.id, SuperAdminSecurityQuestion.is_active.is_(True))).all()
     by_id = {row.id: row for row in rows}
-    ordered = [by_id.get(int(question_ids[0])), by_id.get(int(question_ids[1]))]
+    try:
+        ordered = [by_id.get(int(question_ids[0])), by_id.get(int(question_ids[1]))]
+    except (TypeError, ValueError):
+        ordered = [None, None]
     valid = all(row is not None for row in ordered) and verify_password(answer_1.strip(), ordered[0].answer_hash) and verify_password(answer_2.strip(), ordered[1].answer_hash)
     if not valid:
         _record_failure(request, user.username)
