@@ -5,10 +5,12 @@ from app.routers.accounting import router as accounting_router
 from app.routers.ai_caller import router as ai_caller_router
 from app.routers.caller_assistant import router as caller_assistant_router
 from app.routers.caller_leads import router as caller_leads_router
+from app.routers.health import router as health_router
 from app.routers.property_data import router as property_data_router
 from app.routers.sales_property import router as sales_property_router
 
 app = main.app
+app.include_router(health_router)
 app.include_router(accounting_router)
 app.include_router(property_data_router)
 app.include_router(sales_property_router)
