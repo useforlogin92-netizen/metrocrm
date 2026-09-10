@@ -28,6 +28,11 @@ def _render(request: Request, error: str | None, portal: str):
     return templates.TemplateResponse(template_name, {"request": request, "error": error, "portal": portal, "super_admin_only": portal == "super_admin"})
 
 
+def _portal_session_matches(request: Request, portal: str) -> bool:
+    """Return true only when the active authenticated session belongs to this portal."""
+    return bool(request.session.get("user_id") and request.session.get("login_portal") == portal)
+
+
 def _approval_details(event: AuditEvent) -> dict:
     try:
         details = json.loads(event.details or "{}")
@@ -148,7 +153,7 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
 
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
-    if request.session.get("user_id"):
+    if _portal_session_matches(request, "admin"):
         return RedirectResponse("/dashboard", status_code=303)
     return _render(request, None, "admin")
 
@@ -251,60 +256,74 @@ def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
         if portal == "super_admin":
             continue
         rows.append((item, target, portal))
-    html = """<!doctype html><html><head><meta charset='utf-8'><meta http-equiv='refresh' content='10'><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | Login Requests</title><style>body{font-family:Inter,Arial,sans-serif;background:#f5f7fb;margin:0;padding:40px;color:#10213f}.wrap{max-width:980px;margin:auto}.card{background:#fff;border-radius:18px;padding:28px;box-shadow:0 8px 30px #0001}.head{display:flex;justify-content:space-between;align-items:center;gap:20px}.muted{color:#64748b}.row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:18px 0;border-top:1px solid #e5eaf2}.actions{display:flex;gap:8px}.btn{color:#fff;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}.approve{background:#16803c}.reject{background:#c62828}.empty{padding:35px 0;color:#64748b;text-align:center}.pill{display:inline-block;background:#edf5ff;color:#0758d8;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:700}@media(max-width:700px){body{padding:16px}.card{padding:18px}.row{display:block}.actions{margin-top:14px}}</style></head><body><div class='wrap'><div class='card'><div class='head'><div><h1>Admin / User Login Requests</h1><p class='muted'>Super Admin approval requests · approval window: 15 minutes · auto-refresh: 10 seconds.</p></div><a href='/dashboard'>Dashboard</a></div>"""
+    html = """<!doctype html><html><head><meta charset='utf-8'><meta http-equiv='refresh' content='10'><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | Login Requests</title><style>body{font-family:Inter,Arial,sans-serif;background:#f5f7fb;margin:0;padding:40px;color:#10213f}.wrap{max-width:980px;margin:auto}.card{background:#fff;border-radius:18px;padding:28px;box-shadow:0 8px 30px #0001}.head{display:flex;justify-content:space-between;align-items:center;gap:20px}.muted{color:#64748b}.row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:18px 0;border-top:1px solid #e5eaf2}.actions{display:flex;gap:8px}.btn{color:#fff;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}.approve{background:#16803c}.reject{background:#c62828}.empty{padding:35px 0;color:#64748b;text-align:center}.pill{display:inline-block;background:#edf5ff;color:#0758d8;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:700}@media(max-width:700px){body{padding:16px}.card{padding:18px}.row{display:block}.actions{margin-top:14px}}</style></head><body><div class='wrap'><div class='card'><div class='head'><div><h1>Admin / User Login Requests</h1><p class='muted'>Super Admin approval requests · approval window: 15 minutes · auto-refresh: 10 seconds.</p></div><a href='/dashboard'>Back to Dashboard</a></div>"""
     if not rows:
-        html += "<div class='empty'>No pending login approval requests.</div>"
-    for item, target, portal in rows:
-        remaining = max(0, APPROVAL_EXPIRY_SECONDS - int(_approval_request_age(item)))
-        html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>Role: {target.role} · Portal: <span class='pill'>{portal}</span> · Requested: {item.created_at} · Expires in about {remaining//60}m {remaining%60}s</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn approve'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn reject'>Reject</button></form></div></div>"
+        html += "<div class='empty'>No pending login requests.</div>"
+    else:
+        for item, target, portal in rows:
+            csrf = _csrf_token(request, "login_approval_csrf")
+            html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>{target.role} · {portal.title()} portal · request #{item.id}</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn approve' type='submit'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn reject' type='submit'>Reject</button></form></div></div>"
     html += "</div></div></body></html>"
     return HTMLResponse(html)
 
 
-def _decide_login_request(request_id: int, request: Request, db: Session, action: str, csrf_token: str):
-    if not _valid_csrf(request, "login_approval_csrf", csrf_token):
-        return HTMLResponse("Invalid security token. Refresh the Login Approval Requests page and try again.", status_code=403)
+@app.post("/super-admin/login-requests/{request_id}/approve")
+def approve_login_request(request: Request, request_id: int, csrf_token: str = Form(""), db: Session = Depends(get_db)):
     actor = main_module._current_user(request, db)
+    if not actor or actor.role != "SUPER_ADMIN":
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    if not _valid_csrf(request, "login_approval_csrf", csrf_token):
+        return JSONResponse({"error": "csrf_invalid"}, status_code=403)
     event = db.get(AuditEvent, request_id)
-    if not actor or actor.role != "SUPER_ADMIN" or not event or event.action != "LOGIN_APPROVAL_REQUEST":
-        return HTMLResponse("Not permitted", status_code=403)
+    if not event or event.action != "LOGIN_APPROVAL_REQUEST":
+        return JSONResponse({"error": "approval_request_not_found"}, status_code=404)
+    if _approval_request_age(event) > APPROVAL_EXPIRY_SECONDS:
+        return JSONResponse({"error": "approval_request_expired"}, status_code=403)
     try:
         user_id = int(event.entity_id)
     except (TypeError, ValueError):
-        return HTMLResponse("Invalid request", status_code=400)
-    target = db.get(User, user_id)
-    if not target or not target.is_active or target.role == "SUPER_ADMIN":
-        return HTMLResponse("Invalid target", status_code=400)
-    if _approval_request_age(event) > APPROVAL_EXPIRY_SECONDS:
-        return HTMLResponse("This approval request has expired. The user must send a new request.", status_code=410)
-    latest = _latest_approval_request(db, target.id)
-    if not latest or latest.id != request_id:
-        return HTMLResponse("This request has been superseded by a newer request.", status_code=409)
-    if _approval_decision_after(db, target.id, request_id):
-        return HTMLResponse("This request has already been decided.", status_code=409)
-    portal = _approval_details(event).get("portal", "staff")
-    decision_action = "LOGIN_APPROVAL_GRANTED" if action == "approve" else "LOGIN_APPROVAL_REJECTED"
-    reason = "approved_by_super_admin" if action == "approve" else "rejected_by_super_admin"
-    main_module._audit(db, actor.id, decision_action, target, {"request_id": request_id, "portal": portal, "reason": reason})
+        return JSONResponse({"error": "approval_request_invalid"}, status_code=403)
+    user = db.get(User, user_id)
+    if not user or not user.is_active or user.role == "SUPER_ADMIN":
+        return JSONResponse({"error": "approval_target_invalid"}, status_code=403)
+    if _approval_decision_after(db, user.id, event.id):
+        return JSONResponse({"error": "approval_already_decided"}, status_code=409)
+    details = _approval_details(event)
+    portal = details.get("portal", "staff")
+    if portal == "super_admin":
+        return JSONResponse({"error": "invalid_approval_portal"}, status_code=403)
+    decision = AuditEvent(actor_user_id=actor.id, action="LOGIN_APPROVAL_GRANTED", entity_type="User", entity_id=str(user.id), details=json.dumps({"request_id": event.id, "portal": portal, "reason": "super_admin_approved"}))
+    db.add(decision)
     db.commit()
     return RedirectResponse("/super-admin/login-requests", status_code=303)
 
 
-@app.post("/super-admin/login-requests/{request_id}/approve")
-def approve_login_request(request_id: int, request: Request, csrf_token: str = Form(""), db: Session = Depends(get_db)):
-    return _decide_login_request(request_id, request, db, "approve", csrf_token)
-
-
 @app.post("/super-admin/login-requests/{request_id}/reject")
-def reject_login_request(request_id: int, request: Request, csrf_token: str = Form(""), db: Session = Depends(get_db)):
-    return _decide_login_request(request_id, request, db, "reject", csrf_token)
-
-
-# app.main contains legacy auth endpoints because it is also importable for internal services.
-# The portal application must not expose those duplicate handlers: they can bypass the portal policy.
-for _route in list(app.router.routes):
-    endpoint = getattr(_route, "endpoint", None)
-    path = getattr(_route, "path", None)
-    methods = getattr(_route, "methods", set())
-    if getattr(endpoint, "__module__", "") == "app.main" and path in {"/auth/login", "/auth/super-admin/login", "/auth/verify"} and methods.intersection({"POST"}):
-        app.router.routes.remove(_route)
+def reject_login_request(request: Request, request_id: int, csrf_token: str = Form(""), db: Session = Depends(get_db)):
+    actor = main_module._current_user(request, db)
+    if not actor or actor.role != "SUPER_ADMIN":
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    if not _valid_csrf(request, "login_approval_csrf", csrf_token):
+        return JSONResponse({"error": "csrf_invalid"}, status_code=403)
+    event = db.get(AuditEvent, request_id)
+    if not event or event.action != "LOGIN_APPROVAL_REQUEST":
+        return JSONResponse({"error": "approval_request_not_found"}, status_code=404)
+    if _approval_request_age(event) > APPROVAL_EXPIRY_SECONDS:
+        return JSONResponse({"error": "approval_request_expired"}, status_code=403)
+    try:
+        user_id = int(event.entity_id)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "approval_request_invalid"}, status_code=403)
+    user = db.get(User, user_id)
+    if not user or not user.is_active or user.role == "SUPER_ADMIN":
+        return JSONResponse({"error": "approval_target_invalid"}, status_code=403)
+    if _approval_decision_after(db, user.id, event.id):
+        return JSONResponse({"error": "approval_already_decided"}, status_code=409)
+    details = _approval_details(event)
+    portal = details.get("portal", "staff")
+    if portal == "super_admin":
+        return JSONResponse({"error": "invalid_approval_portal"}, status_code=403)
+    decision = AuditEvent(actor_user_id=actor.id, action="LOGIN_APPROVAL_REJECTED", entity_type="User", entity_id=str(user.id), details=json.dumps({"request_id": event.id, "portal": portal, "reason": "super_admin_rejected"}))
+    db.add(decision)
+    db.commit()
+    return RedirectResponse("/super-admin/login-requests", status_code=303)
