@@ -8,11 +8,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import main as main_module
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, User
 from app.security import hash_password, verify_password
 
+app = main_module.app
 router = APIRouter(tags=["password-recovery"])
 
 RECOVERY_SESSION_USER = "super_admin_recovery_user_id"
@@ -49,7 +51,7 @@ def _clear_recovery(request: Request) -> None:
     request.session.pop(RECOVERY_SESSION_EXPIRES, None)
 
 
-@router.middleware("http")
+@app.middleware("http")
 async def add_recovery_link_to_super_admin_login(request: Request, call_next):
     response = await call_next(request)
     if request.url.path == "/super-admin/login" and response.status_code == 200:
