@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import main as main_module
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, User
@@ -49,6 +47,21 @@ def _record_failure(request: Request, username: str) -> None:
 def _clear_recovery(request: Request) -> None:
     request.session.pop(RECOVERY_SESSION_USER, None)
     request.session.pop(RECOVERY_SESSION_EXPIRES, None)
+
+
+@router.middleware("http")
+async def add_recovery_link_to_super_admin_login(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/super-admin/login" and response.status_code == 200:
+        content_type = response.headers.get("content-type", "")
+        body = getattr(response, "body", None)
+        if "text/html" in content_type and isinstance(body, bytes) and b"/super-admin/forgot-password" not in body:
+            marker = b"</form>"
+            link = b"<p style='text-align:center;margin:14px 0 0'><a href='/super-admin/forgot-password' style='color:#1677ff;font-weight:800;text-decoration:none'>Forgot your password?</a></p>"
+            if marker in body:
+                response.body = body.replace(marker, marker + link, 1)
+                response.headers["content-length"] = str(len(response.body))
+    return response
 
 
 def _page(title: str, body: str) -> HTMLResponse:
@@ -92,7 +105,6 @@ def verify_recovery(request: Request, username: str = Form(...), security_answer
     _clear_recovery(request)
     request.session[RECOVERY_SESSION_USER] = user.id
     request.session[RECOVERY_SESSION_EXPIRES] = time.time() + RECOVERY_TTL_SECONDS
-    request.session["password_recovery_csrf"] = csrf_token(request)
     return RedirectResponse("/super-admin/forgot-password/reset", status_code=303)
 
 
@@ -104,7 +116,7 @@ def reset_password_page(request: Request, db: Session = Depends(get_db)):
     if not user or user.role != "SUPER_ADMIN" or not user.is_active or float(expires or 0) <= time.time():
         _clear_recovery(request)
         return RedirectResponse("/super-admin/forgot-password", status_code=303)
-    token = request.session.get("password_recovery_csrf") or csrf_token(request)
+    token = csrf_token(request)
     body = (
         "<h1>Create a New Password</h1>"
         "<p>Set a strong password of at least 8 characters. Your existing sessions will be invalidated after the password is changed.</p>"
