@@ -60,13 +60,14 @@
 <script>
 (function(){
   const languageKey='metrocrm_caller_speech_language';
+  const allowed=['en','hi','hinglish'];
   const globalLanguage=document.getElementById('globalSpeechLanguage');
   const savedLanguage=localStorage.getItem(languageKey);
-  const allowed=['en','hi','hinglish'];
   if(globalLanguage){
     if(savedLanguage && allowed.includes(savedLanguage)) globalLanguage.value=savedLanguage;
     globalLanguage.addEventListener('change',function(){
       localStorage.setItem(languageKey,globalLanguage.value);
+      window.dispatchEvent(new CustomEvent('metrocrm:caller-language-change',{detail:{language:globalLanguage.value}}));
     });
   }
   const IDLE_LIMIT_MS = 15 * 60 * 1000;
