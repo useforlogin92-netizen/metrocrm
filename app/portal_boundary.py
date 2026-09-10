@@ -1,12 +1,13 @@
 """Enforce dedicated browser-session and sensitive-operation boundaries."""
 from __future__ import annotations
 
-from fastapi import Request
+from fastapi import Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import main
-from app.csrf import csrf_token
+from app.csrf import csrf_token, require_csrf
+from app.database import get_db
 
 app = main.app
 
@@ -24,12 +25,7 @@ def _is_portal_login(path: str, required: str) -> bool:
 
 
 def _sensitive_export_get(request: Request) -> HTMLResponse | None:
-    """Turn legacy export GET links into explicit CSRF-protected POST forms.
-
-    Exporting is sensitive and changes DataRequest state, so it must not execute
-    from a cross-site GET. Existing links remain usable by showing a confirmation
-    form that submits the real POST endpoint.
-    """
+    """Turn legacy export GET links into explicit CSRF-protected POST forms."""
     path = request.url.path
     if request.method != "GET":
         return None
@@ -77,6 +73,22 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
     if export_get is not None:
         return export_get
     return await call_next(request)
+
+
+# Add POST aliases for the existing export handlers. The original GET handlers
+# remain in the legacy router, but the middleware above prevents them from running.
+from app.routers.data_tools import export_data as _legacy_export_data
+from app.routers.data_tools import super_admin_download_export as _legacy_super_admin_download_export
+
+
+@app.post("/admin/data-tools/export/{entity_type}", dependencies=[Depends(require_csrf)])
+def export_data_post(request: Request, entity_type: str, request_id: int | None = None, db=Depends(get_db)):
+    return _legacy_export_data(request=request, entity_type=entity_type, request_id=request_id, db=db)
+
+
+@app.post("/super-admin/data-export-requests/{request_id}/download", dependencies=[Depends(require_csrf)])
+def super_admin_download_export_post(request_id: int, request: Request, db=Depends(get_db)):
+    return _legacy_super_admin_download_export(request_id=request_id, request=request, db=db)
 
 
 # FastAPI's decorator middleware is inserted at the front of user_middleware.
