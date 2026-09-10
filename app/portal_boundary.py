@@ -57,6 +57,27 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
             "</body></html>"
         )
         return HTMLResponse(body, status_code=405, headers={"Allow": "POST"})
+    if path == "/admin/property-data/export":
+        body = (
+            "<!doctype html><html><body><h1>Confirm property data export</h1>"
+            "<p>This sensitive operation requires an explicit POST request.</p>"
+            "<form method='post' action='/admin/property-data/export'>"
+            f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+            "<button type='submit'>Continue to export</button></form>"
+            "</body></html>"
+        )
+        return HTMLResponse(body, status_code=405, headers={"Allow": "POST"})
+    if path.startswith("/admin/property-data/export/download/"):
+        request_id = path.rsplit("/", 1)[-1]
+        body = (
+            "<!doctype html><html><body><h1>Confirm property data export</h1>"
+            "<p>This sensitive operation requires an explicit POST request.</p>"
+            f"<form method='post' action='/admin/property-data/export/download/{request_id}'>"
+            f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+            "<button type='submit'>Continue to export</button></form>"
+            "</body></html>"
+        )
+        return HTMLResponse(body, status_code=405, headers={"Allow": "POST"})
     return None
 
 
@@ -80,6 +101,8 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
 # remain in the legacy router, but the middleware above prevents them from running.
 from app.routers.data_tools import export_data as _legacy_export_data
 from app.routers.data_tools import super_admin_download_export as _legacy_super_admin_download_export
+from app.routers.property_data import export_property_data as _legacy_export_property_data
+from app.routers.property_data import download_approved_property_export as _legacy_download_approved_property_export
 
 
 @app.post("/admin/data-tools/export/{entity_type}", dependencies=[Depends(require_csrf)])
@@ -90,6 +113,16 @@ def export_data_post(request: Request, entity_type: str, request_id: int | None 
 @app.post("/super-admin/data-export-requests/{request_id}/download", dependencies=[Depends(require_csrf)])
 def super_admin_download_export_post(request_id: int, request: Request, db=Depends(get_db)):
     return _legacy_super_admin_download_export(request_id=request_id, request=request, db=db)
+
+
+@app.post("/admin/property-data/export", dependencies=[Depends(require_csrf)])
+def export_property_data_post(request: Request, db=Depends(get_db)):
+    return _legacy_export_property_data(request=request, db=db)
+
+
+@app.post("/admin/property-data/export/download/{request_id}", dependencies=[Depends(require_csrf)])
+def download_approved_property_export_post(request_id: int, request: Request, db=Depends(get_db)):
+    return _legacy_download_approved_property_export(request=request, request_id=request_id, db=db)
 
 
 # FastAPI's decorator middleware is inserted at the front of user_middleware.
