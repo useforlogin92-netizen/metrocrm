@@ -69,3 +69,20 @@ def test_property_approved_download_get_is_blocked_and_returns_csrf_post_form():
     assert "method='post'" in body
     assert "action='/admin/property-data/export/download/42'" in body
     assert "name='csrf_token'" in body
+
+
+def test_export_confirmation_form_escapes_untrusted_request_id():
+    request = _request(
+        "/admin/data-tools/export/Customers",
+        {"user_id": 1, "login_portal": "admin"},
+        query_params={"request_id": '" onsubmit=alert(1) x="'},
+    )
+
+    async def call_next(_request):
+        raise AssertionError("legacy GET export handler must not execute")
+
+    response = _run_boundary(request, call_next)
+    assert response.status_code == 405
+    body = response.body.decode()
+    assert '" onsubmit=alert(1)' not in body
+    assert "&quot; onsubmit=alert(1)" in body
