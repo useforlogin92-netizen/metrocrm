@@ -1,4 +1,9 @@
+import json
+
+from fastapi.responses import JSONResponse
+
 from app.main_portal import app
+from app.routers.health import healthz
 
 
 def test_healthz_route_is_registered():
@@ -6,7 +11,20 @@ def test_healthz_route_is_registered():
     assert "/healthz" in paths
 
 
-def test_healthz_handler_contract():
-    route = next(route for route in app.routes if getattr(route, "path", None) == "/healthz")
-    assert "GET" in getattr(route, "methods", set())
-    assert route.endpoint() == {"status": "ok"}
+def test_healthz_returns_ok_when_database_is_available():
+    class FakeDB:
+        def execute(self, statement):
+            return None
+
+    assert healthz(FakeDB()) == {"status": "ok"}
+
+
+def test_healthz_returns_503_when_database_is_unavailable():
+    class BrokenDB:
+        def execute(self, statement):
+            raise RuntimeError("db down")
+
+    response = healthz(BrokenDB())
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+    assert json.loads(response.body) == {"status": "unhealthy"}
