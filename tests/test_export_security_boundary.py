@@ -85,4 +85,4 @@ def test_export_confirmation_form_escapes_untrusted_request_id():
     assert response.status_code == 405
     body = response.body.decode()
     assert '" onsubmit=alert(1)' not in body
-    assert "&quot; onsubmit=alert(1)" in body
+    assert "&amp;quot; onsubmit=alert(1)" in body
