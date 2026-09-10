@@ -15,15 +15,10 @@ app = main.app
 
 
 def _required_portal(path: str) -> str | None:
-    # User Management is a shared, role-protected administrative surface.
-    # Super Admins must be able to reach it from the common dashboard even
-    # though their authenticated session belongs to the dedicated super-admin portal.
-    if path == "/admin/users" or path.startswith("/admin/users/"):
-        return None
-    if path == "/admin" or path.startswith("/admin/"):
-        return "admin"
     if path == "/super-admin" or path.startswith("/super-admin/"):
         return "super_admin"
+    if path == "/admin" or path.startswith("/admin/"):
+        return "admin"
     return None
 
 
@@ -92,12 +87,15 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
 
 @app.middleware("http")
 async def enforce_dedicated_portal_session(request: Request, call_next):
-    """Never let a session authenticated for one dedicated portal enter another."""
+    """Keep Admin and Super Admin sessions isolated without blocking Super Admin's Admin-level authority."""
     required = _required_portal(request.url.path)
     if required and not _is_portal_login(request.url.path, required):
         current_user_id = request.session.get("user_id")
         current_portal = request.session.get("login_portal")
-        if current_user_id and current_portal != required:
+        # Super Admin is the security root and may use Admin-level surfaces.
+        # An Admin session must never enter a Super Admin surface.
+        super_admin_using_admin_surface = current_portal == "super_admin" and required == "admin"
+        if current_user_id and current_portal != required and not super_admin_using_admin_surface:
             login_path = "/admin/login" if required == "admin" else "/super-admin/login"
             return RedirectResponse(login_path, status_code=303)
     export_get = _sensitive_export_get(request)
