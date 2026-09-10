@@ -11,10 +11,9 @@
 <style>
 :root{--nav:#0b1224;--nav2:#172554;--primary:#2563eb;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--bg:#f4f7fb;--card:#fff}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
-.app{min-height:100vh;display:flex}.sidebar{width:252px;background:linear-gradient(180deg,var(--nav),var(--nav2));color:#fff;padding:22px 16px;position:fixed;inset:0 auto 0 0;z-index:20}.brand{display:flex;align-items:center;gap:11px;padding:4px 10px 24px}.mark{width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.16);display:grid;place-items:center;font-weight:900}.brand strong{font-size:20px;letter-spacing:-.3px}.brand small{display:block;color:#94a3b8;font-size:10px;margin-top:2px}.nav-title{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#94a3b8;padding:0 11px;margin:10px 0}.nav{display:grid;gap:5px}.nav a{color:#cbd5e1;text-decoration:none;padding:11px 12px;border-radius:9px;font-size:13px;font-weight:650;display:flex;align-items:center;gap:10px}.nav a:hover,.nav a.active{background:rgba(255,255,255,.11);color:#fff}.nav .icon{width:20px;text-align:center}.sidebar-bottom{position:absolute;left:16px;right:16px;bottom:18px}.logout{color:#fecaca!important}.main{margin-left:252px;width:calc(100% - 252px);min-width:0}.topbar{min-height:76px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:10px 30px;position:sticky;top:0;z-index:10}.page-heading h1{font-size:18px;margin:0}.page-heading p{margin:4px 0 0;color:var(--muted);font-size:12px}.topbar-tools{display:flex;align-items:center;gap:12px}.global-language{display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}.global-language label{font-size:10px;font-weight:800;color:#475569;white-space:nowrap}.global-language select{height:32px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:var(--ink);font:inherit;font-size:11px;font-weight:700;padding:0 8px;min-width:190px}.profile-wrap{position:relative}.profile{display:flex;align-items:center;gap:10px;cursor:pointer;padding:5px 7px;border-radius:12px}.profile:hover{background:#f1f5f9}.profile-info{text-align:right}.profile-name{font-size:13px;font-weight:800}.profile-role{font-size:10px;color:var(--muted);margin-top:2px}.avatar{width:40px;height:40px;border-radius:50%;background:#dbeafe;color:#1d4ed8;display:grid;place-items:center;font-weight:900;border:2px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,.08)}.profile-menu{position:absolute;right:0;top:54px;width:220px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:0 14px 35px rgba(15,23,42,.15);display:none}.profile-wrap:hover .profile-menu,.profile-wrap:focus-within .profile-menu{display:block}.profile-menu .menu-user{padding:10px;border-bottom:1px solid var(--line);margin-bottom:5px}.profile-menu .menu-user strong{display:block;font-size:13px}.profile-menu .menu-user span{font-size:11px;color:var(--muted)}.profile-menu a{display:block;text-decoration:none;color:var(--ink);padding:10px;border-radius:9px;font-size:12px;font-weight:650}.profile-menu a:hover{background:#f8fafc}.profile-menu .menu-logout{color:#b42318}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}.crumbs{font-size:12px;color:var(--muted)}.crumbs a{color:#2563eb;text-decoration:none}.history{display:flex;gap:8px}.history button,.history a{border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;border-radius:9px;padding:8px 11px;font-size:12px;font-weight:700;cursor:pointer}.history button:hover,.history a:hover{border-color:#93c5fd;background:#eff6ff}.content{padding:30px}.card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:22px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
+.app{min-height:100vh;display:flex}.sidebar{width:252px;background:linear-gradient(180deg,var(--nav),var(--nav2));color:#fff;padding:22px 16px;position:fixed;inset:0 auto 0 0;z-index:20}.brand{display:flex;align-items:center;gap:11px;padding:4px 10px 24px}.mark{width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.16);display:grid;place-items:center;font-weight:900}.brand strong{font-size:20px;letter-spacing:-.3px}.brand small{display:block;color:#94a3b8;font-size:10px;margin-top:2px}.nav-title{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#94a3b8;padding:0 11px;margin:10px 0}.nav{display:grid;gap:5px}.nav a{color:#cbd5e1;text-decoration:none;padding:11px 12px;border-radius:9px;font-size:13px;font-weight:650;display:flex;align-items:center;gap:10px}.nav a:hover,.nav a.active{background:rgba(255,255,255,.11);color:#fff}.nav .icon{width:20px;text-align:center}.sidebar-bottom{position:absolute;left:16px;right:16px;bottom:18px}.logout{color:#fecaca!important}.main{margin-left:252px;width:calc(100% - 252px);min-width:0}.topbar{min-height:76px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:10px 30px;position:sticky;top:0;z-index:10}.page-heading h1{font-size:18px;margin:0}.page-heading p{margin:4px 0 0;color:var(--muted);font-size:12px}.topbar-tools{display:flex;align-items:center;gap:12px}.global-language{display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}.global-language label{font-size:10px;font-weight:800;color:#475569;white-space:nowrap}.global-language select{height:32px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:var(--ink);font:inherit;font-size:11px;font-weight:700;padding:0 8px;min-width:190px}.language-status{font-size:10px;font-weight:700;color:#2563eb;white-space:nowrap;display:none}.profile-wrap{position:relative}.profile{display:flex;align-items:center;gap:10px;cursor:pointer;padding:5px 7px;border-radius:12px}.profile:hover{background:#f1f5f9}.profile-info{text-align:right}.profile-name{font-size:13px;font-weight:800}.profile-role{font-size:10px;color:var(--muted);margin-top:2px}.avatar{width:40px;height:40px;border-radius:50%;background:#dbeafe;color:#1d4ed8;display:grid;place-items:center;font-weight:900;border:2px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,.08)}.profile-menu{position:absolute;right:0;top:54px;width:220px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:0 14px 35px rgba(15,23,42,.15);display:none}.profile-wrap:hover .profile-menu,.profile-wrap:focus-within .profile-menu{display:block}.profile-menu .menu-user{padding:10px;border-bottom:1px solid var(--line);margin-bottom:5px}.profile-menu .menu-user strong{display:block;font-size:13px}.profile-menu .menu-user span{font-size:11px;color:var(--muted)}.profile-menu a{display:block;text-decoration:none;color:var(--ink);padding:10px;border-radius:9px;font-size:12px;font-weight:650}.profile-menu a:hover{background:#f8fafc}.profile-menu .menu-logout{color:#b42318}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}.crumbs{font-size:12px;color:var(--muted)}.crumbs a{color:#2563eb;text-decoration:none}.history{display:flex;gap:8px}.history button,.history a{border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;border-radius:9px;padding:8px 11px;font-size:12px;font-weight:700;cursor:pointer}.history button:hover,.history a:hover{border-color:#93c5fd;background:#eff6ff}.content{padding:30px}.card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:22px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
 .session-timer{font-size:11px;font-weight:800;color:#b42318;background:#fff1f2;border:1px solid #fecdd3;border-radius:999px;padding:7px 11px;white-space:nowrap}.session-timer.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
-@media(max-width:980px){.global-language label{display:none}.global-language select{min-width:175px}}
-@media(max-width:760px){.sidebar{position:static;width:100%;height:auto}.sidebar-bottom{position:static;margin-top:20px}.app{display:block}.main{margin-left:0;width:100%}.topbar{padding:10px 16px;align-items:flex-start}.topbar-tools{gap:7px}.global-language{padding:5px}.global-language select{min-width:150px}.profile-info{display:none}.content{padding:20px 14px}.toolbar{align-items:flex-start;flex-direction:column}.history{width:100%}.history button,.history a{flex:1;text-align:center}.session-timer{font-size:10px;padding:6px 8px}}
+@media(max-width:980px){.global-language label{font-size:10px}.global-language select{min-width:175px}.language-status{display:none}}@media(max-width:760px){.sidebar{position:static;width:100%;height:auto}.sidebar-bottom{position:static;margin-top:20px}.app{display:block}.main{margin-left:0;width:100%}.topbar{padding:10px 16px;align-items:flex-start}.topbar-tools{gap:7px}.global-language{padding:5px}.global-language select{min-width:150px}.profile-info{display:none}.content{padding:20px 14px}.toolbar{align-items:flex-start;flex-direction:column}.history{width:100%}.history button,.history a{flex:1;text-align:center}.session-timer{font-size:10px;padding:6px 8px}}
 </style>
 </head>
 <body>
@@ -36,21 +35,19 @@
 <div class="sidebar-bottom"><nav class="nav"><a class="{% if request.url.path == '/profile' %}active{% endif %}" href="/profile"><span class="icon">●</span>My Profile</a><a class="logout" href="/auth/logout"><span class="icon">↪</span>Logout</a></nav></div>
 </aside>
 <main class="main">
-<header class="topbar">
-<div class="page-heading"><h1>{% block header_title %}CRM Workspace{% endblock %}</h1><p>Secure business management portal</p></div>
-<div class="topbar-tools">
-<div class="global-language" title="Choose the language used for caller speech scripts">
-<label for="globalSpeechLanguage">Caller Language</label>
-<select id="globalSpeechLanguage" aria-label="Caller Speech Language">
+<header class="topbar"><div class="page-heading"><h1>{% block header_title %}CRM Workspace{% endblock %}</h1><p>Secure business management portal</p></div><div class="topbar-tools">
+<div class="global-language" title="Choose the language used for caller speech scripts and voice tools">
+<label for="globalSpeechLanguage" aria-label="Choose caller speech language">🌐 Language</label>
+<select id="globalSpeechLanguage" aria-label="Choose caller speech language">
 <option value="en">Professional English</option>
 <option value="hi">हिंदी</option>
 <option value="hinglish">Hindi Meaning · English Letters</option>
 </select>
+<span id="languageStatus" class="language-status" aria-live="polite"></span>
 </div>
 <div id="session-countdown" class="session-timer" title="Automatic logout after 15 minutes of inactivity">Session expires in 15:00</div>
 <div class="profile-wrap" tabindex="0"><div class="profile"><div class="profile-info"><div class="profile-name">{{ username|default('User') }}</div><div class="profile-role">{{ role|default('STAFF') }}</div></div><div class="avatar">{{ avatar|default('U') }}</div></div><div class="profile-menu"><div class="menu-user"><strong>{{ username|default('User') }}</strong><span>{{ role|default('STAFF') }} · Secure session</span></div><a href="/profile">My Profile</a><a href="/dashboard">Dashboard</a><a href="/auth/logout" class="menu-logout">↪ Logout</a></div></div>
-</div>
-</header>
+</div></header>
 <section class="content">
 <div class="toolbar"><div class="crumbs"><a href="/dashboard">Dashboard</a> <span>›</span> {% block breadcrumb %}Workspace{% endblock %}</div><div class="history"><button type="button" onclick="history.back()">← Back</button><button type="button" onclick="history.forward()">Forward →</button></div></div>
 {% block content %}{% endblock %}
@@ -61,158 +58,50 @@
 (function(){
   const languageKey='metrocrm_caller_speech_language';
   const allowed=['en','hi','hinglish'];
+  const languageNames={en:'Professional English',hi:'हिंदी',hinglish:'Hindi Meaning · English Letters'};
   const globalLanguage=document.getElementById('globalSpeechLanguage');
+  const statusEl=document.getElementById('languageStatus');
   const savedLanguage=localStorage.getItem(languageKey);
+  function setGlobalLanguage(value,announce){
+    const lang=allowed.includes(value)?value:'en';
+    if(globalLanguage) globalLanguage.value=lang;
+    localStorage.setItem(languageKey,lang);
+    if(statusEl && announce){
+      statusEl.textContent='✓ '+languageNames[lang];
+      statusEl.style.display='inline';
+      clearTimeout(window.__metrocrmLanguageStatusTimer);
+      window.__metrocrmLanguageStatusTimer=setTimeout(function(){statusEl.style.display='none';},2500);
+    }
+    window.dispatchEvent(new CustomEvent('metrocrm:caller-language-change',{detail:{language:lang}}));
+    return lang;
+  }
   if(globalLanguage){
     if(savedLanguage && allowed.includes(savedLanguage)) globalLanguage.value=savedLanguage;
-    globalLanguage.addEventListener('change',function(){
-      localStorage.setItem(languageKey,globalLanguage.value);
-      window.dispatchEvent(new CustomEvent('metrocrm:caller-language-change',{detail:{language:globalLanguage.value}}));
-    });
+    globalLanguage.addEventListener('change',function(){setGlobalLanguage(globalLanguage.value,true);});
   }
   const IDLE_LIMIT_MS = 15 * 60 * 1000;
-  let idleTimer;
-  let lastActivity = Date.now();
+  let idleTimer; let lastActivity = Date.now();
   const timerEl = document.getElementById('session-countdown');
   function logoutForInactivity(){ window.location.replace('/auth/logout'); }
   function armIdleTimer(){ lastActivity = Date.now(); clearTimeout(idleTimer); idleTimer = setTimeout(logoutForInactivity, IDLE_LIMIT_MS); }
-  function updateCountdown(){
-    const remaining = Math.max(0, IDLE_LIMIT_MS - (Date.now() - lastActivity));
-    const totalSeconds = Math.ceil(remaining / 1000);
-    const minutes = Math.floor(totalSeconds / 60).toString().padStart(2,'0');
-    const seconds = (totalSeconds % 60).toString().padStart(2,'0');
-    if(timerEl) timerEl.textContent = 'Session expires in ' + minutes + ':' + seconds;
-    if(timerEl) timerEl.classList.toggle('warn', remaining <= 2 * 60 * 1000);
-    if(remaining <= 0) logoutForInactivity();
-  }
-  ['click','keydown','mousemove','scroll','touchstart'].forEach(function(eventName){
-    window.addEventListener(eventName, armIdleTimer, {passive:true});
-  });
-  armIdleTimer();
-  updateCountdown();
-  setInterval(updateCountdown, 1000);
-  window.addEventListener('pageshow', function(event){
-    if(event.persisted){ window.location.reload(); }
-  });
-
-  // Voice tools: browser-native speech-to-text and text-to-speech. No server audio is uploaded.
-  let recognition=null;
-  let activeInput=null;
-  let speakingButton=null;
+  function updateCountdown(){const remaining=Math.max(0,IDLE_LIMIT_MS-(Date.now()-lastActivity));const totalSeconds=Math.ceil(remaining/1000);const minutes=Math.floor(totalSeconds/60).toString().padStart(2,'0');const seconds=(totalSeconds%60).toString().padStart(2,'0');if(timerEl)timerEl.textContent='Session expires in '+minutes+':'+seconds;if(timerEl)timerEl.classList.toggle('warn',remaining<=2*60*1000);if(remaining<=0)logoutForInactivity();}
+  ['click','keydown','mousemove','scroll','touchstart'].forEach(function(eventName){window.addEventListener(eventName,armIdleTimer,{passive:true});}); armIdleTimer(); updateCountdown(); setInterval(updateCountdown,1000);
+  window.addEventListener('pageshow',function(event){if(event.persisted)window.location.reload();});
+  let recognition=null; let activeInput=null; let speakingButton=null;
   const speechLocales={en:'en-IN',hi:'hi-IN',hinglish:'en-IN'};
-  function currentVoiceLanguage(){
-    const value=localStorage.getItem(languageKey);
-    return allowed.includes(value) ? value : 'en';
-  }
-  function stopReading(){
-    if('speechSynthesis' in window) window.speechSynthesis.cancel();
-    if(speakingButton){ speakingButton.classList.remove('is-speaking'); speakingButton.textContent='🔊'; speakingButton.title='Read aloud'; speakingButton.setAttribute('aria-label','Read aloud'); }
-    speakingButton=null;
-  }
-  function readAloud(text,button){
-    if(!('speechSynthesis' in window) || !text.trim()) return;
-    if(speakingButton){ stopReading(); if(speakingButton===button) return; }
-    const utterance=new SpeechSynthesisUtterance(text.trim());
-    utterance.lang=speechLocales[currentVoiceLanguage()]||'en-IN';
-    utterance.rate=.95;
-    utterance.pitch=1;
-    speakingButton=button;
-    button.classList.add('is-speaking');
-    button.textContent='⏹';
-    button.title='Stop reading';
-    button.setAttribute('aria-label','Stop reading');
-    utterance.onend=stopReading;
-    utterance.onerror=stopReading;
-    window.speechSynthesis.speak(utterance);
-  }
-  function makeButton(className,label,title,symbol){
-    const button=document.createElement('button');
-    button.type='button';
-    button.className=className;
-    button.textContent=symbol;
-    button.title=title;
-    button.setAttribute('aria-label',label);
-    return button;
-  }
-  function addReadButtons(){
-    document.querySelectorAll('.speech,[data-read-aloud]').forEach(function(target){
-      if(target.dataset.voiceReadable==='1') return;
-      target.dataset.voiceReadable='1';
-      target.classList.add('voice-readable');
-      const button=makeButton('voice-tts','Read aloud','Read aloud','🔊');
-      button.addEventListener('click',function(event){
-        event.stopPropagation();
-        const clone=target.cloneNode(true);
-        const control=clone.querySelector('.voice-tts');
-        if(control) control.remove();
-        readAloud(clone.textContent||'',button);
-      });
-      target.appendChild(button);
-    });
-  }
-  function addSpeechButtons(){
-    document.querySelectorAll('textarea,input[type="text"],input[type="search"]').forEach(function(input){
-      if(input.dataset.voiceInput==='1' || input.disabled || input.readOnly || input.closest('.voice-input-wrap')) return;
-      input.dataset.voiceInput='1';
-      const wrapper=document.createElement('div');
-      wrapper.className='voice-input-wrap';
-      input.parentNode.insertBefore(wrapper,input);
-      wrapper.appendChild(input);
-      const button=makeButton('voice-stt','Speech to text','Speak to type','🎙');
-      wrapper.appendChild(button);
-      button.addEventListener('click',function(){
-        const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-        if(!Recognition){ window.alert('Speech-to-text is not supported by this browser. Please use a supported browser such as Chrome.'); return; }
-        if(recognition && activeInput===input){ recognition.stop(); return; }
-        if(recognition) recognition.stop();
-        recognition=new Recognition();
-        activeInput=input;
-        recognition.lang=speechLocales[currentVoiceLanguage()]||'en-IN';
-        recognition.interimResults=false;
-        recognition.continuous=false;
-        button.classList.add('is-listening');
-        button.textContent='⏹';
-        button.title='Stop listening';
-        button.setAttribute('aria-label','Stop listening');
-        recognition.onresult=function(event){
-          const transcript=event.results[0][0].transcript.trim();
-          if(!transcript) return;
-          const before=input.value||'';
-          input.value=before+(before && !/\s$/.test(before)?' ':'')+transcript;
-          input.dispatchEvent(new Event('input',{bubbles:true}));
-          input.dispatchEvent(new Event('change',{bubbles:true}));
-        };
-        recognition.onend=function(){
-          recognition=null;
-          activeInput=null;
-          button.classList.remove('is-listening');
-          button.textContent='🎙';
-          button.title='Speak to type';
-          button.setAttribute('aria-label','Speech to text');
-        };
-        recognition.onerror=recognition.onend;
-        recognition.start();
-      });
-    });
-  }
-  function refreshVoiceTools(){ addReadButtons(); addSpeechButtons(); }
-  window.addEventListener('metrocrm:caller-language-change',function(){ stopReading(); if(recognition) recognition.stop(); });
-  document.addEventListener('DOMContentLoaded',refreshVoiceTools);
-  if(document.readyState!=='loading') refreshVoiceTools();
-  window.addEventListener('pageshow',function(){ setTimeout(refreshVoiceTools,50); });
+  function currentVoiceLanguage(){const value=localStorage.getItem(languageKey);return allowed.includes(value)?value:'en';}
+  function stopReading(){if('speechSynthesis' in window)window.speechSynthesis.cancel();if(speakingButton){speakingButton.classList.remove('is-speaking');speakingButton.textContent='🔊';speakingButton.title='Read aloud';speakingButton.setAttribute('aria-label','Read aloud');}speakingButton=null;}
+  function readAloud(text,button){if(!('speechSynthesis' in window)||!text.trim())return;if(speakingButton){stopReading();if(speakingButton===button)return;}const utterance=new SpeechSynthesisUtterance(text.trim());utterance.lang=speechLocales[currentVoiceLanguage()]||'en-IN';utterance.rate=.95;utterance.pitch=1;speakingButton=button;button.classList.add('is-speaking');button.textContent='⏹';button.title='Stop reading';button.setAttribute('aria-label','Stop reading');utterance.onend=stopReading;utterance.onerror=stopReading;window.speechSynthesis.speak(utterance);}
+  function makeButton(className,label,title,symbol){const button=document.createElement('button');button.type='button';button.className=className;button.textContent=symbol;button.title=title;button.setAttribute('aria-label',label);return button;}
+  function addReadButtons(){document.querySelectorAll('.speech,[data-read-aloud]').forEach(function(target){if(target.dataset.voiceReadable==='1')return;target.dataset.voiceReadable='1';target.classList.add('voice-readable');const button=makeButton('voice-tts','Read aloud','Read aloud','🔊');button.addEventListener('click',function(event){event.stopPropagation();const clone=target.cloneNode(true);const control=clone.querySelector('.voice-tts');if(control)control.remove();readAloud(clone.textContent||'',button);});target.appendChild(button);});}
+  function addSpeechButtons(){document.querySelectorAll('textarea,input[type="text"],input[type="search"]').forEach(function(input){if(input.dataset.voiceInput==='1'||input.disabled||input.readOnly||input.closest('.voice-input-wrap'))return;input.dataset.voiceInput='1';const wrapper=document.createElement('div');wrapper.className='voice-input-wrap';input.parentNode.insertBefore(wrapper,input);wrapper.appendChild(input);const button=makeButton('voice-stt','Speech to text','Speak to type','🎙');wrapper.appendChild(button);button.addEventListener('click',function(){const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;if(!Recognition){window.alert('Speech-to-text is not supported by this browser. Please use a supported browser such as Chrome.');return;}if(recognition&&activeInput===input){recognition.stop();return;}if(recognition)recognition.stop();recognition=new Recognition();activeInput=input;recognition.lang=speechLocales[currentVoiceLanguage()]||'en-IN';recognition.interimResults=false;recognition.continuous=false;button.classList.add('is-listening');button.textContent='⏹';button.title='Stop listening';button.setAttribute('aria-label','Stop listening');recognition.onresult=function(event){const transcript=event.results[0][0].transcript.trim();if(!transcript)return;const before=input.value||'';input.value=before+(before&&!/\s$/.test(before)?' ':'')+transcript;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));};recognition.onend=function(){recognition=null;activeInput=null;button.classList.remove('is-listening');button.textContent='🎙';button.title='Speak to type';button.setAttribute('aria-label','Speech to text');};recognition.onerror=recognition.onend;recognition.start();});});}
+  function refreshVoiceTools(){addReadButtons();addSpeechButtons();}
+  window.addEventListener('metrocrm:caller-language-change',function(){stopReading();if(recognition)recognition.stop();});
+  document.addEventListener('DOMContentLoaded',refreshVoiceTools); if(document.readyState!=='loading')refreshVoiceTools(); window.addEventListener('pageshow',function(){setTimeout(refreshVoiceTools,50);});
 })();
 </script>
 <style>
-.voice-readable{position:relative;padding-right:54px!important}
-.voice-tts,.voice-stt{font:inherit;display:inline-grid;place-items:center;border:1px solid #cbd5e1;background:#fff;color:#1d4ed8;cursor:pointer;border-radius:7px;width:32px;height:32px;padding:0;box-shadow:0 1px 3px rgba(15,23,42,.08);transition:.15s}
-.voice-tts{position:absolute;right:10px;top:10px}
-.voice-tts:hover,.voice-stt:hover{background:#eff6ff;border-color:#93c5fd}
-.voice-tts.is-speaking{background:#dbeafe}
-.voice-input-wrap{position:relative;width:100%;display:block}
-.voice-input-wrap>input,.voice-input-wrap>textarea{padding-right:48px!important;width:100%}
-.voice-stt{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:2}
-.voice-input-wrap>textarea+.voice-stt{top:12px;transform:none}
-.voice-stt.is-listening{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
+.voice-readable{position:relative;padding-right:54px!important}.voice-tts,.voice-stt{font:inherit;display:inline-grid;place-items:center;border:1px solid #cbd5e1;background:#fff;color:#1d4ed8;cursor:pointer;border-radius:7px;width:32px;height:32px;padding:0;box-shadow:0 1px 3px rgba(15,23,42,.08);transition:.15s}.voice-tts{position:absolute;right:10px;top:10px}.voice-tts:hover,.voice-stt:hover{background:#eff6ff;border-color:#93c5fd}.voice-tts.is-speaking{background:#dbeafe}.voice-input-wrap{position:relative;width:100%;display:block}.voice-input-wrap>input,.voice-input-wrap>textarea{padding-right:48px!important;width:100%}.voice-stt{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:2}.voice-input-wrap>textarea+.voice-stt{top:12px;transform:none}.voice-stt.is-listening{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
 </style>
 </body>
 </html>
