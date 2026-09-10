@@ -15,26 +15,30 @@ def _run_boundary(request, call_next):
 def test_required_portal_mapping():
     assert portal_boundary._required_portal("/admin") == "admin"
     assert portal_boundary._required_portal("/admin/customers") == "admin"
-    assert portal_boundary._required_portal("/admin/users") is None
-    assert portal_boundary._required_portal("/admin/users/123/edit") is None
+    assert portal_boundary._required_portal("/admin/users") == "admin"
+    assert portal_boundary._required_portal("/admin/users/123/edit") == "admin"
     assert portal_boundary._required_portal("/super-admin") == "super_admin"
     assert portal_boundary._required_portal("/super-admin/login-requests") == "super_admin"
     assert portal_boundary._required_portal("/dashboard") is None
 
 
-def test_super_admin_session_is_redirected_from_admin_portal():
-    request = _request("/admin/customers", {"user_id": 1, "login_portal": "super_admin"})
-    called = False
+def test_super_admin_session_can_reach_admin_level_surfaces():
+    for path in ("/admin/users", "/admin/property-data", "/admin/business-reports", "/admin/data-tools"):
+        request = _request(path, {"user_id": 1, "login_portal": "super_admin"})
+
+        async def call_next(_request):
+            return "next"
+
+        assert _run_boundary(request, call_next) == "next"
+
+
+def test_super_admin_session_is_redirected_from_unrelated_admin_portal_login_only_when_login_flow_is_requested():
+    request = _request("/admin/login", {"user_id": 1, "login_portal": "super_admin"})
 
     async def call_next(_request):
-        nonlocal called
-        called = True
-        return "next"
+        return "login-page"
 
-    response = _run_boundary(request, call_next)
-    assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
-    assert called is False
+    assert _run_boundary(request, call_next) == "login-page"
 
 
 def test_admin_session_is_redirected_from_super_admin_portal():
@@ -46,24 +50,6 @@ def test_admin_session_is_redirected_from_super_admin_portal():
     response = _run_boundary(request, call_next)
     assert response.status_code == 303
     assert response.headers["location"] == "/super-admin/login"
-
-
-def test_super_admin_session_can_reach_shared_user_management():
-    request = _request("/admin/users", {"user_id": 1, "login_portal": "super_admin"})
-
-    async def call_next(_request):
-        return "user-management"
-
-    assert _run_boundary(request, call_next) == "user-management"
-
-
-def test_super_admin_session_can_reach_user_management_actions():
-    request = _request("/admin/users/123/edit", {"user_id": 1, "login_portal": "super_admin"})
-
-    async def call_next(_request):
-        return "user-management-action"
-
-    assert _run_boundary(request, call_next) == "user-management-action"
 
 
 def test_matching_portal_session_passes_through():
