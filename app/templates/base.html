@@ -94,7 +94,125 @@
   window.addEventListener('pageshow', function(event){
     if(event.persisted){ window.location.reload(); }
   });
+
+  // Voice tools: browser-native speech-to-text and text-to-speech. No server audio is uploaded.
+  let recognition=null;
+  let activeInput=null;
+  let speakingButton=null;
+  const speechLocales={en:'en-IN',hi:'hi-IN',hinglish:'en-IN'};
+  function currentVoiceLanguage(){
+    const value=localStorage.getItem(languageKey);
+    return allowed.includes(value) ? value : 'en';
+  }
+  function stopReading(){
+    if('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if(speakingButton){ speakingButton.classList.remove('is-speaking'); speakingButton.textContent='🔊'; speakingButton.title='Read aloud'; speakingButton.setAttribute('aria-label','Read aloud'); }
+    speakingButton=null;
+  }
+  function readAloud(text,button){
+    if(!('speechSynthesis' in window) || !text.trim()) return;
+    if(speakingButton){ stopReading(); if(speakingButton===button) return; }
+    const utterance=new SpeechSynthesisUtterance(text.trim());
+    utterance.lang=speechLocales[currentVoiceLanguage()]||'en-IN';
+    utterance.rate=.95;
+    utterance.pitch=1;
+    speakingButton=button;
+    button.classList.add('is-speaking');
+    button.textContent='⏹';
+    button.title='Stop reading';
+    button.setAttribute('aria-label','Stop reading');
+    utterance.onend=stopReading;
+    utterance.onerror=stopReading;
+    window.speechSynthesis.speak(utterance);
+  }
+  function makeButton(className,label,title,symbol){
+    const button=document.createElement('button');
+    button.type='button';
+    button.className=className;
+    button.textContent=symbol;
+    button.title=title;
+    button.setAttribute('aria-label',label);
+    return button;
+  }
+  function addReadButtons(){
+    document.querySelectorAll('.speech,[data-read-aloud]').forEach(function(target){
+      if(target.dataset.voiceReadable==='1') return;
+      target.dataset.voiceReadable='1';
+      target.classList.add('voice-readable');
+      const button=makeButton('voice-tts','Read aloud','Read aloud','🔊');
+      button.addEventListener('click',function(event){
+        event.stopPropagation();
+        const clone=target.cloneNode(true);
+        const control=clone.querySelector('.voice-tts');
+        if(control) control.remove();
+        readAloud(clone.textContent||'',button);
+      });
+      target.appendChild(button);
+    });
+  }
+  function addSpeechButtons(){
+    document.querySelectorAll('textarea,input[type="text"],input[type="search"]').forEach(function(input){
+      if(input.dataset.voiceInput==='1' || input.disabled || input.readOnly || input.closest('.voice-input-wrap')) return;
+      input.dataset.voiceInput='1';
+      const wrapper=document.createElement('div');
+      wrapper.className='voice-input-wrap';
+      input.parentNode.insertBefore(wrapper,input);
+      wrapper.appendChild(input);
+      const button=makeButton('voice-stt','Speech to text','Speak to type','🎙');
+      wrapper.appendChild(button);
+      button.addEventListener('click',function(){
+        const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(!Recognition){ window.alert('Speech-to-text is not supported by this browser. Please use a supported browser such as Chrome.'); return; }
+        if(recognition && activeInput===input){ recognition.stop(); return; }
+        if(recognition) recognition.stop();
+        recognition=new Recognition();
+        activeInput=input;
+        recognition.lang=speechLocales[currentVoiceLanguage()]||'en-IN';
+        recognition.interimResults=false;
+        recognition.continuous=false;
+        button.classList.add('is-listening');
+        button.textContent='⏹';
+        button.title='Stop listening';
+        button.setAttribute('aria-label','Stop listening');
+        recognition.onresult=function(event){
+          const transcript=event.results[0][0].transcript.trim();
+          if(!transcript) return;
+          const before=input.value||'';
+          input.value=before+(before && !/\s$/.test(before)?' ':'')+transcript;
+          input.dispatchEvent(new Event('input',{bubbles:true}));
+          input.dispatchEvent(new Event('change',{bubbles:true}));
+        };
+        recognition.onend=function(){
+          recognition=null;
+          activeInput=null;
+          button.classList.remove('is-listening');
+          button.textContent='🎙';
+          button.title='Speak to type';
+          button.setAttribute('aria-label','Speech to text');
+        };
+        recognition.onerror=recognition.onend;
+        recognition.start();
+      });
+    });
+  }
+  function refreshVoiceTools(){ addReadButtons(); addSpeechButtons(); }
+  window.addEventListener('metrocrm:caller-language-change',function(){ stopReading(); if(recognition) recognition.stop(); });
+  document.addEventListener('DOMContentLoaded',refreshVoiceTools);
+  if(document.readyState!=='loading') refreshVoiceTools();
+  window.addEventListener('pageshow',function(){ setTimeout(refreshVoiceTools,50); });
 })();
 </script>
+<style>
+.voice-readable{position:relative;padding-right:54px!important}
+.voice-tts,.voice-stt{font:inherit;display:inline-grid;place-items:center;border:1px solid #cbd5e1;background:#fff;color:#1d4ed8;cursor:pointer;border-radius:7px;width:32px;height:32px;padding:0;box-shadow:0 1px 3px rgba(15,23,42,.08);transition:.15s}
+.voice-tts{position:absolute;right:10px;top:10px}
+.voice-tts:hover,.voice-stt:hover{background:#eff6ff;border-color:#93c5fd}
+.voice-tts.is-speaking{background:#dbeafe}
+.voice-input-wrap{position:relative;width:100%;display:block}
+.voice-input-wrap>input,.voice-input-wrap>textarea{padding-right:48px!important;width:100%}
+.voice-stt{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:2}
+.voice-input-wrap>textarea+.voice-stt{top:12px;transform:none}
+.voice-stt.is-listening{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
+</style>
 </body>
 </html>
