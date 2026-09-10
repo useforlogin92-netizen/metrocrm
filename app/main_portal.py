@@ -12,6 +12,7 @@ from app.routers.password_recovery import router as password_recovery_router
 from app.routers.password_reset_requests import router as password_reset_requests_router
 from app.routers.property_data import router as property_data_router
 from app.routers.sales_property import router as sales_property_router
+from app.routers.whatsapp import router as whatsapp_router
 
 app = main.app
 app.include_router(health_router)
@@ -23,3 +24,4 @@ app.include_router(caller_leads_router)
 app.include_router(ai_caller_router)
 app.include_router(password_recovery_router)
 app.include_router(password_reset_requests_router)
+app.include_router(whatsapp_router)
