@@ -8,19 +8,7 @@ def test_healthz_route_is_registered():
     assert "/healthz" in paths
 
 
-def test_healthz_returns_ok_when_database_is_available(monkeypatch):
-    class FakeResult:
-        def __init__(self):
-            pass
-
-    class FakeDB:
-        def execute(self, statement):
-            return FakeResult()
-
-    from app.routers import health
-
-    client = TestClient(app)
-    monkeypatch.setattr(health, "get_db", lambda: iter([FakeDB()]))
-    response = client.get("/healthz")
+def test_healthz_returns_ok_with_test_database():
+    response = TestClient(app).get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
