@@ -169,7 +169,28 @@ def _publish_unit_configurations(db: Session, project_id: int, data: dict):
 
 
 @router.get("/admin/property-data/sales-link", response_class=HTMLResponse)
-def create_sales_link_page(request: Request, db: Session = Depends(get_db)):
+def sales_link_page(request: Request, db: Session = Depends(get_db)):
+    actor = _admin_actor(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    entity = request.query_params.get("entity", "Projects")
+    if entity not in _models_map():
+        entity = "Projects"
+    return templates.TemplateResponse(
+        "sales_property_link.html",
+        {
+            "request": request,
+            "username": actor.username,
+            "role": actor.role,
+            "csrf_token": csrf_token(request),
+            "entity": entity,
+            "link": None,
+        },
+    )
+
+
+@router.post("/admin/property-data/sales-link", dependencies=[Depends(require_csrf)], response_class=HTMLResponse)
+def create_sales_link(request: Request, db: Session = Depends(get_db)):
     actor = _admin_actor(request, db)
     if not actor:
         return RedirectResponse("/", status_code=303)
@@ -183,7 +204,17 @@ def create_sales_link_page(request: Request, db: Session = Depends(get_db)):
     db.add(AuditEvent(actor_user_id=actor.id, action="SALES_PROPERTY_LINK_CREATED", entity_type=entity, entity_id=str(row.id), details=json.dumps({"entity": entity})))
     db.commit()
     link = str(request.base_url).rstrip("/") + f"/sales/property/{raw_token}"
-    return templates.TemplateResponse("sales_property_link.html", {"request": request, "username": actor.username, "role": actor.role, "csrf_token": csrf_token(request), "entity": entity, "link": link})
+    return templates.TemplateResponse(
+        "sales_property_link.html",
+        {
+            "request": request,
+            "username": actor.username,
+            "role": actor.role,
+            "csrf_token": csrf_token(request),
+            "entity": entity,
+            "link": link,
+        },
+    )
 
 
 @router.get("/sales/property/{token}", response_class=HTMLResponse)
