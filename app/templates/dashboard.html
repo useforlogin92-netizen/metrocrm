@@ -41,4 +41,15 @@
 </script>{% endif %}
 </section>
 </div>
+<script>
+(function(){
+  const label=document.getElementById('globalSpeechLanguage');
+  const labelText=label ? label.closest('.global-language')?.querySelector('label') : null;
+  if(labelText){
+    labelText.textContent='🌐 Language';
+    labelText.title='Choose the language for caller speech';
+    labelText.setAttribute('aria-label','Choose caller speech language');
+  }
+})();
+</script>
 {% endblock %}
