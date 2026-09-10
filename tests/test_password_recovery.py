@@ -39,9 +39,9 @@ def test_super_admin_recovery_questions_are_private_and_specific():
     assert "health insurance" in questions[1].lower()
     assert "favourite manager" in questions[2].lower()
     assert "female" in questions[3].lower()
-    assert "bank account number" in questions[4].lower()
+    assert "railway station" in questions[4].lower()
     for number in (1, 3, 4):
-        assert "CAPITAL LETTERS" in questions[number - 1]
+        assert "CAPITAL LETTERS" not in questions[number - 1]
 
 
 def test_named_recovery_answers_are_normalized_to_capitals():
