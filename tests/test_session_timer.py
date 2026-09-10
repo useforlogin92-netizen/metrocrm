@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -9,4 +10,5 @@ def test_authenticated_template_has_visible_session_countdown():
     assert 'id="session-countdown"' in html
     assert "Session expires in" in html
     assert "IDLE_LIMIT_MS = 15 * 60 * 1000" in html
-    assert "setInterval(updateCountdown, 1000)" in html
+    # Allow harmless formatting changes around the timer call.
+    assert re.search(r"setInterval\(\s*updateCountdown\s*,\s*1000\s*\)", html)
