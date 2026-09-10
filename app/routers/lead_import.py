@@ -135,7 +135,12 @@ def _as_decimal(value):
 
 
 def _find_or_create_customer(db: Session, raw: dict, existing_customer_id: int | None = None):
-    customer = db.get(Customer, existing_customer_id) if existing_customer_id else None
+    if existing_customer_id:
+        customer = db.get(Customer, existing_customer_id)
+        if customer is None:
+            raise ValueError(f"customer_id {existing_customer_id} does not exist")
+    else:
+        customer = None
     mobile = str(raw.get("mobile") or "").strip() or None
     email = str(raw.get("email") or "").strip().lower() or None
     name = str(raw.get("customer_name") or "").strip()
