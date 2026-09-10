@@ -19,9 +19,15 @@ async def add_recovery_links(request: Request, call_next):
     if body is None:
         return response
 
-    if request.url.path in {"/", "/admin/login"}:
+    if request.url.path == "/":
         link = b'<a class="forgot-link" href="/forgot-password">Forgot your password?</a>'
         marker = b'<div class="super-note">'
+        if marker not in body or b'href="/forgot-password"' in body:
+            return response
+        body = body.replace(marker, link + marker, 1)
+    elif request.url.path == "/admin/login":
+        link = b'<a class="forgot-link" href="/forgot-password">Forgot your password?</a>'
+        marker = b'<div class="security-line">'
         if marker not in body or b'href="/forgot-password"' in body:
             return response
         body = body.replace(marker, link + marker, 1)
