@@ -92,39 +92,107 @@ def _property_rows(db: Session, customer: dict[str, Any]) -> list[dict[str, Any]
     return [{**by_id[int(r.property_id)], "score": round(r.score), "reasons": r.reasons, "location_category": r.location_category} for r in results[:50]]
 
 
-def _opening_speech(user: User, lead: Lead, customer: Customer | None, locations: list[dict[str, str]]) -> str:
-    name = (customer.name if customer else None) or "Sir/Ma'am"
-    source = (lead.source or "your enquiry").strip()
-    location_text = ", ".join(item["name"] for item in locations) or (lead.preferred_location or "your preferred location")
-    bhk = lead.bhk or "the required configuration"
-    return (f"Namaste {name} ji, main {user.username} bol raha/rahi hoon. "
-            f"Aapne {source} par {location_text} mein {bhk} property ke liye enquiry ki thi. "
-            "Aapki requirement ke according main aapko suitable property options batana chahta/chahti hoon.")
-
-
-def _property_speech(property_: dict[str, Any], customer: Customer | None) -> str:
-    customer_name = (customer.name if customer else "Sir/Ma'am")
-    parts = [
-        f"{customer_name} ji, aapki requirement ke according ek option hai {property_.get('project') or 'is project'}",
-        f"jo {property_.get('location') or 'preferred location'} mein located hai.",
-    ]
-    details = []
+def _speech_details(property_: dict[str, Any]) -> list[tuple[str, Any]]:
+    details: list[tuple[str, Any]] = []
     for label, value in (("configuration", property_.get("bhk")), ("carpet area", property_.get("carpet_area")),
                          ("rate", property_.get("price_per_sqft")), ("all-inclusive price", property_.get("price")),
                          ("parking", property_.get("parking")), ("negotiable", property_.get("negotiable")),
                          ("possession", property_.get("possession")), ("RERA", property_.get("rera"))):
-        if value not in (None, ""):
-            if label == "carpet area": details.append(f"{value:g} square feet carpet area")
-            elif label == "rate": details.append(f"{_money(value)} per square feet")
-            elif label == "all-inclusive price": details.append(_money(value) + " all inclusive")
-            elif label == "negotiable": details.append("price is negotiable" if str(value).casefold() in {"yes", "true", "1"} else "price is not negotiable")
-            else: details.append(f"{label} {value}")
-    if details:
-        parts.append("Ismein " + ", ".join(details) + ".")
-    if property_.get("description"):
-        parts.append(f"Project ki main highlight hai: {str(property_['description']).strip()}")
-    parts.append("Agar aapko ye option suitable lage, to main aapke liye next step ya site visit arrange kar sakta/sakti hoon.")
-    return " ".join(parts)
+        if value in (None, ""):
+            continue
+        if label == "carpet area":
+            details.append((label, f"{value:g} square feet carpet area"))
+        elif label == "rate":
+            details.append((label, f"{_money(value)} per square feet"))
+        elif label == "all-inclusive price":
+            details.append((label, _money(value) + " all inclusive"))
+        elif label == "negotiable":
+            details.append((label, "price is negotiable" if str(value).casefold() in {"yes", "true", "1"} else "price is not negotiable"))
+        else:
+            details.append((label, f"{label} {value}"))
+    return details
+
+
+def _opening_speeches(user: User, lead: Lead, customer: Customer | None, locations: list[dict[str, str]]) -> dict[str, str]:
+    name = (customer.name if customer else None) or "Sir/Ma'am"
+    source = (lead.source or "your enquiry").strip()
+    location_text = ", ".join(item["name"] for item in locations) or (lead.preferred_location or "your preferred location")
+    bhk = lead.bhk or "the required configuration"
+    return {
+        "en": (
+            f"Hello {name}, this is {user.username} calling from MetroCRM. "
+            f"You had enquired through {source} about a {bhk} property in {location_text}. "
+            "I have reviewed your requirement and would like to share some suitable property options with you."
+        ),
+        "hi": (
+            f"नमस्ते {name} जी, मैं {user.username} MetroCRM से बात कर रहा/रही हूँ। "
+            f"आपने {source} के माध्यम से {location_text} में {bhk} प्रॉपर्टी के लिए पूछताछ की थी। "
+            "मैंने आपकी आवश्यकता देख ली है और आपके लिए उपयुक्त प्रॉपर्टी के कुछ विकल्प साझा करना चाहता/चाहती हूँ।"
+        ),
+        "hinglish": (
+            f"Namaste {name} ji, main {user.username} MetroCRM se bol raha/rahi hoon. "
+            f"Aapne {source} par {location_text} mein {bhk} property ke liye enquiry ki thi. "
+            "Maine aapki requirement review ki hai aur aapke liye kuch suitable property options share karna chahta/chahti hoon."
+        ),
+    }
+
+
+def _property_speeches(property_: dict[str, Any], customer: Customer | None) -> dict[str, str]:
+    customer_name = (customer.name if customer else "Sir/Ma'am")
+    project = property_.get("project") or "this project"
+    location = property_.get("location") or "your preferred location"
+    details = _speech_details(property_)
+
+    english_details = ", ".join(value for _, value in details)
+    hindi_details: list[str] = []
+    hinglish_details: list[str] = []
+    for label, value in details:
+        raw_value = str(value)
+        if label == "configuration":
+            hindi_details.append(f"कॉन्फ़िगरेशन {property_.get('bhk')}")
+            hinglish_details.append(f"configuration {property_.get('bhk')}")
+        elif label == "carpet area":
+            area = property_.get("carpet_area")
+            hindi_details.append(f"कार्पेट एरिया {area:g} वर्ग फुट")
+            hinglish_details.append(f"carpet area {area:g} square feet")
+        elif label == "rate":
+            hindi_details.append(f"रेट {_money(property_.get('price_per_sqft'))} प्रति वर्ग फुट")
+            hinglish_details.append(f"rate {_money(property_.get('price_per_sqft'))} per square feet")
+        elif label == "all-inclusive price":
+            hindi_details.append(f"ऑल-इन्क्लूसिव कीमत {_money(property_.get('price'))}")
+            hinglish_details.append(f"all-inclusive price {_money(property_.get('price'))}")
+        elif label == "parking":
+            hindi_details.append(f"पार्किंग {property_.get('parking')}")
+            hinglish_details.append(f"parking {property_.get('parking')}")
+        elif label == "negotiable":
+            hindi_details.append(raw_value.replace("price is", "कीमत"))
+            hinglish_details.append(raw_value)
+        elif label == "possession":
+            hindi_details.append(f"पजेशन {property_.get('possession')}")
+            hinglish_details.append(f"possession {property_.get('possession')}")
+        elif label == "RERA":
+            hindi_details.append(f"RERA {property_.get('rera')}")
+            hinglish_details.append(f"RERA {property_.get('rera')}")
+
+    english = (
+        f"{customer_name}, I have found a suitable option for you: {project}, located in {location}. "
+        + (f"The key details are {english_details}. " if english_details else "")
+        + (f"The main project highlight is: {str(property_.get('description')).strip()}. " if property_.get("description") else "")
+        + "If this option looks suitable, I can explain the next steps and arrange a site visit for you."
+    )
+    hindi = (
+        f"{customer_name} जी, आपकी आवश्यकता के अनुसार एक उपयुक्त विकल्प है: {project}, जो {location} में स्थित है। "
+        + (f"इसकी मुख्य जानकारी है: {', '.join(hindi_details)}। " if hindi_details else "")
+        + (f"इस प्रोजेक्ट की मुख्य विशेषता है: {str(property_.get('description')).strip()}। " if property_.get("description") else "")
+        + "अगर यह विकल्प आपको उपयुक्त लगे, तो मैं आपको आगे की जानकारी दे सकता/सकती हूँ और आपके लिए साइट विज़िट भी arrange कर सकता/सकती हूँ।"
+    )
+    hinglish = (
+        f"{customer_name} ji, aapki requirement ke according ek suitable option hai: {project}, jo {location} mein located hai. "
+        + (f"Iski main details hain: {', '.join(hinglish_details)}. " if hinglish_details else "")
+        + (f"Project ki main highlight hai: {str(property_.get('description')).strip()}. " if property_.get("description") else "")
+        + "Agar ye option aapko suitable lage, to main aapko next steps samjha sakta/sakti hoon aur site visit bhi arrange kar sakta/sakti hoon."
+    )
+    return {"en": english, "hi": hindi, "hinglish": hinglish}
 
 
 @router.get("/lead/{lead_id}/call", response_class=HTMLResponse)
@@ -160,7 +228,7 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
     return templates.TemplateResponse("caller_lead_assistant.html", {
         "request": request, "user": user, "lead": lead, "customer": customer,
         "requirement": requirement, "locations": locations, "properties": properties,
-        "opening_speech": _opening_speech(user, lead, customer, locations),
-        "property_speech": {str(p["id"]): _property_speech(p, customer) for p in properties},
+        "opening_speeches": _opening_speeches(user, lead, customer, locations),
+        "property_speeches": {str(p["id"]): _property_speeches(p, customer) for p in properties},
         "csrf_token": csrf_token(request), "now": datetime.now().strftime("%d %b %Y %H:%M"),
     })
