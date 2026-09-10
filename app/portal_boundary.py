@@ -15,6 +15,11 @@ app = main.app
 
 
 def _required_portal(path: str) -> str | None:
+    # User Management is a shared, role-protected administrative surface.
+    # Super Admins must be able to reach it from the common dashboard even
+    # though their authenticated session belongs to the dedicated super-admin portal.
+    if path == "/admin/users" or path.startswith("/admin/users/"):
+        return None
     if path == "/admin" or path.startswith("/admin/"):
         return "admin"
     if path == "/super-admin" or path.startswith("/super-admin/"):
@@ -131,7 +136,7 @@ def download_approved_property_export_post(request_id: int, request: Request, db
 
 # FastAPI's decorator middleware is inserted at the front of user_middleware.
 # Keep SessionMiddleware outermost so the boundary can safely inspect the session
-# while preserving the existing idle-session middleware ordering contract.
+# while preserving the existing idle-session middleware ordering.
 for _index, _middleware in enumerate(app.user_middleware):
     if _middleware.cls is SessionMiddleware:
         if _index:
