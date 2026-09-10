@@ -18,11 +18,15 @@ def _required_portal(path: str) -> str | None:
     return None
 
 
+def _is_portal_login(path: str, required: str) -> bool:
+    return path == ("/admin/login" if required == "admin" else "/super-admin/login")
+
+
 @app.middleware("http")
 async def enforce_dedicated_portal_session(request: Request, call_next):
     """Never let a session authenticated for one dedicated portal enter another."""
     required = _required_portal(request.url.path)
-    if required:
+    if required and not _is_portal_login(request.url.path, required):
         current_user_id = request.session.get("user_id")
         current_portal = request.session.get("login_portal")
         if current_user_id and current_portal != required:
