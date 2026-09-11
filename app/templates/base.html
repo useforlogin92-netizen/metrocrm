@@ -25,6 +25,7 @@
 <a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span class="icon">⌂</span>Dashboard</a>
 <a class="{% if request.url.path.startswith('/caller/') %}active{% endif %}" href="/caller/search"><span class="icon">⌕</span>Caller Property Search</a>
 {% if role == 'SUPER_ADMIN' or role == 'ADMIN' %}<a class="{% if request.url.path.startswith('/admin/property-data') %}active{% endif %}" href="/admin/property-data"><span class="icon">▤</span>Property Data</a>{% endif %}
+{% if role == 'SUPER_ADMIN' or role == 'ADMIN' %}<a class="{% if request.url.path.startswith('/admin/property-submissions') or request.url.path.startswith('/super-admin/property-submissions') %}active{% endif %}" href="{% if role == 'SUPER_ADMIN' %}/super-admin/property-submissions{% else %}/admin/property-submissions{% endif %}"><span class="icon">▥</span>SM Property Submissions</a>{% endif %}
 {% if show_user_management %}<a class="{% if request.url.path.startswith('/admin/users') %}active{% endif %}" href="/admin/users"><span class="icon">♙</span>User Management</a>{% endif %}
 {% if show_integrations %}<a class="{% if request.url.path.startswith('/integrations/providers') %}active{% endif %}" href="/integrations/providers"><span class="icon">⚙</span>Integrations</a>{% endif %}
 {% if show_alerts %}<a class="{% if request.url.path.startswith('/integrations/property-visits') %}active{% endif %}" href="/integrations/property-visits"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
