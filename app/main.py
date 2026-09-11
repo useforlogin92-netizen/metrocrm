@@ -82,7 +82,9 @@ async def enforce_idle_session(request: Request, call_next):
     return response
 
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
-app.user_middleware.sort(key=lambda middleware: 0 if middleware.cls is SessionMiddleware else 1)
+_session_middleware = next(middleware for middleware in app.user_middleware if middleware.cls is SessionMiddleware)
+app.user_middleware.remove(_session_middleware)
+app.user_middleware.insert(0, _session_middleware)
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
