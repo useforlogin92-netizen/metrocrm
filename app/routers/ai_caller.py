@@ -7,11 +7,12 @@ import json
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import User
+from app.models import Lead, User
 from app.services.ai_caller import build_context, execute_tool, provider_configured, system_prompt, tool_definitions
 
 router = APIRouter(prefix="/api/ai-caller", tags=["ai-caller"])
@@ -26,6 +27,26 @@ def _user(request: Request, db: Session) -> User | None:
 def _provider_ok(token: str | None) -> bool:
     secret = settings.ai_caller_provider_secret
     return bool(secret and token and hmac.compare_digest(token, secret))
+
+
+def _lead_in_scope(user: User, lead: Lead, db: Session) -> bool:
+    """Keep authenticated AI caller context within the user's lead ownership tree."""
+    if user.role in {"SUPER_ADMIN", "ADMIN"}:
+        return True
+    if lead.assigned_user_id == user.id:
+        return True
+    if user.role not in {"MANAGER", "TL"}:
+        return False
+    ids = {user.id}
+    changed = True
+    while changed:
+        changed = False
+        children = db.scalars(select(User).where(User.reporting_manager_id.in_(ids))).all()
+        for child in children:
+            if child.id not in ids:
+                ids.add(child.id)
+                changed = True
+    return lead.assigned_user_id in ids
 
 
 def _context_payload(db: Session, lead_id: int) -> dict:
@@ -46,6 +67,9 @@ def ai_caller_context(lead_id: int, request: Request, db: Session = Depends(get_
     user = _user(request, db)
     if not user or user.role not in _ALLOWED:
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(user, lead, db):
+        return JSONResponse({"detail": "Lead not found"}, status_code=404)
     try:
         return _context_payload(db, lead_id)
     except ValueError as exc:
