@@ -1,6 +1,21 @@
 from types import SimpleNamespace
 
-from app.routers.caller_assistant import _lead_locations, _opening_speeches, _property_speeches
+from app.routers.caller_assistant import _lead_in_scope, _lead_locations, _opening_speeches, _property_speeches
+
+
+class FakeDB:
+    def __init__(self, users):
+        self.users = users
+
+    def scalars(self, stmt):
+        class Result:
+            def __init__(self, users):
+                self._users = users
+
+            def all(self):
+                return self._users
+
+        return Result(self.users)
 
 
 def test_multiple_locations_preserve_side_and_priority():
@@ -43,4 +58,38 @@ def test_property_speech_contains_sales_details():
     for expected in ("ABC Residency","Borivali West","2 BHK","650","12,000","7,800,000","2","negotiable","Dec 2027","P123"):
         assert expected in text
 
-# CI trigger after the call-assistant language integration.
+
+def test_caller_scope_allows_assigned_lead():
+    user = SimpleNamespace(id=10, role="SALES_EXECUTIVE")
+    lead = SimpleNamespace(assigned_user_id=10)
+    assert _lead_in_scope(user, lead, FakeDB([])) is True
+
+
+def test_caller_scope_denies_other_sales_lead():
+    user = SimpleNamespace(id=10, role="SALES_EXECUTIVE")
+    lead = SimpleNamespace(assigned_user_id=11)
+    assert _lead_in_scope(user, lead, FakeDB([])) is False
+
+
+def test_caller_scope_allows_manager_reporting_tree():
+    manager = SimpleNamespace(id=10, role="MANAGER")
+    child = SimpleNamespace(id=11, reporting_manager_id=10)
+    grandchild = SimpleNamespace(id=12, reporting_manager_id=11)
+    lead = SimpleNamespace(assigned_user_id=12)
+    assert _lead_in_scope(manager, lead, FakeDB([child, grandchild])) is True
+
+
+def test_caller_scope_denies_manager_outside_tree():
+    manager = SimpleNamespace(id=10, role="MANAGER")
+    child = SimpleNamespace(id=11, reporting_manager_id=10)
+    outsider = SimpleNamespace(id=20, reporting_manager_id=99)
+    lead = SimpleNamespace(assigned_user_id=20)
+    assert _lead_in_scope(manager, lead, FakeDB([child, outsider])) is False
+
+
+def test_admin_scope_can_open_any_lead():
+    admin = SimpleNamespace(id=1, role="ADMIN")
+    lead = SimpleNamespace(assigned_user_id=999)
+    assert _lead_in_scope(admin, lead, FakeDB([])) is True
+
+# CI regression coverage for caller lead isolation.
