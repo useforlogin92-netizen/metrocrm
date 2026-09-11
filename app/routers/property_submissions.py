@@ -4,7 +4,6 @@ import hashlib
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -59,15 +58,32 @@ def _share_text(base_url: str, token: str, name: str) -> dict[str, str]:
     link = f"{base_url.rstrip('/')}/property-submission/{token}"
     return {
         "link": link,
-        "whatsapp": f"Hello {name},\n\nMetroCRM has shared a secure Property Details Submission link with you. Please open the link and submit the property/project information available with you. You can save your progress and submit when complete.\n\nProperty Details Form:\n{link}\n\nThank you,\nMetroCRM | OM Krishna Group",
-        "email": f"Subject: MetroCRM – Property Details Submission\n\nHello {name},\n\nPlease use the secure MetroCRM link below to submit the property/project details available with you. The form is mobile-friendly and is designed to be completed quickly.\n\n{link}\n\nYour submission will be reviewed by MetroCRM Admin and Super Admin before it is added to the CRM database.\n\nRegards,\nMetroCRM | OM Krishna Group",
-        "sms": f"MetroCRM Property Details Form: {link} Please submit the property/project details available with you. – OM Krishna Group",
+        "whatsapp": f"Hello {name},\n\nMetroCRM has shared a secure Property Details Submission link with you. Please open the link and submit the property/project information available with you. You can save your progress and submit when complete.\n\nProperty Details Form:\n{link}\n\nThank you,\nMetroCRM",
+        "email": f"Subject: MetroCRM – Property Details Submission\n\nHello {name},\n\nPlease use the secure MetroCRM link below to submit the property/project details available with you. The form is mobile-friendly and is designed to be completed quickly.\n\n{link}\n\nYour submission will be reviewed by MetroCRM Admin and Super Admin before it is added to the CRM database.\n\nRegards,\nMetroCRM",
+        "sms": f"MetroCRM Property Details Form: {link} Please submit the property/project details available with you.",
     }
 
 
 def _public_context(request: Request, submission: PropertySubmission, token: str) -> dict:
     payload = json.loads(submission.payload_json or "{}")
     return {"request": request, "submission": submission, "token": token, "payload": payload, "csrf_token": csrf_token(request)}
+
+
+def _demo_submission() -> PropertySubmission:
+    return PropertySubmission(id=0, token_hash="demo", created_by_id=0, recipient_name="Sample Sales Manager", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1), payload_json="{}")
+
+
+@router.get("/property-submission/demo", response_class=HTMLResponse)
+def demo_property_submission(request: Request):
+    demo = _demo_submission()
+    return templates.TemplateResponse("property_submission.html", {"request": request, "submission": demo, "token": "demo", "payload": {}, "csrf_token": csrf_token(request), "demo": True})
+
+
+@router.post("/property-submission/demo", dependencies=[Depends(require_csrf)])
+async def demo_property_submission_submit(request: Request):
+    await request.form()
+    demo = _demo_submission()
+    return templates.TemplateResponse("property_submission_success.html", {"request": request, "submission": demo, "demo": True})
 
 
 @router.get("/property-submission/{token}", response_class=HTMLResponse)
@@ -290,9 +306,3 @@ async def super_property_submission_revoke(submission_id: int, request: Request,
         db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_REVOKED", entity_type="PropertySubmission", entity_id=str(row.id), details="{}"))
         db.commit()
     return RedirectResponse("/super-admin/property-submissions", status_code=303)
-
-
-@router.get("/property-submission/demo", response_class=HTMLResponse)
-def demo_property_submission(request: Request):
-    demo = PropertySubmission(id=0, token_hash="demo", created_by_id=0, recipient_name="Sample Sales Manager", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1), payload_json="{}")
-    return templates.TemplateResponse("property_submission.html", {"request": request, "submission": demo, "token": "demo", "payload": {}, "csrf_token": csrf_token(request), "demo": True})
