@@ -13,7 +13,13 @@ class FakeDB:
                 self._users = users
 
             def all(self):
-                return self._users
+                # Mirror the reporting_manager_id == current-scope-id filter used by
+                # _lead_in_scope without depending on SQLAlchemy execution in unit tests.
+                try:
+                    ids = set(stmt.compile().params.values())
+                except Exception:
+                    ids = set()
+                return [u for u in self._users if getattr(u, "reporting_manager_id", None) in ids]
 
         return Result(self.users)
 
