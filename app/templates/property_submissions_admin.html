@@ -3,10 +3,17 @@
 {% block header_title %}Property Submissions{% endblock %}
 {% block breadcrumb %}SM Property Submissions{% endblock %}
 {% block content %}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-  <div><h1 style="margin:0">SM Property Submissions</h1><p style="color:var(--muted);font-size:12px">Review incoming property details. CRM import happens only after both Admin and Super Admin approvals.</p></div>
+{% set pending_count = rows|selectattr('status','equalto','SUBMITTED')|list|length %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+  <div><h1 style="margin:0">SM Property Submissions</h1><p style="color:var(--muted);font-size:12px">Incoming SM submissions appear here immediately. Either Admin or Super Admin can review, request correction, or approve &amp; process.</p></div>
   <a href="/{{ portal }}/property-submissions/new" style="background:#2563eb;color:#fff;padding:11px 16px;border-radius:9px;text-decoration:none;font-weight:800">+ Create SM Link</a>
 </div>
+{% if pending_count %}
+<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:15px 18px;margin-bottom:16px">
+  <strong>🔔 New SM submission received: {{ pending_count }}</strong>
+  <div style="font-size:12px;color:#475467;margin-top:4px">The latest submitted property details are ready for review. No second Admin/Super Admin approval is required.</div>
+</div>
+{% endif %}
 <div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px">
 {% for row in rows %}
   <div style="padding:15px 0;border-bottom:1px solid #eef2f7">
@@ -14,20 +21,21 @@
       <div>
         <strong>#{{ row.id }} · {{ row.recipient_name }}</strong>
         <div style="font-size:11px;color:#667085">Status: {{ row.status }} · Expires: {{ row.expires_at }}</div>
-        {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:5px"><strong>SM correction requested.</strong> The same link is editable again.</div>{% endif %}
-        {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:5px"><strong>SM link locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
+        {% if row.status == 'SUBMITTED' %}<div style="font-size:12px;margin-top:5px"><strong>🔔 Submission received.</strong> Review and process this submission.</div>{% endif %}
+        {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:5px"><strong>Correction requested.</strong> The same SM link is editable again with the previous data preserved.</div>{% endif %}
+        {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:5px"><strong>SM link permanently locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
       </div>
       <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
-        {% if portal=='admin' and row.status=='SUBMITTED' and not row.admin_approved_by %}
-          <form method="post" action="/admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve as Admin</button></form>
+        {% if portal=='admin' and row.status=='SUBMITTED' %}
+          <form method="post" action="/admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
         {% endif %}
-        {% if portal=='super-admin' and row.status=='SUBMITTED' and not row.super_admin_approved_by %}
-          <form method="post" action="/super-admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve as Super Admin</button></form>
+        {% if portal=='super-admin' and row.status=='SUBMITTED' %}
+          <form method="post" action="/super-admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
         {% endif %}
-        {% if portal=='admin' and row.status in ['SUBMITTED','ADMIN_APPROVED','SUPER_ADMIN_APPROVED'] %}
+        {% if portal=='admin' and row.status=='SUBMITTED' %}
           <form method="post" action="/admin/property-submissions/{{row.id}}/request-correction" style="display:flex;gap:6px;align-items:center"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input name="correction_reason" required placeholder="What details are missing?" style="padding:8px;border:1px solid #d0d5dd;border-radius:8px;min-width:220px"><button type="submit">Request Correction</button></form>
         {% endif %}
-        {% if portal=='super-admin' and row.status in ['SUBMITTED','ADMIN_APPROVED','SUPER_ADMIN_APPROVED'] %}
+        {% if portal=='super-admin' and row.status=='SUBMITTED' %}
           <form method="post" action="/super-admin/property-submissions/{{row.id}}/request-correction" style="display:flex;gap:6px;align-items:center"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input name="correction_reason" required placeholder="What details are missing?" style="padding:8px;border:1px solid #d0d5dd;border-radius:8px;min-width:220px"><button type="submit">Request Correction</button></form>
         {% endif %}
       </div>
@@ -35,5 +43,5 @@
   </div>
 {% else %}<p style="color:#667085">No property submissions yet.</p>{% endfor %}
 </div>
-<p style="margin-top:14px;font-size:11px;color:#667085">Security: only Admin and Super Admin can generate links. Each SM gets a unique random, hashed link. After SM submission the link is locked; a correction request re-opens the same link with the previous data prefilled. After both approvals/import, the link is permanently invalid.</p>
+<p style="margin-top:14px;font-size:11px;color:#667085">Security: only Admin and Super Admin can generate links. Each SM gets a unique random, hashed link. After SM submission the link is locked. A correction request re-opens the same link with previous data preserved. Approval by either one Admin OR one Super Admin imports the property and permanently invalidates the SM link.</p>
 {% endblock %}
