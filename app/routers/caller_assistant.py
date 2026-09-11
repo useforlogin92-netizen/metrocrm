@@ -28,6 +28,26 @@ def _allowed(user: User) -> bool:
     return user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
 
 
+def _lead_in_scope(user: User, lead: Lead, db: Session) -> bool:
+    """Enforce the same ownership/reporting-tree scope used by staff reports."""
+    if user.role in {"SUPER_ADMIN", "ADMIN"}:
+        return True
+    if lead.assigned_user_id == user.id:
+        return True
+    if user.role not in {"MANAGER", "TL"}:
+        return False
+    ids = {user.id}
+    changed = True
+    while changed:
+        changed = False
+        children = db.scalars(select(User).where(User.reporting_manager_id.in_(ids))).all()
+        for child in children:
+            if child.id not in ids:
+                ids.add(child.id)
+                changed = True
+    return lead.assigned_user_id in ids
+
+
 def _locations(raw: str | None) -> list[dict[str, str]]:
     try:
         value = json.loads(raw or "[]")
@@ -202,6 +222,8 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
         return RedirectResponse("/", status_code=303)
     lead = db.get(Lead, lead_id)
     if not lead:
+        return HTMLResponse("Lead not found", status_code=404)
+    if not _lead_in_scope(user, lead, db):
         return HTMLResponse("Lead not found", status_code=404)
     customer = db.get(Customer, lead.customer_id) if lead.customer_id else None
     requirement = db.scalar(select(CustomerRequirement).where(CustomerRequirement.customer_id == lead.customer_id, CustomerRequirement.is_active.is_(True)).order_by(CustomerRequirement.updated_at.desc()).limit(1)) if lead.customer_id else None
