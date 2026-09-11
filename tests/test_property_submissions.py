@@ -4,11 +4,15 @@ from app.property_submission_models import PropertySubmission
 from app.routers.property_submissions import (
     MAX_PLAN_UPLOAD_BYTES,
     MAX_PLAN_VIDEO_BYTES,
+    MAX_SM_VISITING_CARD_BYTES,
     _normalise_configuration_details,
+    _normalise_name,
+    _normalise_phone,
     _plan_magic_ok,
     _plan_video_magic_ok,
     _token_hash,
     _valid,
+    _visiting_card_magic_ok,
 )
 
 
@@ -69,6 +73,7 @@ def test_configuration_rows_can_repeat_same_bhk_with_different_details_and_plan_
 def test_plan_upload_limits_are_large_enough_for_hd_assets():
     assert MAX_PLAN_UPLOAD_BYTES == 20 * 1024 * 1024
     assert MAX_PLAN_VIDEO_BYTES == 50 * 1024 * 1024
+    assert MAX_SM_VISITING_CARD_BYTES == 5 * 1024 * 1024
 
 
 def test_plan_magic_bytes_match_declared_type():
@@ -84,3 +89,19 @@ def test_plan_video_magic_bytes_match_declared_type():
     assert _plan_video_magic_ok("video/quicktime", b"0000ftypqt  rest") is True
     assert _plan_video_magic_ok("video/webm", b"\x1a\x45\xdf\xa3rest") is True
     assert _plan_video_magic_ok("video/mp4", b"not-a-video") is False
+
+
+def test_sm_identity_normalisation_supports_name_spacing_and_indian_phone_formats():
+    assert _normalise_name("  Rahul   Sharma ") == "rahul sharma"
+    assert _normalise_name("Rahul Sharma") == "rahul sharma"
+    assert _normalise_phone("+91 98765-43210") == "9876543210"
+    assert _normalise_phone("9876543210") == "9876543210"
+    assert _normalise_phone("+91-98765-43210") == "9876543210"
+
+
+def test_sm_visiting_card_magic_bytes_match_declared_type():
+    assert _visiting_card_magic_ok("application/pdf", b"%PDF-1.7\ncard") is True
+    assert _visiting_card_magic_ok("image/png", b"\x89PNG\r\n\x1a\ncard") is True
+    assert _visiting_card_magic_ok("image/jpeg", b"\xff\xd8\xff\xe0card") is True
+    assert _visiting_card_magic_ok("image/webp", b"RIFFxxxxWEBPcard") is True
+    assert _visiting_card_magic_ok("image/png", b"not-an-image") is False
