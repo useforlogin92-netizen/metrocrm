@@ -1,3 +1,15 @@
 {% extends "base.html" %}
 {% block title %}MetroCRM | Submission Received{% endblock %}
-{% block content %}<div style="max-width:720px;margin:70px auto;text-align:center;background:#fff;border:1px solid var(--line);border-radius:18px;padding:42px"><div style="font-size:42px">✓</div><h1>Property Details Received</h1><p style="color:var(--muted)">Thank you, {{ submission.recipient_name }}. Your property details have been submitted successfully to MetroCRM.</p><p style="color:var(--muted)">The submission will now go through Admin and Super Admin review. Once both approvals are complete, the approved information will be added to the CRM property database.</p><strong>MetroCRM</strong></div>{% endblock %}
+{% block content %}
+<div style="max-width:720px;margin:70px auto;text-align:center;background:#fff;border:1px solid var(--line);border-radius:18px;padding:42px">
+  <div style="font-size:52px" aria-hidden="true">✓</div>
+  <h1>Property Details Received</h1>
+  <p style="color:var(--muted);font-size:16px">Thank you, {{ submission.recipient_name }}. Your property details submission has been received successfully.</p>
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px;margin:20px 0;text-align:left">
+    <strong>Submission status: Received ✓</strong>
+    <div style="font-size:13px;color:#475467;margin-top:6px">Your submitted data is now locked for editing and has been sent to the MetroCRM Admin/Super Admin portal for review.</div>
+  </div>
+  <p style="color:var(--muted);font-size:13px">If the team needs any missing information, the same secure link can be reopened for correction. After either one Admin or Super Admin approves and processes the submission, the link becomes permanently invalid.</p>
+  <strong>MetroCRM</strong>
+</div>
+{% endblock %}
