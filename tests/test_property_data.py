@@ -32,13 +32,13 @@ def test_property_data_routes_are_registered_in_production_app():
 def test_property_data_ui_has_import_export_and_online_edit_controls():
     from pathlib import Path
     template = Path("app/templates/property_data.html").read_text(encoding="utf-8")
-    assert "/admin/property-data/template" in template
+    assert "property_data_base" in template
     assert "/admin/property-data/import" in template
     assert "/admin/property-data/save" in template
     assert "/admin/property-data/export/request" in template
-    assert "/admin/property-data/export" in template
+    assert "/super-admin/property-data/export" in template
     assert "/super-admin/property-data-export-requests" in template
-    assert "/admin/property-data/export/download/" in template
+    assert "property_data_base }}/export/download/" in template
     assert "csrf_token" in template
     assert "Edit" in template
     assert "Download Property Template" in template
