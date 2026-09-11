@@ -2,4 +2,29 @@
 {% block title %}MetroCRM | Share Property Link{% endblock %}
 {% block header_title %}Share Property Submission Link{% endblock %}
 {% block breadcrumb %}Share Link{% endblock %}
-{% block content %}<div style="max-width:900px;margin:0 auto"><div style="background:#ecfdf3;border:1px solid #bbf7d0;border-radius:16px;padding:22px;margin-bottom:16px"><h2 style="margin:0 0 6px">Secure link created successfully</h2><p style="margin:0;color:#166534">Share this link with {{ submission.recipient_name }}. It expires automatically on {{ submission.expires_at }}.</p></div><div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:22px;margin-bottom:14px"><label style="font-size:12px;font-weight:800">Secure submission link</label><input readonly value="{{ link }}" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccd4e0;border-radius:9px;margin-top:6px" onclick="this.select()"><p style="font-size:11px;color:#667085">Copy the link and send it through WhatsApp, Email or SMS. The SM can complete the form from a phone without a CRM account.</p></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px"><div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px"><h3>WhatsApp</h3><textarea readonly style="width:100%;min-height:190px;box-sizing:border-box">{{ whatsapp }}</textarea></div><div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px"><h3>Email</h3><textarea readonly style="width:100%;min-height:190px;box-sizing:border-box">{{ email }}</textarea></div><div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px"><h3>SMS</h3><textarea readonly style="width:100%;min-height:190px;box-sizing:border-box">{{ sms }}</textarea></div></div></div><style>@media(max-width:800px){div[style*='grid-template-columns:repeat(3']{grid-template-columns:1fr!important}}</style>{% endblock %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto">
+  <div style="background:#ecfdf3;border:1px solid #bbf7d0;border-radius:16px;padding:22px;margin-bottom:16px">
+    <h2 style="margin:0 0 6px">Secure link created successfully</h2>
+    <p style="margin:0;color:#166534">Share this link with {{ submission.recipient_name }}. It expires automatically on {{ submission.expires_at }}.</p>
+  </div>
+  <div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:22px;margin-bottom:14px">
+    <label style="font-size:12px;font-weight:800">Secure submission link</label>
+    <input id="submissionLink" readonly value="{{ link }}" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccd4e0;border-radius:9px;margin-top:6px" onclick="this.select()">
+    <p style="font-size:11px;color:#667085">Each SM receives a unique secure link. The buttons below open the selected sharing method with the link already included.</p>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+    <a href="https://wa.me/?text={{ whatsapp|urlencode }}" target="_blank" rel="noopener noreferrer" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
+      <div style="font-size:42px" aria-hidden="true">💬</div><h3 style="margin:8px 0 4px">WhatsApp</h3><div style="font-size:12px;color:#667085">Share the secure link</div>
+    </a>
+    <a href="mailto:{{ submission.recipient_email or '' }}?subject={{ 'MetroCRM – Property Details Submission'|urlencode }}&body={{ email|urlencode }}" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
+      <div style="font-size:42px" aria-hidden="true">✉️</div><h3 style="margin:8px 0 4px">Email</h3><div style="font-size:12px;color:#667085">Open your email app</div>
+    </a>
+    <a href="sms:{{ submission.recipient_mobile or '' }}?body={{ sms|urlencode }}" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
+      <div style="font-size:42px" aria-hidden="true">📱</div><h3 style="margin:8px 0 4px">SMS</h3><div style="font-size:12px;color:#667085">Open your SMS app</div>
+    </a>
+  </div>
+  <div style="margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;font-size:12px;color:#475467">Tip: if a mobile number or email was not entered while creating the link, the share action still opens the relevant app so the recipient can be selected there.</div>
+</div>
+<style>@media(max-width:800px){div[style*='grid-template-columns:repeat(3']{grid-template-columns:1fr!important}}</style>
+{% endblock %}
