@@ -50,7 +50,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="MetroCRM", version="0.4.0", lifespan=lifespan)
 
-def enforce_idle_session(request: Request, call_next):
+async def enforce_idle_session(request: Request, call_next):
     session = request.session
     user_id = session.get("user_id")
     if user_id:
