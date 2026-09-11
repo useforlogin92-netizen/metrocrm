@@ -18,9 +18,12 @@ _MAGIC = b"MCRMBKP1"
 
 
 def _key() -> bytes:
-    raw = settings.backup_encryption_key
-    if not raw:
-        raise RuntimeError("BACKUP_ENCRYPTION_KEY is not configured")
+    # Keep restore key selection identical to backup creation. Existing
+    # deployments may rely on SECRET_KEY when the optional dedicated backup
+    # key is absent; the insecure placeholder is never accepted.
+    raw = settings.backup_encryption_key.strip() or settings.secret_key.strip()
+    if not raw or raw == "CHANGE-ME-IN-ENV":
+        raise RuntimeError("A secure BACKUP_ENCRYPTION_KEY or SECRET_KEY must be configured")
     return hashlib.sha256(raw.encode("utf-8")).digest()
 
 
