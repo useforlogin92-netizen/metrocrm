@@ -23,10 +23,13 @@ templates = Jinja2Templates(directory="app/templates")
 
 MAX_PLAN_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_PLAN_VIDEO_BYTES = 50 * 1024 * 1024
+MAX_SM_VISITING_CARD_BYTES = 5 * 1024 * 1024
 ALLOWED_PLAN_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 ALLOWED_PLAN_VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
+ALLOWED_SM_VISITING_CARD_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 
 BASE_FORM = {
+    "sm_name": "", "sm_contact": "", "sm_visiting_card": "",
     "project_name": "", "developer": "", "property_type": "Apartment", "city": "Mumbai", "locality": "",
     "address": "", "google_maps_url": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "Under Construction",
     "possession_status": "", "possession_date": "", "configuration_details": [], "configurations": [],
@@ -79,11 +82,15 @@ def _share_text(base_url: str, token: str, name: str) -> dict[str, str]:
 
 def _public_context(request: Request, submission: PropertySubmission, token: str) -> dict:
     payload = json.loads(submission.payload_json or "{}")
+    if not payload.get("sm_name"):
+        payload["sm_name"] = submission.recipient_name or ""
+    if not payload.get("sm_contact"):
+        payload["sm_contact"] = submission.recipient_mobile or ""
     return {"request": request, "submission": submission, "token": token, "payload": payload, "csrf_token": csrf_token(request)}
 
 
 def _demo_submission() -> PropertySubmission:
-    return PropertySubmission(id=0, token_hash="demo", created_by_id=0, recipient_name="Sample Sales Manager", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1), payload_json="{}")
+    return PropertySubmission(id=0, token_hash="demo", created_by_id=0, recipient_name="Sample Sales Manager", recipient_mobile="+919999999999", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1), payload_json="{}")
 
 
 def _plan_magic_ok(content_type: str, data: bytes) -> bool:
@@ -104,6 +111,33 @@ def _plan_video_magic_ok(content_type: str, data: bytes) -> bool:
     if content_type == "video/webm":
         return data.startswith(b"\x1a\x45\xdf\xa3")
     return False
+
+
+def _normalise_phone(value: str) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def _normalise_name(value: str) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _visiting_card_magic_ok(content_type: str, data: bytes) -> bool:
+    return _plan_magic_ok(content_type, data)
+
+
+async def _normalise_visiting_card(upload) -> str:
+    if not isinstance(upload, UploadFile) or not upload.filename:
+        return ""
+    content_type = (upload.content_type or "").lower().strip()
+    if content_type not in ALLOWED_SM_VISITING_CARD_CONTENT_TYPES:
+        raise ValueError("SM visiting card must be a PDF, JPG, PNG or WEBP file.")
+    data = await upload.read(MAX_SM_VISITING_CARD_BYTES + 1)
+    if len(data) > MAX_SM_VISITING_CARD_BYTES:
+        raise ValueError("SM visiting card must be 5 MB or smaller.")
+    if not data or not _visiting_card_magic_ok(content_type, data):
+        raise ValueError("The selected SM visiting card is invalid or does not match its file type.")
+    return f"data:{content_type};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 async def _normalise_plan_uploads(files) -> list[str]:
@@ -185,7 +219,7 @@ def _preserve_existing_uploads(new_details: list[dict], old_details: list[dict])
 @router.get("/property-submission/demo", response_class=HTMLResponse)
 def demo_property_submission(request: Request):
     demo = _demo_submission()
-    return templates.TemplateResponse("property_submission.html", {"request": request, "submission": demo, "token": "demo", "payload": {}, "csrf_token": csrf_token(request), "demo": True})
+    return templates.TemplateResponse("property_submission.html", {"request": request, "submission": demo, "token": "demo", "payload": {"sm_name": demo.recipient_name, "sm_contact": demo.recipient_mobile}, "csrf_token": csrf_token(request), "demo": True})
 
 
 @router.post("/property-submission/demo", dependencies=[Depends(require_csrf)])
@@ -209,16 +243,32 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     if not submission or not _valid(submission):
         return templates.TemplateResponse("property_submission_expired.html", {"request": request}, status_code=410)
     form = await request.form()
+    submitted_sm_name = str(form.get("sm_name", "")).strip()
+    submitted_sm_contact = str(form.get("sm_contact", "")).strip()
+    if not submitted_sm_name or not submitted_sm_contact:
+        return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "SM Name and Contact Number are required. Please re-enter and verify both details before submitting."}, status_code=422)
+    if _normalise_name(submitted_sm_name) != _normalise_name(submission.recipient_name):
+        return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "SM Name verification failed. Please enter the same name that was registered for this secure link."}, status_code=422)
+    expected_phone = _normalise_phone(submission.recipient_mobile or "")
+    actual_phone = _normalise_phone(submitted_sm_contact)
+    if not expected_phone or expected_phone != actual_phone:
+        return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "SM Contact Number verification failed. Please enter the same mobile/contact number that was registered for this secure link."}, status_code=422)
     configurations = form.getlist("configurations")
     try:
         plan_charts = await _normalise_plan_uploads(form.getlist("configuration_plan_chart"))
         plan_videos = await _normalise_plan_videos(form.getlist("configuration_plan_video"))
+        visiting_card = await _normalise_visiting_card(form.get("sm_visiting_card"))
     except ValueError as exc:
         payload = dict(BASE_FORM)
-        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "amenities"}})
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "sm_visiting_card", "amenities"}})
         payload["configurations"] = configurations
         payload["amenities"] = form.getlist("amenities")
+        old_payload = json.loads(submission.payload_json or "{}")
+        payload["sm_visiting_card"] = old_payload.get("sm_visiting_card", "")
         return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "payload": payload, "error": str(exc)}, status_code=422)
+    old_payload = json.loads(submission.payload_json or "{}")
+    if not visiting_card:
+        visiting_card = old_payload.get("sm_visiting_card", "")
     details = _normalise_configuration_details(configurations, form.getlist("carpet_areas"), form.getlist("rate_per_sqft"), form.getlist("bundle_prices"), form.getlist("configuration_negotiable"), form.getlist("configuration_inventory_status"), form.getlist("configuration_available_units"), form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"), plan_charts, plan_videos)
     required = {"project_name", "developer", "property_type", "city", "locality", "construction_status", "possession_status"}
     missing = [field for field in required if not str(form.get(field, "")).strip()]
@@ -228,14 +278,14 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         missing.append("configuration pricing")
     if missing:
         payload = dict(BASE_FORM)
-        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "amenities"}})
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "sm_visiting_card", "amenities"}})
+        payload["sm_visiting_card"] = visiting_card
         payload["configurations"] = configurations
         payload["configuration_details"] = details
         payload["amenities"] = form.getlist("amenities")
         submission.payload_json = json.dumps(payload, ensure_ascii=False)
         db.commit()
         return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "Please select at least one configuration and complete carpet area, rate/sq.ft and bundle price for every selected configuration."}, status_code=422)
-    old_payload = json.loads(submission.payload_json or "{}")
     old_details = old_payload.get("configuration_details") or []
     revision_history = old_payload.get("revision_history") or []
     if old_payload and old_details:
@@ -243,9 +293,12 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         details = _preserve_existing_uploads(details, old_details)
     payload = dict(BASE_FORM)
     for key in payload:
-        if key in {"configurations", "configuration_details", "amenities"}:
+        if key in {"configurations", "configuration_details", "amenities", "sm_visiting_card"}:
             continue
         payload[key] = str(form.get(key, "")).strip()
+    payload["sm_name"] = submitted_sm_name
+    payload["sm_contact"] = submitted_sm_contact
+    payload["sm_visiting_card"] = visiting_card
     payload["configurations"] = configurations
     payload["configuration_details"] = details
     payload["amenities"] = form.getlist("amenities")
@@ -263,7 +316,7 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     submission.payload_json = json.dumps(payload, ensure_ascii=False)
     submission.status = "SUBMITTED"
     submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name, "configuration_count": len(details), "revision_count": len(revision_history), "google_maps_url_present": bool(payload.get("google_maps_url"))})))
+    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name, "configuration_count": len(details), "revision_count": len(revision_history), "google_maps_url_present": bool(payload.get("google_maps_url")), "sm_identity_verified": True, "sm_visiting_card_present": bool(visiting_card)})))
     db.commit()
     return templates.TemplateResponse("property_submission_success.html", {"request": request, "submission": submission})
 
@@ -314,17 +367,20 @@ def super_property_submission_new(request: Request, db: Session = Depends(get_db
 async def _create_submission(request: Request, db: Session, actor: User):
     form = await request.form()
     name = str(form.get("recipient_name", "")).strip()
+    mobile = str(form.get("recipient_mobile", "")).strip()
     if not name:
         return RedirectResponse(request.url.path + "?error=SM+name+is+required", status_code=303)
+    if not mobile or len(_normalise_phone(mobile)) != 10:
+        return RedirectResponse(request.url.path + "?error=Valid+10-digit+SM+contact+number+is+required", status_code=303)
     try:
         days = max(1, min(30, int(form.get("expires_days", "7") or 7)))
     except (TypeError, ValueError):
         days = 7
     token = secrets.token_urlsafe(32)
-    submission = PropertySubmission(token_hash=_token_hash(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=str(form.get("recipient_mobile", "")).strip() or None, recipient_email=str(form.get("recipient_email", "")).strip() or None, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
+    submission = PropertySubmission(token_hash=_token_hash(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=mobile, recipient_email=str(form.get("recipient_email", "")).strip() or None, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
     db.add(submission)
     db.flush()
-    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_CREATED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": name, "expires_days": days})))
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_CREATED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": name, "expires_days": days, "contact_verified_required": True})))
     db.commit()
     share = _share_text(str(request.base_url).rstrip("/"), token, name)
     return templates.TemplateResponse("property_submission_share.html", {"request": request, "actor": actor, "submission": submission, **share})
@@ -356,10 +412,9 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
         db.add(developer)
         db.flush()
     project = db.scalar(select(Project).where(Project.developer_id == developer.id, Project.name.ilike(project_name)).limit(1))
+    sm_metadata = {"sm_name": payload.get("sm_name"), "sm_contact": payload.get("sm_contact"), "sm_visiting_card": payload.get("sm_visiting_card"), "sm_submission_id": submission.id}
     if not project:
-        project_description = payload.get("highlights")
-        if payload.get("google_maps_url"):
-            project_description = json.dumps({"highlights": project_description or "", "google_maps_url": payload.get("google_maps_url")}, ensure_ascii=False)
+        project_description = json.dumps({"highlights": payload.get("highlights") or "", "google_maps_url": payload.get("google_maps_url") or "", "sm_name": payload.get("sm_name") or "", "sm_contact": payload.get("sm_contact") or "", "sm_visiting_card": payload.get("sm_visiting_card") or "", "sm_submission_id": submission.id}, ensure_ascii=False)
         project = Project(developer_id=developer.id, name=project_name, city=payload.get("city"), locality=payload.get("locality"), address=payload.get("address"), pincode=payload.get("pincode"), rera=payload.get("rera_number"), construction_status=payload.get("construction_status"), possession_date=None, amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), description=project_description)
         db.add(project)
         db.flush()
@@ -372,14 +427,14 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
         existing = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == f"SUB-{submission.id}-{index}").limit(1))
         if existing:
             continue
-        unit_description = {"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor"), "plan_video": item.get("plan_video")}
+        unit_description = {"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor"), "plan_video": item.get("plan_video"), **sm_metadata}
         if payload.get("google_maps_url"):
             unit_description["google_maps_url"] = payload.get("google_maps_url")
-        db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps(unit_description, ensure_ascii=False)))
+        db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps(unit_description, ensure_ascii=False), other_details=json.dumps({"sm_name": payload.get("sm_name"), "sm_contact": payload.get("sm_contact"), "sm_visiting_card": payload.get("sm_visiting_card"), "sm_submission_id": submission.id}, ensure_ascii=False)))
     submission.status = "IMPORTED"
     submission.revoked = True
     submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details), "approved_by_role": role, "approved_by_user_id": actor.id, "link_locked": True})))
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details), "approved_by_role": role, "approved_by_user_id": actor.id, "sm_name": payload.get("sm_name"), "sm_contact": payload.get("sm_contact"), "sm_visiting_card_present": bool(payload.get("sm_visiting_card")), "link_locked": True})))
 
 
 def _approve(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str):
