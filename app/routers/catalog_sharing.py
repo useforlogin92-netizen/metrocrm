@@ -21,6 +21,7 @@ from app.integration_models import PropertyVisitAlert
 from app.models import AuditEvent, User
 from app.permissions import Access, Role, user_allows
 from app.services.catalog_sharing import ContactSelection, build_share_payload
+from app.csrf import require_csrf_header
 
 router = APIRouter(prefix="/catalog", tags=["catalog-sharing"])
 templates = Jinja2Templates(directory="app/templates")
@@ -101,13 +102,13 @@ def share_catalog_page(request: Request, db: Session = Depends(get_db)) -> Respo
     return templates.TemplateResponse("catalog_share.html", {"request": request})
 
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[Depends(require_csrf_header)])
 def preview_catalog_share(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     _require_sharing_user(request, db)
     return _payload(body, db)
 
 
-@router.post("/share")
+@router.post("/share", dependencies=[Depends(require_csrf_header)])
 def share_catalog(request: Request, body: CatalogShareRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _require_sharing_user(request, db)
     payload = _payload(body, db)
