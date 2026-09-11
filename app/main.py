@@ -81,12 +81,12 @@ async def enforce_idle_session(request: Request, call_next):
     response.headers["Expires"] = "0"
     return response
 
-# Keep SessionMiddleware outermost so request.session exists before idle enforcement.
+# SessionMiddleware is declared after idle enforcement because Starlette's
+# add_middleware inserts each declaration at the front of user_middleware.
+# Therefore SessionMiddleware is the outer layer and request.session exists
+# before enforce_idle_session executes.
 app.add_middleware(BaseHTTPMiddleware, dispatch=enforce_idle_session)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
-# Starlette's pinned runtime exposes these user middlewares in reverse declaration
-# order; normalize explicitly so SessionMiddleware is always the outer layer.
-app.user_middleware.reverse()
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
@@ -230,7 +230,7 @@ def profile(request: Request, db: Session = Depends(get_db)):
     if not user:
         return RedirectResponse("/", status_code=303)
     last_login = db.scalar(select(AuditEvent.created_at).where(AuditEvent.actor_user_id == user.id, AuditEvent.action == "LOGIN_SUCCESS").order_by(AuditEvent.created_at.desc()).limit(1))
-    return templates.TemplateResponse("profile.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "user": user, "last_login": last_login, "csrf_token": csrf_token(request)})
+    return templates.TemplateResponse(request, "profile.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "user": user, "last_login": last_login, "csrf_token": csrf_token(request)})
 
 @app.post("/profile", dependencies=[Depends(require_csrf)])
 def update_profile(request: Request, mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
@@ -273,7 +273,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     show_integrations = user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER"}
     show_alerts = user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}
     show_approvals = user.role in {"SUPER_ADMIN", "ADMIN"}
-    return templates.TemplateResponse("dashboard.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "show_user_management": show_user_management, "show_integrations": show_integrations, "show_alerts": show_alerts, "show_approvals": show_approvals})
+    return templates.TemplateResponse(request, "dashboard.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "show_user_management": show_user_management, "show_integrations": show_integrations, "show_alerts": show_alerts, "show_approvals": show_approvals})
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
@@ -283,7 +283,7 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
     users = db.scalars(select(User).order_by(User.id.asc())).all()
     visible_users = users if actor.role == "SUPER_ADMIN" else [u for u in users if u.role not in {"SUPER_ADMIN", "ADMIN"}]
     managers = [u for u in users if u.is_active and u.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} and (actor.role == "SUPER_ADMIN" or u.role != "SUPER_ADMIN")]
-    return templates.TemplateResponse("admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "users": visible_users, "managers": managers, "roles": [r.value for r in Role if actor.role == "SUPER_ADMIN" or r.value not in {"SUPER_ADMIN", "ADMIN"}], "csrf_token": csrf_token(request)})
+    return templates.TemplateResponse(request, "admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "user": actor, "users": visible_users, "managers": managers, "roles": [r.value for r in Role if actor.role == "SUPER_ADMIN" or r.value not in {"SUPER_ADMIN", "ADMIN"}], "csrf_token": csrf_token(request)})
 
 @app.post("/admin/users/create", dependencies=[Depends(require_csrf)])
 def create_user(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), manager_id: str = Form(""), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
@@ -390,7 +390,7 @@ def pending_users(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/dashboard", status_code=303)
     users = db.scalars(select(User).where(User.is_approved.is_(False)).order_by(User.id.asc())).all()
     visible = users if actor.role == "SUPER_ADMIN" else [u for u in users if u.role not in {"SUPER_ADMIN", "ADMIN"}]
-    return templates.TemplateResponse("pending_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "users": visible, "csrf_token": csrf_token(request)})
+    return templates.TemplateResponse(request, "pending_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "users": visible, "csrf_token": csrf_token(request)})
 
 @app.get("/auth/logout")
 def logout(request: Request, db: Session = Depends(get_db)):
