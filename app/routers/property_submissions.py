@@ -26,6 +26,7 @@ BASE_FORM = {
     "starting_price": "", "price_type": "All Inclusive", "price_negotiable": "No", "carpet_area": "",
     "rate_per_sqft": "", "bundle_price": "", "built_up_area": "", "parking": "", "facing": "", "floor": "",
     "tower": "", "amenities": [], "nearby": "", "highlights": "", "inventory_status": "Available", "available_units": "",
+    "maintenance_charges": "", "gst_charges": "", "registration_charges": "", "payment_plan": "",
     "brochure_url": "", "floor_plan_url": "", "photos": "", "other_details": "",
 }
 
@@ -74,12 +75,14 @@ def _demo_submission() -> PropertySubmission:
     return PropertySubmission(id=0, token_hash="demo", created_by_id=0, recipient_name="Sample Sales Manager", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1), payload_json="{}")
 
 
-def _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units):
-    values = [configurations or [], carpet_areas or [], rates or [], bundle_prices or [], negotiable or [], inventory_statuses or [], available_units or []]
+def _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units, towers=None, floors=None, parkings=None, custom_configurations=None):
+    values = [configurations or [], carpet_areas or [], rates or [], bundle_prices or [], negotiable or [], inventory_statuses or [], available_units or [], towers or [], floors or [], parkings or [], custom_configurations or []]
     count = max((len(x) for x in values), default=0)
     details = []
     for i in range(count):
-        config = str(values[0][i] if i < len(values[0]) else "").strip()
+        selected = str(values[0][i] if i < len(values[0]) else "").strip()
+        custom = str(values[10][i] if i < len(values[10]) else "").strip()
+        config = custom if selected == "Other" and custom else selected
         if not config:
             continue
         details.append({
@@ -90,6 +93,9 @@ def _normalise_configuration_details(configurations, carpet_areas, rates, bundle
             "negotiable": str(values[4][i] if i < len(values[4]) else "No").strip() or "No",
             "inventory_status": str(values[5][i] if i < len(values[5]) else "Available").strip() or "Available",
             "available_units": str(values[6][i] if i < len(values[6]) else "").strip(),
+            "tower": str(values[7][i] if i < len(values[7]) else "").strip(),
+            "floor": str(values[8][i] if i < len(values[8]) else "").strip(),
+            "parking": str(values[9][i] if i < len(values[9]) else "").strip(),
         })
     return details
 
@@ -122,13 +128,12 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         return templates.TemplateResponse("property_submission_expired.html", {"request": request}, status_code=410)
     form = await request.form()
     configurations = form.getlist("configurations")
-    carpet_areas = form.getlist("carpet_areas")
-    rates = form.getlist("rate_per_sqft")
-    bundle_prices = form.getlist("bundle_prices")
-    negotiable = form.getlist("configuration_negotiable")
-    inventory_statuses = form.getlist("configuration_inventory_status")
-    available_units = form.getlist("configuration_available_units")
-    details = _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units)
+    details = _normalise_configuration_details(
+        configurations,
+        form.getlist("carpet_areas"), form.getlist("rate_per_sqft"), form.getlist("bundle_prices"),
+        form.getlist("configuration_negotiable"), form.getlist("configuration_inventory_status"), form.getlist("configuration_available_units"),
+        form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"),
+    )
     required = {"project_name", "developer", "property_type", "city", "locality", "construction_status", "possession_status"}
     missing = [field for field in required if not str(form.get(field, "")).strip()]
     if not details:
@@ -137,7 +142,7 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         missing.append("configuration pricing")
     if missing:
         payload = dict(BASE_FORM)
-        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "amenities"}})
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "amenities"}})
         payload["configurations"] = configurations
         payload["configuration_details"] = details
         payload["amenities"] = form.getlist("amenities")
@@ -271,10 +276,12 @@ def _approve(request: Request, db: Session, actor: User, submission: PropertySub
         for index, item in enumerate(details, 1):
             price = float(item["bundle_price"]) if str(item.get("bundle_price", "")).strip() else None
             carpet = float(item["carpet_area"]) if str(item.get("carpet_area", "")).strip() else None
+            floor_value = str(item.get("floor", "")).strip()
+            floor_number = int(floor_value) if floor_value.isdigit() else None
             existing = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == f"SUB-{submission.id}-{index}").limit(1))
             if existing:
                 continue
-            db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=payload.get("parking"), facing=payload.get("facing"), floor=int(payload["floor"]) if str(payload.get("floor", "")).isdigit() else None, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=payload.get("floor_plan_url") or None, description=json.dumps({"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units")}, ensure_ascii=False)))
+            db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=payload.get("floor_plan_url") or None, description=json.dumps({"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor")}, ensure_ascii=False)))
         submission.status = "IMPORTED"
         db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details)})))
     db.commit()
