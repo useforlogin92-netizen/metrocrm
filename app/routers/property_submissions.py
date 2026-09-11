@@ -21,8 +21,10 @@ from app.property_submission_models import PropertySubmission
 router = APIRouter(tags=["property-submissions"])
 templates = Jinja2Templates(directory="app/templates")
 
-MAX_PLAN_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_PLAN_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_PLAN_VIDEO_BYTES = 50 * 1024 * 1024
 ALLOWED_PLAN_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
+ALLOWED_PLAN_VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
 
 BASE_FORM = {
     "project_name": "", "developer": "", "property_type": "Apartment", "city": "Mumbai", "locality": "",
@@ -92,6 +94,14 @@ def _plan_magic_ok(content_type: str, data: bytes) -> bool:
     return False
 
 
+def _plan_video_magic_ok(content_type: str, data: bytes) -> bool:
+    if content_type == "video/mp4" or content_type == "video/quicktime":
+        return len(data) >= 12 and data[4:8] == b"ftyp"
+    if content_type == "video/webm":
+        return data.startswith(b"\x1a\x45\xdf\xa3")
+    return False
+
+
 async def _normalise_plan_uploads(files) -> list[str]:
     plans: list[str] = []
     for upload in files or []:
@@ -103,7 +113,7 @@ async def _normalise_plan_uploads(files) -> list[str]:
             raise ValueError("Plan chart must be a PDF, JPG, PNG or WEBP file.")
         data = await upload.read(MAX_PLAN_UPLOAD_BYTES + 1)
         if len(data) > MAX_PLAN_UPLOAD_BYTES:
-            raise ValueError("Each plan chart file must be 5 MB or smaller.")
+            raise ValueError("Each plan chart file must be 20 MB or smaller.")
         if not data or not _plan_magic_ok(content_type, data):
             raise ValueError("The selected plan chart file is invalid or does not match its file type.")
         encoded = base64.b64encode(data).decode("ascii")
@@ -111,8 +121,27 @@ async def _normalise_plan_uploads(files) -> list[str]:
     return plans
 
 
-def _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units, towers=None, floors=None, parkings=None, custom_configurations=None, plan_charts=None):
-    values = [configurations or [], carpet_areas or [], rates or [], bundle_prices or [], negotiable or [], inventory_statuses or [], available_units or [], towers or [], floors or [], parkings or [], custom_configurations or [], plan_charts or []]
+async def _normalise_plan_videos(files) -> list[str]:
+    videos: list[str] = []
+    for upload in files or []:
+        if not isinstance(upload, UploadFile) or not upload.filename:
+            videos.append("")
+            continue
+        content_type = (upload.content_type or "").lower().strip()
+        if content_type not in ALLOWED_PLAN_VIDEO_CONTENT_TYPES:
+            raise ValueError("Plan sample video must be an MP4, WEBM or MOV file.")
+        data = await upload.read(MAX_PLAN_VIDEO_BYTES + 1)
+        if len(data) > MAX_PLAN_VIDEO_BYTES:
+            raise ValueError("Each plan sample video must be 50 MB or smaller.")
+        if not data or not _plan_video_magic_ok(content_type, data):
+            raise ValueError("The selected plan sample video is invalid or does not match its file type.")
+        encoded = base64.b64encode(data).decode("ascii")
+        videos.append(f"data:{content_type};base64,{encoded}")
+    return videos
+
+
+def _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units, towers=None, floors=None, parkings=None, custom_configurations=None, plan_charts=None, plan_videos=None):
+    values = [configurations or [], carpet_areas or [], rates or [], bundle_prices or [], negotiable or [], inventory_statuses or [], available_units or [], towers or [], floors or [], parkings or [], custom_configurations or [], plan_charts or [], plan_videos or []]
     count = max((len(x) for x in values), default=0)
     details = []
     for i in range(count):
@@ -123,6 +152,7 @@ def _normalise_configuration_details(configurations, carpet_areas, rates, bundle
             continue
         details.append({
             "configuration": config,
+            "custom_configuration": custom,
             "carpet_area": str(values[1][i] if i < len(values[1]) else "").strip(),
             "rate_per_sqft": str(values[2][i] if i < len(values[2]) else "").strip(),
             "bundle_price": str(values[3][i] if i < len(values[3]) else "").strip(),
@@ -133,6 +163,7 @@ def _normalise_configuration_details(configurations, carpet_areas, rates, bundle
             "floor": str(values[8][i] if i < len(values[8]) else "").strip(),
             "parking": str(values[9][i] if i < len(values[9]) else "").strip(),
             "plan_chart": str(values[11][i] if i < len(values[11]) else "").strip(),
+            "plan_video": str(values[12][i] if i < len(values[12]) else "").strip(),
         })
     return details
 
@@ -167,9 +198,10 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     configurations = form.getlist("configurations")
     try:
         plan_charts = await _normalise_plan_uploads(form.getlist("configuration_plan_chart"))
+        plan_videos = await _normalise_plan_videos(form.getlist("configuration_plan_video"))
     except ValueError as exc:
         payload = dict(BASE_FORM)
-        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "amenities"}})
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "amenities"}})
         payload["configurations"] = configurations
         payload["amenities"] = form.getlist("amenities")
         return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "payload": payload, "error": str(exc)}, status_code=422)
@@ -177,7 +209,7 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         configurations,
         form.getlist("carpet_areas"), form.getlist("rate_per_sqft"), form.getlist("bundle_prices"),
         form.getlist("configuration_negotiable"), form.getlist("configuration_inventory_status"), form.getlist("configuration_available_units"),
-        form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"), plan_charts,
+        form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"), plan_charts, plan_videos,
     )
     required = {"project_name", "developer", "property_type", "city", "locality", "construction_status", "possession_status"}
     missing = [field for field in required if not str(form.get(field, "")).strip()]
@@ -187,7 +219,7 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         missing.append("configuration pricing")
     if missing:
         payload = dict(BASE_FORM)
-        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "amenities"}})
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "amenities"}})
         payload["configurations"] = configurations
         payload["configuration_details"] = details
         payload["amenities"] = form.getlist("amenities")
@@ -326,7 +358,7 @@ def _approve(request: Request, db: Session, actor: User, submission: PropertySub
             existing = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == f"SUB-{submission.id}-{index}").limit(1))
             if existing:
                 continue
-            db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps({"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor")}, ensure_ascii=False)))
+            db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps({"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor"), "plan_video": item.get("plan_video")}, ensure_ascii=False)))
         submission.status = "IMPORTED"
         db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details)})))
     db.commit()
