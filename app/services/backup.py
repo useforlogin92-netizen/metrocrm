@@ -26,10 +26,6 @@ def _now() -> datetime:
 
 
 def _key() -> bytes:
-    # Prefer the dedicated backup key. For existing deployments that only have
-    # the mandatory application SECRET_KEY configured, use it as a stable
-    # encryption root so manual backups do not fail merely because the optional
-    # BACKUP_ENCRYPTION_KEY variable is absent. The placeholder is never accepted.
     raw = settings.backup_encryption_key.strip() or settings.secret_key.strip()
     if not raw or raw == "CHANGE-ME-IN-ENV":
         raise RuntimeError("A secure BACKUP_ENCRYPTION_KEY or SECRET_KEY must be configured")
@@ -42,6 +38,59 @@ def _encrypted_package(source_zip: Path, destination: Path) -> None:
     plaintext = source_zip.read_bytes()
     ciphertext = aes.encrypt(nonce, plaintext, None)
     destination.write_bytes(b"MCRMBKP1" + nonce + ciphertext)
+
+
+def _decrypt_package(source: Path) -> bytes:
+    raw = source.read_bytes()
+    if len(raw) <= 8 + 12 or raw[:8] != b"MCRMBKP1":
+        raise ValueError("invalid_backup_format")
+    return AESGCM(_key()).decrypt(raw[8:20], raw[20:], None)
+
+
+def _validate_payload(payload: bytes) -> list[str]:
+    with zipfile.ZipFile(tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")) as _:
+        pass
+    with tempfile.NamedTemporaryFile(suffix=".zip") as tmp:
+        tmp.write(payload)
+        tmp.flush()
+        with zipfile.ZipFile(tmp.name) as archive:
+            names = archive.namelist()
+            required = {"database/database.snapshot", "backup_metadata.txt"}
+            if not required.issubset(names):
+                raise ValueError("backup_payload_incomplete")
+            bad = archive.testzip()
+            if bad:
+                raise ValueError(f"backup_payload_corrupt:{bad}")
+            return names
+
+
+def inspect_backup(relative_path: str) -> dict[str, object]:
+    """Decrypt and integrity-check an encrypted backup without altering live data."""
+    root = Path(settings.backup_local_path).expanduser().resolve()
+    target = (root / relative_path).resolve()
+    if root not in target.parents or target.suffix != ".mcrmbackup" or not target.is_file():
+        raise ValueError("invalid_backup_path")
+    payload = _decrypt_package(target)
+    names = _validate_payload(payload)
+    return {"relative_path": relative_path, "valid": True, "files": names, "size": target.stat().st_size}
+
+
+def extract_backup(relative_path: str, destination: Path) -> dict[str, object]:
+    """Decrypt and extract a validated backup to a caller-selected staging directory."""
+    root = Path(settings.backup_local_path).expanduser().resolve()
+    target = (root / relative_path).resolve()
+    if root not in target.parents or target.suffix != ".mcrmbackup" or not target.is_file():
+        raise ValueError("invalid_backup_path")
+    destination = destination.resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    payload = _decrypt_package(target)
+    _validate_payload(payload)
+    with tempfile.NamedTemporaryFile(suffix=".zip") as tmp:
+        tmp.write(payload)
+        tmp.flush()
+        with zipfile.ZipFile(tmp.name) as archive:
+            archive.extractall(destination)
+    return {"relative_path": relative_path, "valid": True, "extracted_to": str(destination)}
 
 
 def _sqlite_snapshot(database_url: str, target: Path) -> None:
