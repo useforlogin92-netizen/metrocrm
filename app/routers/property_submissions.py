@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import secrets
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.csrf import csrf_token, require_csrf
+from app.database import get_db
+from app.models import AuditEvent, Developer, Project, Unit, User
+from app.property_submission_models import PropertySubmission
+
+router = APIRouter(tags=["property-submissions"])
+templates = Jinja2Templates(directory="app/templates")
+
+BASE_FORM = {
+    "project_name": "", "developer": "", "property_type": "Apartment", "city": "Mumbai", "locality": "",
+    "address": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "Under Construction",
+    "possession_status": "", "possession_date": "", "configurations": [], "starting_price": "", "price_type": "All Inclusive",
+    "price_negotiable": "No", "carpet_area": "", "built_up_area": "", "parking": "", "facing": "", "floor": "",
+    "tower": "", "amenities": [], "nearby": "", "highlights": "", "inventory_status": "Available", "available_units": "",
+    "brochure_url": "", "floor_plan_url": "", "photos": "", "other_details": "",
+}
+
+
+def _actor(request: Request, db: Session) -> User | None:
+    from app.main import _current_user
+    return _current_user(request, db)
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _find_submission(db: Session, token: str) -> PropertySubmission | None:
+    return db.scalar(select(PropertySubmission).where(PropertySubmission.token_hash == _token_hash(token)))
+
+
+def _valid(submission: PropertySubmission) -> bool:
+    return not submission.revoked and submission.status not in {"SUBMITTED", "IMPORTED", "REJECTED"} and datetime.now(timezone.utc).replace(tzinfo=None) < submission.expires_at
+
+
+def _admin_role(actor: User | None) -> bool:
+    return bool(actor and actor.role == "ADMIN")
+
+
+def _super_role(actor: User | None) -> bool:
+    return bool(actor and actor.role == "SUPER_ADMIN")
+
+
+def _share_text(base_url: str, token: str, name: str) -> dict[str, str]:
+    link = f"{base_url.rstrip('/')}/property-submission/{token}"
+    return {
+        "link": link,
+        "whatsapp": f"Hello {name},\n\nMetroCRM has shared a secure Property Details Submission link with you. Please open the link and submit the property/project information available with you. You can save your progress and submit when complete.\n\nProperty Details Form:\n{link}\n\nThank you,\nMetroCRM | OM Krishna Group",
+        "email": f"Subject: MetroCRM – Property Details Submission\n\nHello {name},\n\nPlease use the secure MetroCRM link below to submit the property/project details available with you. The form is mobile-friendly and is designed to be completed quickly.\n\n{link}\n\nYour submission will be reviewed by MetroCRM Admin and Super Admin before it is added to the CRM database.\n\nRegards,\nMetroCRM | OM Krishna Group",
+        "sms": f"MetroCRM Property Details Form: {link} Please submit the property/project details available with you. – OM Krishna Group",
+    }
+
+
+def _public_context(request: Request, submission: PropertySubmission, token: str) -> dict:
+    payload = json.loads(submission.payload_json or "{}")
+    return {"request": request, "submission": submission, "token": token, "payload": payload, "csrf_token": csrf_token(request)}
+
+
+@router.get("/property-submission/{token}", response_class=HTMLResponse)
+def property_submission_form(token: str, request: Request, db: Session = Depends(get_db)):
+    submission = _find_submission(db, token)
+    if not submission or not _valid(submission):
+        return templates.TemplateResponse("property_submission_expired.html", {"request": request}, status_code=410)
+    return templates.TemplateResponse("property_submission.html", _public_context(request, submission, token))
+
+
+@router.post("/property-submission/{token}", dependencies=[Depends(require_csrf)])
+async def property_submission_submit(token: str, request: Request, db: Session = Depends(get_db)):
+    submission = _find_submission(db, token)
+    if not submission or not _valid(submission):
+        return templates.TemplateResponse("property_submission_expired.html", {"request": request}, status_code=410)
+    form = await request.form()
+    required = {"project_name", "developer", "property_type", "city", "locality", "construction_status", "possession_status", "starting_price", "price_type", "inventory_status"}
+    missing = [field for field in required if not str(form.get(field, "")).strip()]
+    if missing:
+        payload = dict(BASE_FORM)
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "amenities"}})
+        payload["configurations"] = form.getlist("configurations")
+        payload["amenities"] = form.getlist("amenities")
+        submission.payload_json = json.dumps(payload, ensure_ascii=False)
+        return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "Please complete all fields marked with *."}, status_code=422)
+    payload = dict(BASE_FORM)
+    for key in payload:
+        if key in {"configurations", "amenities"}:
+            continue
+        payload[key] = str(form.get(key, "")).strip()
+    payload["configurations"] = form.getlist("configurations")
+    payload["amenities"] = form.getlist("amenities")
+    submission.payload_json = json.dumps(payload, ensure_ascii=False)
+    submission.status = "SUBMITTED"
+    submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name})))
+    db.commit()
+    return templates.TemplateResponse("property_submission_success.html", {"request": request, "submission": submission})
+
+
+def _management_page(request: Request, db: Session, actor: User, portal: str):
+    rows = db.scalars(select(PropertySubmission).order_by(PropertySubmission.id.desc()).limit(100)).all()
+    return templates.TemplateResponse("property_submissions_admin.html", {
+        "request": request, "actor": actor, "rows": rows, "portal": portal, "csrf_token": csrf_token(request),
+    })
+
+
+@router.get("/admin/property-submissions", response_class=HTMLResponse)
+def admin_property_submissions(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _admin_role(actor):
+        return RedirectResponse("/admin/login", status_code=303)
+    return _management_page(request, db, actor, "admin")
+
+
+@router.get("/super-admin/property-submissions", response_class=HTMLResponse)
+def super_property_submissions(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _super_role(actor):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    return _management_page(request, db, actor, "super-admin")
+
+
+def _create_link(request: Request, db: Session, actor: User):
+    return templates.TemplateResponse("property_submission_create.html", {"request": request, "actor": actor, "csrf_token": csrf_token(request)})
+
+
+@router.get("/admin/property-submissions/new", response_class=HTMLResponse)
+def admin_property_submission_new(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _admin_role(actor):
+        return RedirectResponse("/admin/login", status_code=303)
+    return _create_link(request, db, actor)
+
+
+@router.get("/super-admin/property-submissions/new", response_class=HTMLResponse)
+def super_property_submission_new(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _super_role(actor):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    return _create_link(request, db, actor)
+
+
+async def _create_submission(request: Request, db: Session, actor: User):
+    form = await request.form()
+    name = str(form.get("recipient_name", "")).strip()
+    if not name:
+        return RedirectResponse(request.url.path + "?error=SM+name+is+required", status_code=303)
+    days = max(1, min(30, int(form.get("expires_days", "7") or 7)))
+    token = secrets.token_urlsafe(32)
+    submission = PropertySubmission(
+        token_hash=_token_hash(token), created_by_id=actor.id, recipient_name=name,
+        recipient_mobile=str(form.get("recipient_mobile", "")).strip() or None,
+        recipient_email=str(form.get("recipient_email", "")).strip() or None,
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days),
+    )
+    db.add(submission)
+    db.flush()
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_CREATED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": name, "expires_days": days})))
+    db.commit()
+    base_url = str(request.base_url).rstrip("/")
+    share = _share_text(base_url, token, name)
+    return templates.TemplateResponse("property_submission_share.html", {"request": request, "actor": actor, "submission": submission, **share})
+
+
+@router.post("/admin/property-submissions/new", dependencies=[Depends(require_csrf)])
+async def admin_property_submission_create(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _admin_role(actor):
+        return RedirectResponse("/admin/login", status_code=303)
+    return await _create_submission(request, db, actor)
+
+
+@router.post("/super-admin/property-submissions/new", dependencies=[Depends(require_csrf)])
+async def super_property_submission_create(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _super_role(actor):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    return await _create_submission(request, db, actor)
+
+
+def _approve(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str):
+    if submission.status in {"IMPORTED", "REJECTED"}:
+        return
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if role == "admin":
+        submission.admin_approved_by = actor.id
+        submission.admin_approved_at = now
+        submission.status = "ADMIN_APPROVED" if submission.super_admin_approved_by is None else "APPROVED"
+    else:
+        submission.super_admin_approved_by = actor.id
+        submission.super_admin_approved_at = now
+        submission.status = "SUPER_ADMIN_APPROVED" if submission.admin_approved_by is None else "APPROVED"
+    if submission.admin_approved_by and submission.super_admin_approved_by:
+        payload = json.loads(submission.payload_json or "{}")
+        developer_name = payload.get("developer", "").strip()
+        project_name = payload.get("project_name", "").strip()
+        developer = db.scalar(select(Developer).where(Developer.name.ilike(developer_name)).limit(1)) if developer_name else None
+        if not developer:
+            developer = Developer(name=developer_name, details=json.dumps({"source": "SM submission", "submission_id": submission.id}))
+            db.add(developer)
+            db.flush()
+        project = db.scalar(select(Project).where(Project.developer_id == developer.id, Project.name.ilike(project_name)).limit(1))
+        if not project:
+            project = Project(
+                developer_id=developer.id, name=project_name, city=payload.get("city"), locality=payload.get("locality"),
+                address=payload.get("address"), pincode=payload.get("pincode"), rera=payload.get("rera_number"),
+                construction_status=payload.get("construction_status"), possession_date=None,
+                amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), description=payload.get("highlights"),
+            )
+            db.add(project)
+            db.flush()
+        configs = payload.get("configurations") or []
+        if configs:
+            existing = db.scalars(select(Unit).where(Unit.project_id == project.id)).all()
+            existing_bhk = {u.bhk for u in existing}
+            for index, config in enumerate(configs, 1):
+                if config in existing_bhk:
+                    continue
+                db.add(Unit(
+                    project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=config,
+                    property_type=payload.get("property_type"), carpet_area=float(payload["carpet_area"]) if payload.get("carpet_area") else None,
+                    built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None,
+                    price=float(payload["starting_price"]) if payload.get("starting_price") else None,
+                    parking=payload.get("parking"), facing=payload.get("facing"), floor=int(payload["floor"]) if str(payload.get("floor", "")).isdigit() else None,
+                    possession=payload.get("possession_status"), availability=payload.get("inventory_status"), status="AVAILABLE",
+                    amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None,
+                    floor_plan=payload.get("floor_plan_url") or None, description=payload.get("other_details") or None,
+                ))
+        submission.status = "IMPORTED"
+        db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id})))
+    db.commit()
+
+
+@router.post("/admin/property-submissions/{submission_id}/approve", dependencies=[Depends(require_csrf)])
+def admin_property_submission_approve(submission_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _admin_role(actor):
+        return RedirectResponse("/admin/login", status_code=303)
+    row = db.get(PropertySubmission, submission_id)
+    if row and row.status not in {"IMPORTED", "REJECTED"}:
+        _approve(request, db, actor, row, "admin")
+    return RedirectResponse("/admin/property-submissions", status_code=303)
+
+
+@router.post("/super-admin/property-submissions/{submission_id}/approve", dependencies=[Depends(require_csrf)])
+def super_property_submission_approve(submission_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _super_role(actor):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    row = db.get(PropertySubmission, submission_id)
+    if row and row.status not in {"IMPORTED", "REJECTED"}:
+        _approve(request, db, actor, row, "super")
+    return RedirectResponse("/super-admin/property-submissions", status_code=303)
+
+
+@router.post("/admin/property-submissions/{submission_id}/revoke", dependencies=[Depends(require_csrf)])
+async def admin_property_submission_revoke(submission_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _admin_role(actor):
+        return RedirectResponse("/admin/login", status_code=303)
+    row = db.get(PropertySubmission, submission_id)
+    if row:
+        row.revoked = True
+        row.status = "REVOKED"
+        db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_REVOKED", entity_type="PropertySubmission", entity_id=str(row.id), details="{}"))
+        db.commit()
+    return RedirectResponse("/admin/property-submissions", status_code=303)
+
+
+@router.post("/super-admin/property-submissions/{submission_id}/revoke", dependencies=[Depends(require_csrf)])
+async def super_property_submission_revoke(submission_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _super_role(actor):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    row = db.get(PropertySubmission, submission_id)
+    if row:
+        row.revoked = True
+        row.status = "REVOKED"
+        db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_REVOKED", entity_type="PropertySubmission", entity_id=str(row.id), details="{}"))
+        db.commit()
+    return RedirectResponse("/super-admin/property-submissions", status_code=303)
+
+
+@router.get("/property-submission/demo", response_class=HTMLResponse)
+def demo_property_submission(request: Request):
+    demo = PropertySubmission(id=0, token_hash="demo", created_by_id=0, recipient_name="Sample Sales Manager", expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1), payload_json="{}")
+    return templates.TemplateResponse("property_submission.html", {"request": request, "submission": demo, "token": "demo", "payload": {}, "csrf_token": csrf_token(request), "demo": True})
