@@ -16,15 +16,14 @@
 {% endif %}
 <div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px">
 {% for row in rows %}
-  {% set data = row.payload_json|from_json if row.payload_json else {} %}
-  <div style="padding:15px 0;border-bottom:1px solid #eef2f7">
+  <div class="sm-submission-row" data-payload="{{ row.payload_json|e }}" style="padding:15px 0;border-bottom:1px solid #eef2f7">
     <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <div style="min-width:280px;flex:1">
         <strong>#{{ row.id }} · {{ row.recipient_name }}</strong>
         <div style="font-size:11px;color:#667085">Status: {{ row.status }} · Expires: {{ row.expires_at }}</div>
-        {% if data.get('project_name') %}<div style="font-size:13px;margin-top:5px"><strong>{{ data.get('project_name') }}</strong>{% if data.get('locality') %} · {{ data.get('locality') }}{% endif %}{% if data.get('city') %}, {{ data.get('city') }}{% endif %}</div>{% endif %}
-        {% if data.get('address') %}<div style="font-size:12px;color:#475467;margin-top:3px">{{ data.get('address') }}</div>{% endif %}
-        {% if data.get('google_maps_url') %}<div style="margin-top:7px"><a href="{{ data.get('google_maps_url') }}" target="_blank" rel="noopener noreferrer" style="font-size:12px;font-weight:800">📍 Open Google Maps for Site Visit ↗</a></div>{% endif %}
+        <div class="submission-property" style="font-size:13px;margin-top:5px"></div>
+        <div class="submission-address" style="font-size:12px;color:#475467;margin-top:3px"></div>
+        <div class="submission-map" style="margin-top:7px"></div>
         {% if row.status == 'SUBMITTED' %}<div style="font-size:12px;margin-top:7px"><strong>🔔 Submission received.</strong> Review and process this submission.</div>{% endif %}
         {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:7px"><strong>Correction requested.</strong> The same SM link is editable again with the previous data preserved.</div>{% endif %}
         {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:7px"><strong>SM link permanently locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
@@ -44,4 +43,33 @@
 {% else %}<p style="color:#667085">No property submissions yet.</p>{% endfor %}
 </div>
 <p style="margin-top:14px;font-size:11px;color:#667085">Security: only Admin and Super Admin can generate links. Each SM gets a unique random, hashed link. After SM submission the link is locked. A correction request re-opens the same link with previous data preserved. Approval by either one Admin OR one Super Admin imports the property and permanently invalidates the SM link.</p>
+</div>
+<script>
+(function () {
+  document.querySelectorAll('.sm-submission-row').forEach(function (row) {
+    try {
+      var data = JSON.parse(row.getAttribute('data-payload') || '{}');
+      var property = row.querySelector('.submission-property');
+      var address = row.querySelector('.submission-address');
+      var map = row.querySelector('.submission-map');
+      if (data.project_name) {
+        property.innerHTML = '<strong>' + escapeHtml(data.project_name) + '</strong>' + (data.locality ? ' · ' + escapeHtml(data.locality) : '') + (data.city ? ', ' + escapeHtml(data.city) : '');
+      }
+      if (data.address) address.textContent = data.address;
+      if (data.google_maps_url) {
+        var a = document.createElement('a');
+        a.href = data.google_maps_url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = '📍 Open Google Maps for Site Visit ↗';
+        a.style.cssText = 'font-size:12px;font-weight:800';
+        map.appendChild(a);
+      }
+    } catch (e) {}
+  });
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>\"']/g, function (ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]; });
+  }
+})();
+</script>
 {% endblock %}
