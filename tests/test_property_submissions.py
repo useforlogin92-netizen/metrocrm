@@ -20,14 +20,18 @@ def test_submission_tokens_are_hashed_and_links_are_not_reversible():
     assert digest == _token_hash(token)
 
 
-def test_submission_link_is_valid_until_expiry_and_rejects_revoked_or_submitted():
+def test_submission_link_is_editable_only_before_submission_or_after_correction_request():
     future = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)
     row = PropertySubmission(id=1, token_hash="x", created_by_id=1, recipient_name="SM", expires_at=future, status="OPEN")
     assert _valid(row) is True
-    row.revoked = True
-    assert _valid(row) is False
-    row.revoked = False
     row.status = "SUBMITTED"
+    assert _valid(row) is False
+    row.status = "CORRECTION_REQUESTED"
+    assert _valid(row) is True
+    row.status = "IMPORTED"
+    assert _valid(row) is False
+    row.status = "CORRECTION_REQUESTED"
+    row.revoked = True
     assert _valid(row) is False
 
 
