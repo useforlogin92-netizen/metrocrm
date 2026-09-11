@@ -14,7 +14,7 @@
       <div>
         <strong>#{{ row.id }} · {{ row.recipient_name }}</strong>
         <div style="font-size:11px;color:#667085">Status: {{ row.status }} · Expires: {{ row.expires_at }}</div>
-        {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:5px"><strong>SM correction requested:</strong> {{ (row.payload_json|from_json).get('latest_correction_request','') }}</div>{% endif %}
+        {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:5px"><strong>SM correction requested.</strong> The same link is editable again.</div>{% endif %}
         {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:5px"><strong>SM link locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
       </div>
       <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
