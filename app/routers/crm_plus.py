@@ -49,6 +49,15 @@ def can_manage_team(actor: User, target_id: int, db: Session) -> bool:
     return target_id in team_ids(actor, db)
 
 
+def customer_ids(actor: User, db: Session) -> set[int]:
+    if actor.role in {"SUPER_ADMIN", "ADMIN"}:
+        return set(db.scalars(select(Customer.id)).all())
+    ids = team_ids(actor, db)
+    lead_customer_ids = set(db.scalars(select(Lead.customer_id).where(Lead.assigned_user_id.in_(ids), Lead.customer_id.is_not(None))).all())
+    booking_customer_ids = set(db.scalars(select(Booking.customer_id).where(or_(Booking.employee_id.in_(ids), Booking.manager_id.in_(ids)))).all())
+    return {int(value) for value in lead_customer_ids | booking_customer_ids if value is not None}
+
+
 def score_lead(lead: Lead) -> tuple[int, str, list[str]]:
     score = 0
     reasons = []
@@ -110,9 +119,10 @@ def advanced_hub(request: Request, db: Session = Depends(get_db)):
     lead_count = db.scalar(select(func.count(Lead.id)).where(Lead.assigned_user_id.in_(ids))) or 0
     open_tasks = db.scalar(select(func.count(CRMTask.id)).where(CRMTask.assigned_user_id.in_(ids), CRMTask.status != "DONE")) or 0
     overdue_tasks = db.scalar(select(func.count(CRMTask.id)).where(CRMTask.assigned_user_id.in_(ids), CRMTask.status != "DONE", CRMTask.due_at < now())) or 0
-    open_tickets = db.scalar(select(func.count(ServiceTicket.id)).where(ServiceTicket.status.not_in(["RESOLVED", "CLOSED"]))) or 0
+    scoped_customer_ids = customer_ids(actor, db)
+    open_tickets = db.scalar(select(func.count(ServiceTicket.id)).where(ServiceTicket.customer_id.in_(scoped_customer_ids), ServiceTicket.status.not_in(["RESOLVED", "CLOSED"]))) if scoped_customer_ids else 0
     body = "<div class='card'><h2>Recommended CRM capabilities enabled</h2><p class='muted'>Lead intelligence, task discipline, targets, marketing attribution, channel partners and post-booking customer care.</p><div class='grid'>"
-    for label, value in [("Scoped Leads", lead_count), ("Open Tasks", open_tasks), ("Overdue Tasks", overdue_tasks), ("Open Service Tickets", open_tickets)]:
+    for label, value in [("Scoped Leads", lead_count), ("Open Tasks", open_tasks), ("Overdue Tasks", overdue_tasks), ("Open Service Tickets", open_tickets or 0)]:
         body += f"<div class='stat'><div class='muted'>{label}</div><div class='value'>{value}</div></div>"
     body += "</div></div>"
     csrf = csrf_token(request)
@@ -201,7 +211,7 @@ def create_target(request: Request, user_id: int = Form(...), period: str = Form
 @router.get("/crm/advanced/campaigns", response_class=HTMLResponse)
 def campaigns_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor: return RedirectResponse("/", status_code=303)
+    if not actor or actor.role not in {"SUPER_ADMIN", "ADMIN"}: return RedirectResponse("/dashboard", status_code=303)
     rows = db.scalars(select(MarketingCampaign).order_by(MarketingCampaign.id.desc()).limit(100)).all(); csrf = csrf_token(request)
     body = "<div class='card'><h2>Campaign planning & attribution</h2><p class='muted'>Track source, budget and campaign windows now; portal/ad APIs can feed actual lead counts later.</p><form method='post' action='/crm/advanced/campaigns'><input type='hidden' name='csrf_token' value='"+csrf+"'><div class='two'><div><label>Name</label><input name='name' required></div><div><label>Channel</label><select name='channel'><option>PORTAL</option><option>GOOGLE</option><option>META</option><option>WHATSAPP</option><option>SMS</option><option>EMAIL</option><option>OFFLINE</option><option>REFERRAL</option></select></div><div><label>Source tag</label><input name='source'></div><div><label>Budget</label><input type='number' step='0.01' name='budget' value='0'></div><div><label>Start</label><input type='datetime-local' name='start_date'></div><div><label>End</label><input type='datetime-local' name='end_date'></div></div><label>Notes</label><textarea name='notes'></textarea><button class='btn' style='margin-top:10px' type='submit'>Create Campaign</button></form></div>"
     body += "<div class='card'><h2>Campaigns</h2><table><tr><th>Name</th><th>Channel</th><th>Source</th><th>Budget</th><th>Status</th></tr>"+"".join(f"<tr><td>{escape(r.name)}</td><td>{escape(r.channel)}</td><td>{escape(r.source or '—')}</td><td>₹ {float(r.budget):,.2f}</td><td>{escape(r.status)}</td></tr>" for r in rows)+"</table></div>"
@@ -258,7 +268,10 @@ def create_payment_milestone(request: Request, booking_id: int = Form(...), mile
 def tickets_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
     if not actor: return RedirectResponse("/", status_code=303)
-    rows = db.scalars(select(ServiceTicket).order_by(ServiceTicket.id.desc()).limit(100)).all(); customers = db.scalars(select(Customer).order_by(Customer.name).limit(100)).all(); csrf = csrf_token(request)
+    scoped_customer_ids = customer_ids(actor, db)
+    rows = db.scalars(select(ServiceTicket).where(ServiceTicket.customer_id.in_(scoped_customer_ids)).order_by(ServiceTicket.id.desc()).limit(100)).all() if scoped_customer_ids else []
+    customers = db.scalars(select(Customer).where(Customer.id.in_(scoped_customer_ids)).order_by(Customer.name).limit(100)).all() if scoped_customer_ids else []
+    csrf = csrf_token(request)
     body = "<div class='card'><h2>Customer service / complaints</h2><form method='post' action='/crm/advanced/tickets'><input type='hidden' name='csrf_token' value='"+csrf+"'><div class='two'><div><label>Customer</label><select name='customer_id'>"+"".join(f"<option value='{c.id}'>{escape(c.name)} #{c.id}</option>" for c in customers)+"</select></div><div><label>Category</label><select name='category'><option>DOCUMENT</option><option>PAYMENT</option><option>POSSESSION</option><option>PROPERTY</option><option>OTHER</option></select></div><div><label>Subject</label><input name='subject' required></div><div><label>Priority</label><select name='priority'><option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option>URGENT</option></select></div></div><label>Description</label><textarea name='description'></textarea><button class='btn' style='margin-top:10px' type='submit'>Create Ticket</button></form></div>"
     body += "<div class='card'><h2>Ticket queue</h2><table><tr><th>ID</th><th>Customer</th><th>Category</th><th>Subject</th><th>Priority</th><th>Status</th></tr>"+"".join(f"<tr><td>#{r.id}</td><td>{escape(db.get(Customer,r.customer_id).name) if db.get(Customer,r.customer_id) else r.customer_id}</td><td>{escape(r.category)}</td><td>{escape(r.subject)}</td><td>{escape(r.priority)}</td><td>{escape(r.status)}</td></tr>" for r in rows)+"</table></div>"
     return page("Customer Service", body)
@@ -267,8 +280,8 @@ def tickets_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/tickets", dependencies=[Depends(require_csrf)])
 def create_ticket(request: Request, customer_id: int = Form(...), category: str = Form(...), subject: str = Form(...), priority: str = Form("MEDIUM"), description: str = Form(""), db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor or not db.get(Customer, customer_id): return RedirectResponse("/crm/advanced/tickets", status_code=303)
-    db.add(ServiceTicket(customer_id=customer_id, category=category.upper(), subject=subject.strip(), priority=priority.upper(), description=description.strip() or None)); db.commit(); return RedirectResponse("/crm/advanced/tickets", status_code=303)
+    if not actor or customer_id not in customer_ids(actor, db): return RedirectResponse("/crm/advanced/tickets", status_code=303)
+    db.add(ServiceTicket(customer_id=customer_id, assigned_user_id=actor.id, category=category.upper(), subject=subject.strip(), priority=priority.upper(), description=description.strip() or None)); db.commit(); return RedirectResponse("/crm/advanced/tickets", status_code=303)
 
 
 @router.get("/crm/advanced/possession", response_class=HTMLResponse)
