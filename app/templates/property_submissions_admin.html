@@ -21,9 +21,11 @@
       <div style="min-width:280px;flex:1">
         <strong>#{{ row.id }} · {{ row.recipient_name }}</strong>
         <div style="font-size:11px;color:#667085">Status: {{ row.status }} · Expires: {{ row.expires_at }}</div>
+        <div class="submission-sm" style="font-size:12px;margin-top:7px"></div>
         <div class="submission-property" style="font-size:13px;margin-top:5px"></div>
         <div class="submission-address" style="font-size:12px;color:#475467;margin-top:3px"></div>
         <div class="submission-map" style="margin-top:7px"></div>
+        <div class="submission-card" style="margin-top:7px"></div>
         {% if row.status == 'SUBMITTED' %}<div style="font-size:12px;margin-top:7px"><strong>🔔 Submission received.</strong> Review and process this submission.</div>{% endif %}
         {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:7px"><strong>Correction requested.</strong> The same SM link is editable again with the previous data preserved.</div>{% endif %}
         {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:7px"><strong>SM link permanently locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
@@ -42,16 +44,21 @@
   </div>
 {% else %}<p style="color:#667085">No property submissions yet.</p>{% endfor %}
 </div>
-<p style="margin-top:14px;font-size:11px;color:#667085">Security: only Admin and Super Admin can generate links. Each SM gets a unique random, hashed link. After SM submission the link is locked. A correction request re-opens the same link with previous data preserved. Approval by either one Admin OR one Super Admin imports the property and permanently invalidates the SM link.</p>
+<p style="margin-top:14px;font-size:11px;color:#667085">Security: only Admin and Super Admin can generate links. Each SM gets a unique random, hashed link. The SM must re-enter and verify the registered name and contact number before submission. A visiting card can also be attached. After SM submission the link is locked. A correction request re-opens the same link with previous data preserved. Approval by either one Admin OR one Super Admin imports the property and permanently invalidates the SM link.</p>
 </div>
 <script>
 (function () {
   document.querySelectorAll('.sm-submission-row').forEach(function (row) {
     try {
       var data = JSON.parse(row.getAttribute('data-payload') || '{}');
+      var sm = row.querySelector('.submission-sm');
       var property = row.querySelector('.submission-property');
       var address = row.querySelector('.submission-address');
       var map = row.querySelector('.submission-map');
+      var card = row.querySelector('.submission-card');
+      if (data.sm_name || data.sm_contact) {
+        sm.innerHTML = '<strong>👤 Verified SM:</strong> ' + escapeHtml(data.sm_name || '') + (data.sm_contact ? ' · ' + escapeHtml(data.sm_contact) : '');
+      }
       if (data.project_name) {
         property.innerHTML = '<strong>' + escapeHtml(data.project_name) + '</strong>' + (data.locality ? ' · ' + escapeHtml(data.locality) : '') + (data.city ? ', ' + escapeHtml(data.city) : '');
       }
@@ -64,6 +71,15 @@
         a.textContent = '📍 Open Google Maps for Site Visit ↗';
         a.style.cssText = 'font-size:12px;font-weight:800';
         map.appendChild(a);
+      }
+      if (data.sm_visiting_card) {
+        var c = document.createElement('a');
+        c.href = data.sm_visiting_card;
+        c.target = '_blank';
+        c.rel = 'noopener noreferrer';
+        c.textContent = '🪪 Open SM Visiting Card ↗';
+        c.style.cssText = 'font-size:12px;font-weight:800';
+        card.appendChild(c);
       }
     } catch (e) {}
   });
