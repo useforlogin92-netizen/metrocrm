@@ -37,7 +37,7 @@ class _ScopeDB:
     def __init__(self, users):
         self.users = users
 
-    def scalars(self, _stmt):
+    def scalars(self, stmt):
         class Result:
             def __init__(self, users):
                 self._users = users
@@ -45,7 +45,13 @@ class _ScopeDB:
             def all(self):
                 return self._users
 
-        return Result(self.users)
+        # Mirror the production query's reporting_manager_id IN (...) predicate so
+        # the fixture verifies actual tree filtering rather than returning every user.
+        manager_ids = set()
+        for value in stmt.compile().params.values():
+            if isinstance(value, (list, tuple, set)):
+                manager_ids.update(value)
+        return Result([user for user in self.users if user.reporting_manager_id in manager_ids])
 
 
 def _user(user_id, role, manager_id=None):
