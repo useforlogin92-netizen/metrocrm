@@ -14,6 +14,21 @@ from app.database import get_db
 app = main.app
 
 
+# Legacy Admin URLs that are still used by the shared dashboard/navigation.
+# Super Admin users must see/use a dedicated /super-admin URL instead of being
+# redirected into the Admin login portal.
+_SUPER_ADMIN_LEGACY_ROUTES = (
+    ("/admin/users/pending", "/super-admin/users/pending"),
+    ("/admin/users", "/super-admin/users"),
+    ("/admin/property-data/social", "/super-admin/property-data/social"),
+    ("/admin/property-data", "/super-admin/property-data"),
+    ("/admin/leads/offline-import", "/super-admin/leads/offline-import"),
+    ("/admin/data-tools", "/super-admin/data-tools"),
+    ("/admin/backups", "/super-admin/backups"),
+    ("/admin/business-reports", "/super-admin/business-reports"),
+)
+
+
 def _required_portal(path: str) -> str | None:
     if path == "/super-admin" or path.startswith("/super-admin/"):
         return "super_admin"
@@ -24,6 +39,37 @@ def _required_portal(path: str) -> str | None:
 
 def _is_portal_login(path: str, required: str) -> bool:
     return path == ("/admin/login" if required == "admin" else "/super-admin/login")
+
+
+def _super_admin_redirect_for_legacy_admin_path(path: str) -> str | None:
+    for legacy, dedicated in _SUPER_ADMIN_LEGACY_ROUTES:
+        if path == legacy or path.startswith(legacy + "/"):
+            return dedicated + path[len(legacy):]
+    return None
+
+
+def _super_admin_legacy_route_bridge(request: Request) -> bool:
+    """Run legacy Admin handlers behind dedicated Super Admin URLs."""
+    if request.session.get("login_portal") != "super_admin":
+        return False
+    path = request.url.path
+    for legacy, dedicated in _SUPER_ADMIN_LEGACY_ROUTES:
+        if path == dedicated or path.startswith(dedicated + "/"):
+            legacy_path = legacy + path[len(dedicated):]
+            request.scope["path"] = legacy_path
+            request.scope["raw_path"] = legacy_path.encode("ascii")
+            return True
+    # User management has the same dedicated bridge and is kept separate so
+    # its generated links can also be rewritten below.
+    return False
+
+
+def _rewrite_super_admin_user_management_links(response: HTMLResponse) -> HTMLResponse:
+    """Expose the dedicated URL in rendered Super Admin user-management HTML."""
+    response.body = response.body.replace(b"/admin/users", b"/super-admin/users")
+    if "content-length" in response.headers:
+        del response.headers["content-length"]
+    return response
 
 
 def _sensitive_export_get(request: Request) -> HTMLResponse | None:
@@ -85,43 +131,32 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
     return None
 
 
-def _super_admin_user_management_bridge(request: Request) -> bool:
-    """Map the Super Admin's dedicated user-management URL to the legacy handlers."""
-    if request.session.get("login_portal") != "super_admin":
-        return False
-    path = request.url.path
-    prefix = "/super-admin/users"
-    if path == prefix or path.startswith(prefix + "/"):
-        legacy_path = "/admin/users" + path[len(prefix):]
-        request.scope["path"] = legacy_path
-        request.scope["raw_path"] = legacy_path.encode("ascii")
-        return True
-    return False
-
-
-def _rewrite_super_admin_user_management_links(response: HTMLResponse) -> HTMLResponse:
-    """Expose the dedicated URL in rendered Super Admin user-management HTML."""
-    response.body = response.body.replace(b"/admin/users", b"/super-admin/users")
-    if "content-length" in response.headers:
-        del response.headers["content-length"]
-    return response
-
-
 @app.middleware("http")
 async def enforce_dedicated_portal_session(request: Request, call_next):
     """Keep Admin and Super Admin sessions strictly isolated."""
     original_path = request.url.path
+    current_portal = request.session.get("login_portal")
+
+    # Shared legacy navigation may still point to /admin/* for Super Admin.
+    # Redirect it to the equivalent dedicated Super Admin URL before the strict
+    # portal guard can send the user to /admin/login.
+    if current_portal == "super_admin":
+        dedicated_path = _super_admin_redirect_for_legacy_admin_path(original_path)
+        if dedicated_path:
+            return RedirectResponse(dedicated_path, status_code=303)
+
     required = _required_portal(original_path)
     if required and not _is_portal_login(original_path, required):
         current_user_id = request.session.get("user_id")
-        current_portal = request.session.get("login_portal")
         if current_user_id and current_portal != required:
             login_path = "/admin/login" if required == "admin" else "/super-admin/login"
             return RedirectResponse(login_path, status_code=303)
+
     export_get = _sensitive_export_get(request)
     if export_get is not None:
         return export_get
-    bridge_active = _super_admin_user_management_bridge(request)
+
+    bridge_active = _super_admin_legacy_route_bridge(request)
     response = await call_next(request)
     if bridge_active and isinstance(response, HTMLResponse):
         response = _rewrite_super_admin_user_management_links(response)
