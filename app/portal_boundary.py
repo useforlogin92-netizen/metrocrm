@@ -87,15 +87,18 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
 
 @app.middleware("http")
 async def enforce_dedicated_portal_session(request: Request, call_next):
-    """Keep Admin and Super Admin sessions isolated without blocking Super Admin's Admin-level authority."""
+    """Keep Admin and Super Admin sessions strictly isolated.
+
+    A browser session authenticated through one privileged portal must never be
+    accepted by the other privileged portal. This intentionally requires a
+    separate login when switching between /admin and /super-admin, including
+    for Super Admin accounts accessing /admin surfaces.
+    """
     required = _required_portal(request.url.path)
     if required and not _is_portal_login(request.url.path, required):
         current_user_id = request.session.get("user_id")
         current_portal = request.session.get("login_portal")
-        # Super Admin is the security root and may use Admin-level surfaces.
-        # An Admin session must never enter a Super Admin surface.
-        super_admin_using_admin_surface = current_portal == "super_admin" and required == "admin"
-        if current_user_id and current_portal != required and not super_admin_using_admin_surface:
+        if current_user_id and current_portal != required:
             login_path = "/admin/login" if required == "admin" else "/super-admin/login"
             return RedirectResponse(login_path, status_code=303)
     export_get = _sensitive_export_get(request)
