@@ -112,3 +112,9 @@ async def _inject_language_script(request, call_next):
 def install_language_support(app) -> None:
     """Install response-level support so every rendered portal page shares one preference."""
     app.middleware("http")(_inject_language_script)
+    from starlette.middleware.sessions import SessionMiddleware
+    for index, middleware in enumerate(app.user_middleware):
+        if middleware.cls is SessionMiddleware:
+            if index:
+                app.user_middleware.insert(0, app.user_middleware.pop(index))
+            break
