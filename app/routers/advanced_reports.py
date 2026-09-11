@@ -19,7 +19,7 @@ from app.models import AuditEvent, Booking, Commission, FollowUp, Lead, SiteVisi
 
 router = APIRouter(tags=["advanced-reports"])
 
-STAFF_REPORT_ROLES = {"USER", "TL", "MANAGER"}
+STAFF_REPORT_ROLES = {"TL", "MANAGER"}
 ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN"}
 PERIODS = {"daily", "weekly", "monthly"}
 BUSINESS_PERIODS = {"weekly", "monthly", "quarterly", "yearly", "custom"}
