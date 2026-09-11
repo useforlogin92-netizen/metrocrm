@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from app.property_submission_models import PropertySubmission
 from app.routers.property_submissions import (
@@ -10,6 +11,7 @@ from app.routers.property_submissions import (
     _normalise_phone,
     _plan_magic_ok,
     _plan_video_magic_ok,
+    _preserve_existing_uploads,
     _token_hash,
     _valid,
     _visiting_card_magic_ok,
@@ -105,3 +107,21 @@ def test_sm_visiting_card_magic_bytes_match_declared_type():
     assert _visiting_card_magic_ok("image/jpeg", b"\xff\xd8\xff\xe0card") is True
     assert _visiting_card_magic_ok("image/webp", b"RIFFxxxxWEBPcard") is True
     assert _visiting_card_magic_ok("image/png", b"not-an-image") is False
+
+
+def test_correction_preserves_previous_plan_and_video_when_replacement_is_blank():
+    old = [{"configuration": "1 BHK", "carpet_area": "350", "plan_chart": "old-chart", "plan_video": "old-video"}]
+    new = [{"configuration": "1 BHK", "carpet_area": "350", "plan_chart": "", "plan_video": ""}]
+    result = _preserve_existing_uploads(new, old)
+    assert result[0]["plan_chart"] == "old-chart"
+    assert result[0]["plan_video"] == "old-video"
+
+
+def test_admin_and_super_admin_both_expose_property_submission_actions():
+    dashboard = (Path(__file__).parents[1] / "app" / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    management = (Path(__file__).parents[1] / "app" / "templates" / "property_submissions_admin.html").read_text(encoding="utf-8")
+    assert "href=\"/admin/property-submissions/new\"" in dashboard or "href=\"/super-admin/property-submissions/new\"" in dashboard
+    assert "portal=='admin'" in management
+    assert "portal=='super-admin'" in management
+    assert "action=\"/admin/property-submissions/" in management
+    assert "action=\"/super-admin/property-submissions/" in management
