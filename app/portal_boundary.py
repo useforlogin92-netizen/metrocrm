@@ -86,12 +86,7 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
 
 
 def _super_admin_user_management_bridge(request: Request) -> bool:
-    """Map the Super Admin's dedicated user-management URL to the legacy handlers.
-
-    The public /admin/users URL remains blocked for a Super Admin session, preserving
-    strict portal isolation. The dedicated /super-admin/users URL is an internal
-    compatibility bridge to the existing user-management implementation.
-    """
+    """Map the Super Admin's dedicated user-management URL to the legacy handlers."""
     if request.session.get("login_portal") != "super_admin":
         return False
     path = request.url.path
@@ -106,21 +101,15 @@ def _super_admin_user_management_bridge(request: Request) -> bool:
 
 def _rewrite_super_admin_user_management_links(response: HTMLResponse) -> HTMLResponse:
     """Expose the dedicated URL in rendered Super Admin user-management HTML."""
-    body = response.body.replace(b"/admin/users", b"/super-admin/users")
-    response.body = body
-    response.headers.pop("content-length", None)
+    response.body = response.body.replace(b"/admin/users", b"/super-admin/users")
+    if "content-length" in response.headers:
+        del response.headers["content-length"]
     return response
 
 
 @app.middleware("http")
 async def enforce_dedicated_portal_session(request: Request, call_next):
-    """Keep Admin and Super Admin sessions strictly isolated.
-
-    A browser session authenticated through one privileged portal must never be
-    accepted by the other privileged portal. This intentionally requires a
-    separate login when switching between /admin and /super-admin, including
-    for Super Admin accounts accessing /admin surfaces.
-    """
+    """Keep Admin and Super Admin sessions strictly isolated."""
     original_path = request.url.path
     required = _required_portal(original_path)
     if required and not _is_portal_login(original_path, required):
@@ -139,8 +128,6 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
     return response
 
 
-# Add POST aliases for the existing export handlers. The original GET handlers
-# remain in the legacy router, but the middleware above prevents them from running.
 from app.routers.data_tools import export_data as _legacy_export_data
 from app.routers.data_tools import super_admin_download_export as _legacy_super_admin_download_export
 from app.routers.property_data import export_property_data as _legacy_export_property_data
@@ -167,9 +154,6 @@ def download_approved_property_export_post(request_id: int, request: Request, db
     return _legacy_download_approved_property_export(request=request, request_id=request_id, db=db)
 
 
-# FastAPI's decorator middleware is inserted at the front of user_middleware.
-# Keep SessionMiddleware outermost so the boundary can safely inspect the session
-# while preserving the existing idle-session middleware ordering.
 for _index, _middleware in enumerate(app.user_middleware):
     if _middleware.cls is SessionMiddleware:
         if _index:
