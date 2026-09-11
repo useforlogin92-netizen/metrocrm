@@ -13,15 +13,16 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 {% if message %}<div class="pd-alert ok">✓ {{ message }}</div>{% endif %}
 {% if error %}<div class="pd-alert err">{{ error }}</div>{% endif %}
 
+{% set property_data_base = '/super-admin/property-data' if role == 'SUPER_ADMIN' else '/admin/property-data' %}
 <div class="pd-card" style="margin-bottom:18px">
   <h2 class="pd-title">Property Data Import &amp; Export</h2>
   <p class="pd-sub">Download the ready-to-use Excel template for bulk uploads. Use the online editor for small updates.</p>
   <div class="pd-actions">
-    <a class="pd-btn primary" href="/admin/property-data/template">⬇ Download Property Template</a>
+    <a class="pd-btn primary" href="{{ property_data_base }}/template">⬇ Download Property Template</a>
     {% if role == 'ADMIN' %}
     <form method="post" action="/admin/property-data/export/request" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="pd-btn" type="submit">⬆ Request Property Data Export</button></form>
     {% else %}
-    <a class="pd-btn" href="/admin/property-data/export">⬆ Export Property Data</a>
+    <a class="pd-btn" href="/super-admin/property-data/export">⬆ Export Property Data</a>
     <a class="pd-btn" href="/super-admin/property-data-export-requests">✓ Export Approval Requests</a>
     {% endif %}
   </div>
@@ -33,7 +34,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <div class="pd-card">
     <h3 style="margin-top:0">Excel Import</h3>
     <p class="pd-note">Upload the completed <b>MetroCRM_Property_Data_Template.xlsx</b>. Import does not require additional approval.</p>
-    <form method="post" action="/admin/property-data/import" enctype="multipart/form-data">
+    <form method="post" action="{{ property_data_base }}/import" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Excel file (.xlsx)</label>
       <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
@@ -43,7 +44,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <div class="pd-card">
     <h3 style="margin-top:0">Quick Online Editor</h3>
     <p class="pd-note">For one or two records, you do not need Excel. Use <b>Edit</b> to update an existing record or <b>New Record</b> to create one.</p>
-    <form method="get" action="/admin/property-data">
+    <form method="get" action="{{ property_data_base }}">
       <label>Property Data Type</label>
       <select name="entity" onchange="this.form.submit()">
         {% for entity in entities %}<option value="{{ entity }}" {% if selected == entity %}selected{% endif %}>{{ entity }}</option>{% endfor %}
@@ -58,7 +59,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   {% for req in export_requests %}
     <div style="padding:10px 0;border-bottom:1px solid #eef2f7;font-size:12px">
       <b>Request #{{ req.id }}</b> · <span>{{ req.status }}</span> · {{ req.created_at }}
-      {% if req.status == 'APPROVED' %} · <a href="/admin/property-data/export/download/{{ req.id }}">Download approved export</a>{% endif %}
+      {% if req.status == 'APPROVED' %} · <a href="{{ property_data_base }}/export/download/{{ req.id }}">Download approved export</a>{% endif %}
     </div>
   {% else %}
     <div class="pd-note">No export requests yet.</div>
@@ -93,12 +94,12 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 <div class="pd-card" style="margin-top:18px">
   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
     <div><h3 style="margin:0">{{ selected }} Records</h3><div class="pd-small">Latest 100 records shown</div></div>
-    <a class="pd-btn" href="/admin/property-data?entity={{ selected }}">+ New Record</a>
+    <a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}">+ New Record</a>
   </div>
   <div class="pd-table-wrap" style="margin-top:12px">
     <table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>
       {% for row in rows %}
-      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td><td><a class="pd-btn" href="/admin/property-data?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
+      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td><td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
       {% else %}<tr><td colspan="3">No records found.</td></tr>{% endfor %}
     </tbody></table>
   </div>
@@ -106,7 +107,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 
 <div class="pd-card" style="margin-top:18px">
   <h3 style="margin-top:0">{{ 'Edit' if edit_row else 'New' }} {{ selected }} Record</h3>
-  <form class="pd-form" method="post" action="/admin/property-data/save">
+  <form class="pd-form" method="post" action="{{ property_data_base }}/save">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="entity" value="{{ selected }}">
     {% for field in fields %}
@@ -116,7 +117,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
       <div class="{% if field.endswith('_json') or field in ['address','description','details','other_details','photos_json','amenities_json','brochure'] %}wide{% endif %}"><label>{{ field }}</label><input name="{{ field }}" value="{{ display_value(getattr(edit_row, field, None)) if edit_row else '' }}" {% if field in ['developer_id','project_id','tower_id','floor','total_building_floors'] %}inputmode="numeric"{% endif %}></div>
       {% endif %}
     {% endfor %}
-    <div class="wide pd-actions"><button class="pd-btn primary" type="submit">{{ 'Update Record' if edit_row else 'Create Record' }}</button>{% if edit_row %}<a class="pd-btn" href="/admin/property-data?entity={{ selected }}">Cancel</a>{% endif %}</div>
+    <div class="wide pd-actions"><button class="pd-btn primary" type="submit">{{ 'Update Record' if edit_row else 'Create Record' }}</button>{% if edit_row %}<a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}">Cancel</a>{% endif %}</div>
   </form>
   <p class="pd-note">The online editor uses the database fields defined in MetroCRM's property configuration. Use valid JSON in JSON fields.</p>
 </div>
