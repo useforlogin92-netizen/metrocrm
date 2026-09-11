@@ -6,6 +6,7 @@ import time
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -49,8 +50,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="MetroCRM", version="0.4.0", lifespan=lifespan)
 
-@app.middleware("http")
-async def enforce_idle_session(request: Request, call_next):
+def enforce_idle_session(request: Request, call_next):
     session = request.session
     user_id = session.get("user_id")
     if user_id:
@@ -81,10 +81,11 @@ async def enforce_idle_session(request: Request, call_next):
     response.headers["Expires"] = "0"
     return response
 
+# Add idle enforcement first, then SessionMiddleware last. Starlette inserts
+# each middleware at the front, so SessionMiddleware becomes the outer layer
+# and request.session is available to idle enforcement.
+app.add_middleware(BaseHTTPMiddleware, dispatch=enforce_idle_session)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
-_session_middleware = next(middleware for middleware in app.user_middleware if middleware.cls is SessionMiddleware)
-app.user_middleware.remove(_session_middleware)
-app.user_middleware.insert(0, _session_middleware)
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
