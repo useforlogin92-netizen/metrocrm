@@ -27,7 +27,7 @@
 {% if show_integrations %}<a class="action" href="/integrations/providers"><div class="action-icon">⚙</div><strong>Lead &amp; Integrations</strong><span>Manage integration providers and OTP services.</span></a>{% endif %}
 {% if show_alerts %}<a class="action" href="/integrations/property-visits/alerts"><div class="action-icon">◉</div><strong>Property Visit Alerts</strong><span>View live property visit alerts.</span></a>{% endif %}
 {% if show_approvals %}<a class="action" href="/admin/users/pending"><div class="action-icon">✓</div><strong>User Approvals</strong><span>Review and manage pending staff approvals.</span></a>{% endif %}
-<a class="action" href="/admin/backups/status"><div class="action-icon">▣</div><strong>Backup Status</strong><span>Check current database backup status.</span></a>
+{% if role == 'SUPER_ADMIN' %}<a class="action" href="/admin/backups/status"><div class="action-icon">▣</div><strong>Backup Status</strong><span>Check current database backup status.</span></a>{% endif %}
 </div></section>
 <section class="panel"><h3>System Status</h3><p class="panel-sub">Current platform health.</p><div class="status">
 <div class="status-row"><span>Application</span><span class="ok">ONLINE</span></div><div class="status-row"><span>Authentication</span><span class="ok">SECURE</span></div><div class="status-row"><span>Database</span><span class="ok">CONNECTED</span></div><div class="status-row"><span>Session</span><span class="ok">ACTIVE</span></div>
