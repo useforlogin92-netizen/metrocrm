@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from fastapi.responses import HTMLResponse
+
 from app import portal_boundary
 
 
@@ -32,6 +34,30 @@ def test_super_admin_session_is_redirected_from_admin_level_surfaces():
         response = _run_boundary(request, call_next)
         assert response.status_code == 303
         assert response.headers["location"] == "/admin/login"
+
+
+def test_super_admin_user_management_uses_dedicated_url_bridge():
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/super-admin/users/123/edit"),
+        session={"user_id": 1, "login_portal": "super_admin"},
+        scope={"path": "/super-admin/users/123/edit", "raw_path": b"/super-admin/users/123/edit"},
+    )
+
+    assert portal_boundary._super_admin_user_management_bridge(request) is True
+    assert request.scope["path"] == "/admin/users/123/edit"
+    assert request.scope["raw_path"] == b"/admin/users/123/edit"
+
+
+def test_super_admin_user_management_response_links_use_dedicated_url():
+    response = HTMLResponse(
+        '<a href="/admin/users">User Management</a>'
+        '<form action="/admin/users/7/reset-password" method="post"></form>'
+    )
+
+    rewritten = portal_boundary._rewrite_super_admin_user_management_links(response)
+    assert b'/super-admin/users"' in rewritten.body
+    assert b"/super-admin/users/7/reset-password" in rewritten.body
+    assert b"/admin/users" not in rewritten.body
 
 
 def test_super_admin_session_can_reach_super_admin_surfaces():
