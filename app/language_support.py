@@ -104,7 +104,8 @@ async def _inject_language_script(request, call_next):
         return response
     script = ("<script>" + LANGUAGE_SCRIPT + "</script>").encode("utf-8")
     response.body = body.replace(marker, script + marker, 1)
-    response.headers.pop("content-length", None)
+    if "content-length" in response.headers:
+        del response.headers["content-length"]
     return response
 
 
