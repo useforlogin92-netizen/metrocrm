@@ -28,7 +28,7 @@ ALLOWED_PLAN_VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/quicktime"
 
 BASE_FORM = {
     "project_name": "", "developer": "", "property_type": "Apartment", "city": "Mumbai", "locality": "",
-    "address": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "Under Construction",
+    "address": "", "google_maps_url": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "Under Construction",
     "possession_status": "", "possession_date": "", "configuration_details": [], "configurations": [],
     "starting_price": "", "price_type": "All Inclusive", "price_negotiable": "No", "carpet_area": "",
     "rate_per_sqft": "", "bundle_price": "", "built_up_area": "", "parking": "", "facing": "", "floor": "",
@@ -52,9 +52,6 @@ def _find_submission(db: Session, token: str) -> PropertySubmission | None:
 
 
 def _valid(submission: PropertySubmission) -> bool:
-    # The SM link is editable only before submission or after an explicit
-    # correction request. Once submitted, it is locked until Admin/Super Admin
-    # requests changes. Once imported, the link is permanently invalid.
     return (
         not submission.revoked
         and submission.status in {"OPEN", "CORRECTION_REQUESTED"}
@@ -75,7 +72,7 @@ def _share_text(base_url: str, token: str, name: str) -> dict[str, str]:
     return {
         "link": link,
         "whatsapp": f"Hello {name},\n\nMetroCRM has shared a secure Property Details Submission link with you. Please open the link and submit the property/project information available with you.\n\nProperty Details Form:\n{link}\n\nThank you,\nMetroCRM",
-        "email": f"Subject: MetroCRM – Property Details Submission\n\nHello {name},\n\nPlease use the secure MetroCRM link below to submit the property/project details available with you.\n\n{link}\n\nYour submission will be reviewed by MetroCRM Admin and Super Admin before it is added to the CRM database.\n\nRegards,\nMetroCRM",
+        "email": f"Subject: MetroCRM – Property Details Submission\n\nHello {name},\n\nPlease use the secure MetroCRM link below to submit the property/project details available with you.\n\n{link}\n\nYour submission will be reviewed by one authorized MetroCRM Admin or Super Admin before it is added to the CRM database.\n\nRegards,\nMetroCRM",
         "sms": f"MetroCRM Property Details Form: {link} Please submit the property/project details available with you.",
     }
 
@@ -102,7 +99,7 @@ def _plan_magic_ok(content_type: str, data: bytes) -> bool:
 
 
 def _plan_video_magic_ok(content_type: str, data: bytes) -> bool:
-    if content_type == "video/mp4" or content_type == "video/quicktime":
+    if content_type in {"video/mp4", "video/quicktime"}:
         return len(data) >= 12 and data[4:8] == b"ftyp"
     if content_type == "video/webm":
         return data.startswith(b"\x1a\x45\xdf\xa3")
@@ -123,8 +120,7 @@ async def _normalise_plan_uploads(files) -> list[str]:
             raise ValueError("Each plan chart file must be 20 MB or smaller.")
         if not data or not _plan_magic_ok(content_type, data):
             raise ValueError("The selected plan chart file is invalid or does not match its file type.")
-        encoded = base64.b64encode(data).decode("ascii")
-        plans.append(f"data:{content_type};base64,{encoded}")
+        plans.append(f"data:{content_type};base64,{base64.b64encode(data).decode('ascii')}")
     return plans
 
 
@@ -142,8 +138,7 @@ async def _normalise_plan_videos(files) -> list[str]:
             raise ValueError("Each plan sample video must be 50 MB or smaller.")
         if not data or not _plan_video_magic_ok(content_type, data):
             raise ValueError("The selected plan sample video is invalid or does not match its file type.")
-        encoded = base64.b64encode(data).decode("ascii")
-        videos.append(f"data:{content_type};base64,{encoded}")
+        videos.append(f"data:{content_type};base64,{base64.b64encode(data).decode('ascii')}")
     return videos
 
 
@@ -173,6 +168,18 @@ def _normalise_configuration_details(configurations, carpet_areas, rates, bundle
             "plan_video": str(values[12][i] if i < len(values[12]) else "").strip(),
         })
     return details
+
+
+def _preserve_existing_uploads(new_details: list[dict], old_details: list[dict]) -> list[dict]:
+    for index, item in enumerate(new_details):
+        if index >= len(old_details):
+            continue
+        old = old_details[index] or {}
+        if not item.get("plan_chart") and old.get("plan_chart"):
+            item["plan_chart"] = old["plan_chart"]
+        if not item.get("plan_video") and old.get("plan_video"):
+            item["plan_video"] = old["plan_video"]
+    return new_details
 
 
 @router.get("/property-submission/demo", response_class=HTMLResponse)
@@ -212,12 +219,7 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         payload["configurations"] = configurations
         payload["amenities"] = form.getlist("amenities")
         return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "payload": payload, "error": str(exc)}, status_code=422)
-    details = _normalise_configuration_details(
-        configurations,
-        form.getlist("carpet_areas"), form.getlist("rate_per_sqft"), form.getlist("bundle_prices"),
-        form.getlist("configuration_negotiable"), form.getlist("configuration_inventory_status"), form.getlist("configuration_available_units"),
-        form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"), plan_charts, plan_videos,
-    )
+    details = _normalise_configuration_details(configurations, form.getlist("carpet_areas"), form.getlist("rate_per_sqft"), form.getlist("bundle_prices"), form.getlist("configuration_negotiable"), form.getlist("configuration_inventory_status"), form.getlist("configuration_available_units"), form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"), plan_charts, plan_videos)
     required = {"project_name", "developer", "property_type", "city", "locality", "construction_status", "possession_status"}
     missing = [field for field in required if not str(form.get(field, "")).strip()]
     if not details:
@@ -234,9 +236,11 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         db.commit()
         return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "Please select at least one configuration and complete carpet area, rate/sq.ft and bundle price for every selected configuration."}, status_code=422)
     old_payload = json.loads(submission.payload_json or "{}")
+    old_details = old_payload.get("configuration_details") or []
     revision_history = old_payload.get("revision_history") or []
-    if old_payload and old_payload.get("configuration_details"):
+    if old_payload and old_details:
         revision_history.append({"submitted_at": old_payload.get("last_submitted_at"), "payload": old_payload})
+        details = _preserve_existing_uploads(details, old_details)
     payload = dict(BASE_FORM)
     for key in payload:
         if key in {"configurations", "configuration_details", "amenities"}:
@@ -259,14 +263,16 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     submission.payload_json = json.dumps(payload, ensure_ascii=False)
     submission.status = "SUBMITTED"
     submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name, "configuration_count": len(details), "revision_count": len(revision_history)})))
+    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name, "configuration_count": len(details), "revision_count": len(revision_history), "google_maps_url_present": bool(payload.get("google_maps_url"))})))
     db.commit()
     return templates.TemplateResponse("property_submission_success.html", {"request": request, "submission": submission})
 
 
 def _management_page(request: Request, db: Session, actor: User, portal: str):
     rows = db.scalars(select(PropertySubmission).order_by(PropertySubmission.id.desc()).limit(100)).all()
-    return templates.TemplateResponse("property_submissions_admin.html", {"request": request, "actor": actor, "rows": rows, "portal": portal, "csrf_token": csrf_token(request)})
+    new_count = sum(1 for row in rows if row.status == "SUBMITTED")
+    correction_count = sum(1 for row in rows if row.status == "CORRECTION_REQUESTED")
+    return templates.TemplateResponse("property_submissions_admin.html", {"request": request, "actor": actor, "rows": rows, "portal": portal, "new_count": new_count, "correction_count": correction_count, "csrf_token": csrf_token(request)})
 
 
 @router.get("/admin/property-submissions", response_class=HTMLResponse)
@@ -310,7 +316,10 @@ async def _create_submission(request: Request, db: Session, actor: User):
     name = str(form.get("recipient_name", "")).strip()
     if not name:
         return RedirectResponse(request.url.path + "?error=SM+name+is+required", status_code=303)
-    days = max(1, min(30, int(form.get("expires_days", "7") or 7)))
+    try:
+        days = max(1, min(30, int(form.get("expires_days", "7") or 7)))
+    except (TypeError, ValueError):
+        days = 7
     token = secrets.token_urlsafe(32)
     submission = PropertySubmission(token_hash=_token_hash(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=str(form.get("recipient_mobile", "")).strip() or None, recipient_email=str(form.get("recipient_email", "")).strip() or None, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
     db.add(submission)
@@ -337,45 +346,52 @@ async def super_property_submission_create(request: Request, db: Session = Depen
     return await _create_submission(request, db, actor)
 
 
+def _import_submission(db: Session, actor: User, submission: PropertySubmission, role: str) -> None:
+    payload = json.loads(submission.payload_json or "{}")
+    developer_name = str(payload.get("developer", "")).strip()
+    project_name = str(payload.get("project_name", "")).strip()
+    developer = db.scalar(select(Developer).where(Developer.name.ilike(developer_name)).limit(1)) if developer_name else None
+    if not developer:
+        developer = Developer(name=developer_name, details=json.dumps({"source": "SM submission", "submission_id": submission.id}))
+        db.add(developer)
+        db.flush()
+    project = db.scalar(select(Project).where(Project.developer_id == developer.id, Project.name.ilike(project_name)).limit(1))
+    if not project:
+        project_description = payload.get("highlights")
+        if payload.get("google_maps_url"):
+            project_description = json.dumps({"highlights": project_description or "", "google_maps_url": payload.get("google_maps_url")}, ensure_ascii=False)
+        project = Project(developer_id=developer.id, name=project_name, city=payload.get("city"), locality=payload.get("locality"), address=payload.get("address"), pincode=payload.get("pincode"), rera=payload.get("rera_number"), construction_status=payload.get("construction_status"), possession_date=None, amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), description=project_description)
+        db.add(project)
+        db.flush()
+    details = payload.get("configuration_details") or []
+    for index, item in enumerate(details, 1):
+        price = float(item["bundle_price"]) if str(item.get("bundle_price", "")).strip() else None
+        carpet = float(item["carpet_area"]) if str(item.get("carpet_area", "")).strip() else None
+        floor_value = str(item.get("floor", "")).strip()
+        floor_number = int(floor_value) if floor_value.isdigit() else None
+        existing = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == f"SUB-{submission.id}-{index}").limit(1))
+        if existing:
+            continue
+        unit_description = {"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor"), "plan_video": item.get("plan_video")}
+        if payload.get("google_maps_url"):
+            unit_description["google_maps_url"] = payload.get("google_maps_url")
+        db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps(unit_description, ensure_ascii=False)))
+    submission.status = "IMPORTED"
+    submission.revoked = True
+    submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details), "approved_by_role": role, "approved_by_user_id": actor.id, "link_locked": True})))
+
+
 def _approve(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str):
-    if submission.status != "SUBMITTED":
+    if submission.status != "SUBMITTED" or submission.revoked:
         return
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if role == "admin":
         submission.admin_approved_by = actor.id
-        submission.admin_approved_at = now
-        submission.status = "ADMIN_APPROVED" if submission.super_admin_approved_by is None else "APPROVED"
+        submission.admin_approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         submission.super_admin_approved_by = actor.id
-        submission.super_admin_approved_at = now
-        submission.status = "SUPER_ADMIN_APPROVED" if submission.admin_approved_by is None else "APPROVED"
-    if submission.admin_approved_by and submission.super_admin_approved_by:
-        payload = json.loads(submission.payload_json or "{}")
-        developer_name = payload.get("developer", "").strip()
-        project_name = payload.get("project_name", "").strip()
-        developer = db.scalar(select(Developer).where(Developer.name.ilike(developer_name)).limit(1)) if developer_name else None
-        if not developer:
-            developer = Developer(name=developer_name, details=json.dumps({"source": "SM submission", "submission_id": submission.id}))
-            db.add(developer)
-            db.flush()
-        project = db.scalar(select(Project).where(Project.developer_id == developer.id, Project.name.ilike(project_name)).limit(1))
-        if not project:
-            project = Project(developer_id=developer.id, name=project_name, city=payload.get("city"), locality=payload.get("locality"), address=payload.get("address"), pincode=payload.get("pincode"), rera=payload.get("rera_number"), construction_status=payload.get("construction_status"), possession_date=None, amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), description=payload.get("highlights"))
-            db.add(project)
-            db.flush()
-        details = payload.get("configuration_details") or []
-        for index, item in enumerate(details, 1):
-            price = float(item["bundle_price"]) if str(item.get("bundle_price", "")).strip() else None
-            carpet = float(item["carpet_area"]) if str(item.get("carpet_area", "")).strip() else None
-            floor_value = str(item.get("floor", "")).strip()
-            floor_number = int(floor_value) if floor_value.isdigit() else None
-            existing = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == f"SUB-{submission.id}-{index}").limit(1))
-            if existing:
-                continue
-            db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps({"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor"), "plan_video": item.get("plan_video")}, ensure_ascii=False)))
-        submission.status = "IMPORTED"
-        submission.revoked = True
-        db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details), "link_locked": True})))
+        submission.super_admin_approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _import_submission(db, actor, submission, role)
     db.commit()
 
 
@@ -397,15 +413,12 @@ def super_property_submission_approve(submission_id: int, request: Request, db: 
         return RedirectResponse("/super-admin/login", status_code=303)
     row = db.get(PropertySubmission, submission_id)
     if row and row.status == "SUBMITTED":
-        _approve(request, db, actor, row, "super")
+        _approve(request, db, actor, row, "super-admin")
     return RedirectResponse("/super-admin/property-submissions", status_code=303)
 
 
-def _request_correction(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str):
-    if submission.status not in {"SUBMITTED", "ADMIN_APPROVED", "SUPER_ADMIN_APPROVED"}:
-        return
-    reason = str((request.state.correction_reason if hasattr(request.state, "correction_reason") else "")).strip()
-    if not reason:
+def _request_correction(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str, reason: str):
+    if submission.status != "SUBMITTED" or submission.revoked or not reason:
         return
     submission.status = "CORRECTION_REQUESTED"
     submission.admin_approved_by = None
@@ -423,20 +436,15 @@ def _request_correction(request: Request, db: Session, actor: User, submission: 
     db.commit()
 
 
-def _correction_reason(request: Request) -> str:
-    return ""
-
-
 @router.post("/admin/property-submissions/{submission_id}/request-correction", dependencies=[Depends(require_csrf)])
 async def admin_property_submission_request_correction(submission_id: int, request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
     if not _admin_role(actor):
         return RedirectResponse("/admin/login", status_code=303)
     form = await request.form()
-    request.state.correction_reason = str(form.get("correction_reason", "")).strip()
     row = db.get(PropertySubmission, submission_id)
     if row:
-        _request_correction(request, db, actor, row, "admin")
+        _request_correction(request, db, actor, row, "admin", str(form.get("correction_reason", "")).strip())
     return RedirectResponse("/admin/property-submissions", status_code=303)
 
 
@@ -446,10 +454,9 @@ async def super_property_submission_request_correction(submission_id: int, reque
     if not _super_role(actor):
         return RedirectResponse("/super-admin/login", status_code=303)
     form = await request.form()
-    request.state.correction_reason = str(form.get("correction_reason", "")).strip()
     row = db.get(PropertySubmission, submission_id)
     if row:
-        _request_correction(request, db, actor, row, "super-admin")
+        _request_correction(request, db, actor, row, "super-admin", str(form.get("correction_reason", "")).strip())
     return RedirectResponse("/super-admin/property-submissions", status_code=303)
 
 
