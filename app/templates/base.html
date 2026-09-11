@@ -24,14 +24,14 @@
 <nav class="nav">
 <a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span class="icon">⌂</span>Dashboard</a>
 <a class="{% if request.url.path.startswith('/caller/') %}active{% endif %}" href="/caller/search"><span class="icon">⌕</span>Caller Property Search</a>
-{% if role == 'SUPER_ADMIN' or role == 'ADMIN' %}<a class="{% if request.url.path.startswith('/admin/property-data') %}active{% endif %}" href="/admin/property-data"><span class="icon">▤</span>Property Data</a>{% endif %}
+{% if role == 'SUPER_ADMIN' or role == 'ADMIN' %}<a class="{% if request.url.path.startswith('/super-admin/property-data') or request.url.path.startswith('/admin/property-data') %}active{% endif %}" href="{% if role == 'SUPER_ADMIN' %}/super-admin/property-data{% else %}/admin/property-data{% endif %}"><span class="icon">▤</span>Property Data</a>{% endif %}
 {% if role == 'SUPER_ADMIN' or role == 'ADMIN' %}<a class="{% if request.url.path.startswith('/admin/property-submissions') or request.url.path.startswith('/super-admin/property-submissions') %}active{% endif %}" href="{% if role == 'SUPER_ADMIN' %}/super-admin/property-submissions{% else %}/admin/property-submissions{% endif %}"><span class="icon">▥</span>SM Property Submissions</a>{% endif %}
-{% if show_user_management %}<a class="{% if request.url.path.startswith('/admin/users') %}active{% endif %}" href="/admin/users"><span class="icon">♙</span>User Management</a>{% endif %}
+{% if show_user_management %}<a class="{% if request.url.path.startswith('/super-admin/users') or request.url.path.startswith('/admin/users') %}active{% endif %}" href="{% if role == 'SUPER_ADMIN' %}/super-admin/users{% else %}/admin/users{% endif %}"><span class="icon">♙</span>User Management</a>{% endif %}
 {% if show_integrations %}<a class="{% if request.url.path.startswith('/integrations/providers') %}active{% endif %}" href="/integrations/providers"><span class="icon">⚙</span>Integrations</a>{% endif %}
 {% if show_alerts %}<a class="{% if request.url.path.startswith('/integrations/property-visits') %}active{% endif %}" href="/integrations/property-visits"><span class="icon">◉</span>Visit Alerts</a>{% endif %}
-{% if show_approvals %}<a class="{% if request.url.path == '/admin/users/pending' %}active{% endif %}" href="/admin/users/pending"><span class="icon">✓</span>User Approvals</a>{% endif %}
+{% if show_approvals %}<a class="{% if request.url.path.startswith('/super-admin/users/pending') or request.url.path.startswith('/admin/users/pending') %}active{% endif %}" href="{% if role == 'SUPER_ADMIN' %}/super-admin/users/pending{% else %}/admin/users/pending{% endif %}"><span class="icon">✓</span>User Approvals</a>{% endif %}
 {% if role == 'SUPER_ADMIN' %}<a class="{% if request.url.path == '/super-admin/login-requests' %}active{% endif %}" href="/super-admin/login-requests"><span class="icon">🔐</span>Login Approval Requests</a>{% endif %}
-{% if role == 'SUPER_ADMIN' %}<a class="{% if request.url.path.startswith('/admin/backups') %}active{% endif %}" href="/admin/backups/status"><span class="icon">▣</span>Backup Status</a>{% endif %}
+{% if role == 'SUPER_ADMIN' %}<a class="{% if request.url.path.startswith('/super-admin/backups') or request.url.path.startswith('/admin/backups') %}active{% endif %}" href="/super-admin/backups/status"><span class="icon">▣</span>Backup Status</a>{% endif %}
 </nav>
 <div class="sidebar-bottom"><nav class="nav"><a class="{% if request.url.path == '/profile' %}active{% endif %}" href="/profile"><span class="icon">●</span>My Profile</a><a class="logout" href="/auth/logout"><span class="icon">↪</span>Logout</a></nav></div>
 </aside>
