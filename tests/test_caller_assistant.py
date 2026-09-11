@@ -16,7 +16,13 @@ class FakeDB:
                 # Mirror the reporting_manager_id == current-scope-id filter used by
                 # _lead_in_scope without depending on SQLAlchemy execution in unit tests.
                 try:
-                    ids = set(stmt.compile().params.values())
+                    values = stmt.compile().params.values()
+                    ids = set()
+                    for value in values:
+                        if isinstance(value, (list, tuple, set, frozenset)):
+                            ids.update(value)
+                        elif value is not None:
+                            ids.add(value)
                 except Exception:
                     ids = set()
                 return [u for u in self._users if getattr(u, "reporting_manager_id", None) in ids]
@@ -37,12 +43,7 @@ def test_opening_speech_uses_source_and_caller_name():
     user = SimpleNamespace(username="Suresh")
     lead = SimpleNamespace(source="MagicBricks", preferred_location="Borivali, Andheri", bhk="2 BHK")
     customer = SimpleNamespace(name="Rahul")
-    speeches = _opening_speeches(
-        user,
-        lead,
-        customer,
-        [{"name":"Borivali","side":"Both","priority":"Primary"},{"name":"Andheri","side":"Both","priority":"Primary"}],
-    )
+    speeches = _opening_speeches(user, lead, customer, [{"name":"Borivali","side":"Both","priority":"Primary"},{"name":"Andheri","side":"Both","priority":"Primary"}])
     text = speeches["en"]
     assert "Suresh" in text
     assert "MagicBricks" in text
