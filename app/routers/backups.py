@@ -15,6 +15,7 @@ from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, User
 from app.services.backup import acknowledge_agent_backup, backup_health, create_full_backup
+from app.services.backup_restore import restore_backup
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(prefix="/admin/backups", tags=["backups"])
@@ -77,6 +78,31 @@ def run_manual(request: Request, db: Session = Depends(get_db)):
     if "text/html" in request.headers.get("accept", ""):
         state = "success" if result.get("status") == "success" else "partial"
         return RedirectResponse(f"/admin/backups/status?backup={state}", status_code=303)
+    return result
+
+
+@router.post("/restore", dependencies=[Depends(require_csrf)])
+def restore(request: Request, relative_path: str, confirmation: str, expected_sha256: str | None = None, db: Session = Depends(get_db)):
+    """Restore the selected encrypted backup into the configured live database.
+
+    This is deliberately limited to Super Admins, requires CSRF, and requires
+    the literal RESTORE confirmation to prevent accidental destructive actions.
+    """
+    user = require_super_admin(request, db)
+    if confirmation != "RESTORE":
+        raise HTTPException(status_code=400, detail="Explicit RESTORE confirmation required")
+    root = Path(settings.backup_local_path).expanduser().resolve()
+    package = (root / relative_path).resolve()
+    if root not in package.parents or package.suffix != ".mcrmbackup" or not package.is_file():
+        raise HTTPException(status_code=404, detail="Backup file not found")
+    try:
+        result = restore_backup(package, expected_sha256=expected_sha256)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        db.add(AuditEvent(actor_user_id=user.id, action="BACKUP_RESTORE_FAILED", entity_type="Backup", entity_id=None, details=str(exc)[:2000]))
+        db.commit()
+        raise HTTPException(status_code=400, detail="Backup restore failed; check backup integrity and server logs") from exc
+    db.add(AuditEvent(actor_user_id=user.id, action="BACKUP_RESTORED", entity_type="Backup", entity_id=None, details=str(result)[:4000]))
+    db.commit()
     return result
 
 
