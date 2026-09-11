@@ -1,4 +1,6 @@
 from pathlib import Path
+import hashlib
+import sqlite3
 import zipfile
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -11,7 +13,6 @@ def test_backup_schedule_and_dual_destination_defaults(monkeypatch):
     root = Path("/tmp/metrocrm-backup-test")
     root.mkdir(parents=True, exist_ok=True)
     db = root / "metrocrm.db"
-    import sqlite3
     conn = sqlite3.connect(db)
     conn.execute("create table if not exists test_data (id integer primary key, value text)")
     conn.execute("insert into test_data(value) values ('ok')")
@@ -34,7 +35,7 @@ def test_backup_schedule_and_dual_destination_defaults(monkeypatch):
     raw = path.read_bytes()
     assert raw.startswith(b"MCRMBKP1")
     nonce, ciphertext = raw[8:20], raw[20:]
-    plaintext = AESGCM(__import__('hashlib').sha256(b"unit-test-secret").digest()).decrypt(nonce, ciphertext, None)
+    plaintext = AESGCM(hashlib.sha256(b"unit-test-secret").digest()).decrypt(nonce, ciphertext, None)
     payload = root / "payload.zip"
     payload.write_bytes(plaintext)
     with zipfile.ZipFile(payload) as archive:
@@ -48,12 +49,70 @@ def test_backup_uses_application_secret_when_dedicated_key_is_missing(monkeypatc
 
     monkeypatch.setattr(settings, "backup_encryption_key", "")
     monkeypatch.setattr(settings, "secret_key", "production-secret")
-    assert _key() == __import__('hashlib').sha256(b"production-secret").digest()
+    assert _key() == hashlib.sha256(b"production-secret").digest()
+
+
+def test_restore_uses_application_secret_when_dedicated_key_is_missing(monkeypatch, tmp_path):
+    from app.config import settings
+    from app.services.backup import create_full_backup
+    from app.services.backup_restore import restore_backup
+
+    source_db = tmp_path / "source.db"
+    conn = sqlite3.connect(source_db)
+    conn.execute("create table restore_data (id integer primary key, value text)")
+    conn.execute("insert into restore_data(value) values ('restored')")
+    conn.commit(); conn.close()
+
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    (uploads / "proof.txt").write_text("backup-upload", encoding="utf-8")
+    backup_root = tmp_path / "backups"
+
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{source_db}")
+    monkeypatch.setattr(settings, "backup_local_path", str(backup_root))
+    monkeypatch.setattr(settings, "uploads_path", str(uploads))
+    monkeypatch.setattr(settings, "backup_encryption_key", "")
+    monkeypatch.setattr(settings, "secret_key", "production-secret")
+    monkeypatch.setattr(settings, "backup_cloud_provider", "none")
+    result = create_full_backup("restore-test")
+
+    target_db = tmp_path / "restored.db"
+    target_uploads = tmp_path / "restored-uploads"
+    restored = restore_backup(
+        result["local_path"],
+        target_database_url=f"sqlite:///{target_db}",
+        target_uploads_path=target_uploads,
+        expected_sha256=hashlib.sha256(Path(result["local_path"]).read_bytes()).hexdigest(),
+    )
+
+    assert restored["status"] == "success"
+    assert restored["uploads_restored"] is True
+    conn = sqlite3.connect(target_db)
+    try:
+        row = conn.execute("select value from restore_data where id = 1").fetchone()
+        assert row == ("restored",)
+    finally:
+        conn.close()
+    assert (target_uploads / "proof.txt").read_text(encoding="utf-8") == "backup-upload"
 
 
 def test_backup_rejects_placeholder_secrets(monkeypatch):
     from app.config import settings
     from app.services.backup import _key
+
+    monkeypatch.setattr(settings, "backup_encryption_key", "")
+    monkeypatch.setattr(settings, "secret_key", "CHANGE-ME-IN-ENV")
+    try:
+        _key()
+    except RuntimeError as exc:
+        assert "secure BACKUP_ENCRYPTION_KEY or SECRET_KEY" in str(exc)
+    else:
+        raise AssertionError("placeholder secret must not be accepted")
+
+
+def test_restore_rejects_placeholder_secrets(monkeypatch):
+    from app.config import settings
+    from app.services.backup_restore import _key
 
     monkeypatch.setattr(settings, "backup_encryption_key", "")
     monkeypatch.setattr(settings, "secret_key", "CHANGE-ME-IN-ENV")
