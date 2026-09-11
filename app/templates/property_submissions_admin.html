@@ -11,31 +11,31 @@
 {% if pending_count %}
 <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:15px 18px;margin-bottom:16px">
   <strong>🔔 New SM submission received: {{ pending_count }}</strong>
-  <div style="font-size:12px;color:#475467;margin-top:4px">The latest submitted property details are ready for review. No second Admin/Super Admin approval is required.</div>
+  <div style="font-size:12px;color:#475467;margin-top:4px">The latest submitted property details are ready for review. Only one authorized Admin OR Super Admin approval is required.</div>
 </div>
 {% endif %}
 <div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px">
 {% for row in rows %}
+  {% set data = row.payload_json|from_json if row.payload_json else {} %}
   <div style="padding:15px 0;border-bottom:1px solid #eef2f7">
     <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-      <div>
+      <div style="min-width:280px;flex:1">
         <strong>#{{ row.id }} · {{ row.recipient_name }}</strong>
         <div style="font-size:11px;color:#667085">Status: {{ row.status }} · Expires: {{ row.expires_at }}</div>
-        {% if row.status == 'SUBMITTED' %}<div style="font-size:12px;margin-top:5px"><strong>🔔 Submission received.</strong> Review and process this submission.</div>{% endif %}
-        {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:5px"><strong>Correction requested.</strong> The same SM link is editable again with the previous data preserved.</div>{% endif %}
-        {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:5px"><strong>SM link permanently locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
+        {% if data.get('project_name') %}<div style="font-size:13px;margin-top:5px"><strong>{{ data.get('project_name') }}</strong>{% if data.get('locality') %} · {{ data.get('locality') }}{% endif %}{% if data.get('city') %}, {{ data.get('city') }}{% endif %}</div>{% endif %}
+        {% if data.get('address') %}<div style="font-size:12px;color:#475467;margin-top:3px">{{ data.get('address') }}</div>{% endif %}
+        {% if data.get('google_maps_url') %}<div style="margin-top:7px"><a href="{{ data.get('google_maps_url') }}" target="_blank" rel="noopener noreferrer" style="font-size:12px;font-weight:800">📍 Open Google Maps for Site Visit ↗</a></div>{% endif %}
+        {% if row.status == 'SUBMITTED' %}<div style="font-size:12px;margin-top:7px"><strong>🔔 Submission received.</strong> Review and process this submission.</div>{% endif %}
+        {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:7px"><strong>Correction requested.</strong> The same SM link is editable again with the previous data preserved.</div>{% endif %}
+        {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:7px"><strong>SM link permanently locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
       </div>
       <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
         {% if portal=='admin' and row.status=='SUBMITTED' %}
           <form method="post" action="/admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
-        {% endif %}
-        {% if portal=='super-admin' and row.status=='SUBMITTED' %}
-          <form method="post" action="/super-admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
-        {% endif %}
-        {% if portal=='admin' and row.status=='SUBMITTED' %}
           <form method="post" action="/admin/property-submissions/{{row.id}}/request-correction" style="display:flex;gap:6px;align-items:center"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input name="correction_reason" required placeholder="What details are missing?" style="padding:8px;border:1px solid #d0d5dd;border-radius:8px;min-width:220px"><button type="submit">Request Correction</button></form>
         {% endif %}
         {% if portal=='super-admin' and row.status=='SUBMITTED' %}
+          <form method="post" action="/super-admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
           <form method="post" action="/super-admin/property-submissions/{{row.id}}/request-correction" style="display:flex;gap:6px;align-items:center"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input name="correction_reason" required placeholder="What details are missing?" style="padding:8px;border:1px solid #d0d5dd;border-radius:8px;min-width:220px"><button type="submit">Request Correction</button></form>
         {% endif %}
       </div>
