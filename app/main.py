@@ -81,11 +81,12 @@ async def enforce_idle_session(request: Request, call_next):
     response.headers["Expires"] = "0"
     return response
 
-# Add idle enforcement first, then SessionMiddleware last. Starlette inserts
-# each middleware at the front, so SessionMiddleware becomes the outer layer
-# and request.session is available to idle enforcement.
+# Keep SessionMiddleware outermost so request.session exists before idle enforcement.
 app.add_middleware(BaseHTTPMiddleware, dispatch=enforce_idle_session)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
+# Starlette normally inserts middleware at the front, but make the security-critical
+# ordering explicit so framework/version differences cannot invert the session layer.
+app.user_middleware.sort(key=lambda middleware: 0 if middleware.cls is SessionMiddleware else 1)
 templates = Jinja2Templates(directory="app/templates")
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
