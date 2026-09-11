@@ -85,6 +85,33 @@ def _sensitive_export_get(request: Request) -> HTMLResponse | None:
     return None
 
 
+def _super_admin_user_management_bridge(request: Request) -> bool:
+    """Map the Super Admin's dedicated user-management URL to the legacy handlers.
+
+    The public /admin/users URL remains blocked for a Super Admin session, preserving
+    strict portal isolation. The dedicated /super-admin/users URL is an internal
+    compatibility bridge to the existing user-management implementation.
+    """
+    if request.session.get("login_portal") != "super_admin":
+        return False
+    path = request.url.path
+    prefix = "/super-admin/users"
+    if path == prefix or path.startswith(prefix + "/"):
+        legacy_path = "/admin/users" + path[len(prefix):]
+        request.scope["path"] = legacy_path
+        request.scope["raw_path"] = legacy_path.encode("ascii")
+        return True
+    return False
+
+
+def _rewrite_super_admin_user_management_links(response: HTMLResponse) -> HTMLResponse:
+    """Expose the dedicated URL in rendered Super Admin user-management HTML."""
+    body = response.body.replace(b"/admin/users", b"/super-admin/users")
+    response.body = body
+    response.headers.pop("content-length", None)
+    return response
+
+
 @app.middleware("http")
 async def enforce_dedicated_portal_session(request: Request, call_next):
     """Keep Admin and Super Admin sessions strictly isolated.
@@ -94,8 +121,9 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
     separate login when switching between /admin and /super-admin, including
     for Super Admin accounts accessing /admin surfaces.
     """
-    required = _required_portal(request.url.path)
-    if required and not _is_portal_login(request.url.path, required):
+    original_path = request.url.path
+    required = _required_portal(original_path)
+    if required and not _is_portal_login(original_path, required):
         current_user_id = request.session.get("user_id")
         current_portal = request.session.get("login_portal")
         if current_user_id and current_portal != required:
@@ -104,7 +132,11 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
     export_get = _sensitive_export_get(request)
     if export_get is not None:
         return export_get
-    return await call_next(request)
+    bridge_active = _super_admin_user_management_bridge(request)
+    response = await call_next(request)
+    if bridge_active and isinstance(response, HTMLResponse):
+        response = _rewrite_super_admin_user_management_links(response)
+    return response
 
 
 # Add POST aliases for the existing export handlers. The original GET handlers
