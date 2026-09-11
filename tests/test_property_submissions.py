@@ -17,6 +17,8 @@ from app.routers.property_submissions import (
     _visiting_card_magic_ok,
 )
 
+ROOT = Path(__file__).parents[1]
+
 
 def test_submission_tokens_are_hashed_and_links_are_not_reversible():
     token = "sample-secure-token"
@@ -117,11 +119,45 @@ def test_correction_preserves_previous_plan_and_video_when_replacement_is_blank(
     assert result[0]["plan_video"] == "old-video"
 
 
-def test_admin_and_super_admin_both_expose_property_submission_actions():
-    dashboard = (Path(__file__).parents[1] / "app" / "templates" / "dashboard.html").read_text(encoding="utf-8")
-    management = (Path(__file__).parents[1] / "app" / "templates" / "property_submissions_admin.html").read_text(encoding="utf-8")
-    assert "href=\"/admin/property-submissions/new\"" in dashboard or "href=\"/super-admin/property-submissions/new\"" in dashboard
+def test_admin_and_super_admin_both_expose_sm_property_submission_actions():
+    dashboard = (ROOT / "app" / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    management = (ROOT / "app" / "templates" / "property_submissions_admin.html").read_text(encoding="utf-8")
+    router = (ROOT / "app" / "routers" / "property_submissions.py").read_text(encoding="utf-8")
+    assert "role in ['SUPER_ADMIN','ADMIN']" in dashboard
+    assert "/super-admin/property-submissions" in dashboard
+    assert "/admin/property-submissions" in dashboard
     assert "portal=='admin'" in management
     assert "portal=='super-admin'" in management
     assert "action=\"/admin/property-submissions/" in management
     assert "action=\"/super-admin/property-submissions/" in management
+    assert '@router.get("/admin/property-submissions"' in router
+    assert '@router.get("/super-admin/property-submissions"' in router
+    assert '@router.get("/admin/property-submissions/new"' in router
+    assert '@router.get("/super-admin/property-submissions/new"' in router
+
+
+def test_single_admin_or_super_admin_approval_imports_and_locks_link():
+    router = (ROOT / "app" / "routers" / "property_submissions.py").read_text(encoding="utf-8")
+    assert 'if submission.status != "SUBMITTED" or submission.revoked:' in router
+    assert "_import_submission(db, actor, submission, role)" in router
+    assert 'submission.status = "IMPORTED"' in router
+    assert "submission.revoked = True" in router
+    assert 'if submission.admin_approved_by and submission.super_admin_approved_by' not in router
+
+
+def test_sm_identity_is_required_and_verified_before_property_submission():
+    router = (ROOT / "app" / "routers" / "property_submissions.py").read_text(encoding="utf-8")
+    assert 'submitted_sm_name = str(form.get("sm_name", "")).strip()' in router
+    assert 'submitted_sm_contact = str(form.get("sm_contact", "")).strip()' in router
+    assert '_normalise_name(submitted_sm_name) != _normalise_name(submission.recipient_name)' in router
+    assert 'expected_phone = _normalise_phone(submission.recipient_mobile or "")' in router
+    assert 'actual_phone = _normalise_phone(submitted_sm_contact)' in router
+
+
+def test_sm_visiting_card_is_optional_but_validated_and_preserved():
+    router = (ROOT / "app" / "routers" / "property_submissions.py").read_text(encoding="utf-8")
+    form = (ROOT / "app" / "templates" / "property_submission.html").read_text(encoding="utf-8")
+    assert "MAX_SM_VISITING_CARD_BYTES = 5 * 1024 * 1024" in router
+    assert "_normalise_visiting_card" in router
+    assert 'name="sm_visiting_card"' in form
+    assert "Optional" in form
