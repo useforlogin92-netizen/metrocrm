@@ -23,18 +23,23 @@ def test_property_data_routes_are_registered_in_production_app():
     assert "/admin/property-data/export" in paths
     assert "/admin/property-data/export/request" in paths
     assert "/admin/property-data/export/download/{request_id}" in paths
+    assert "/super-admin/property-data" in paths
+    assert "/super-admin/property-data/template" in paths
+    assert "/super-admin/property-data/import" in paths
+    assert "/super-admin/property-data/save" in paths
+    assert "/super-admin/property-data/export" in paths
     assert "/super-admin/property-data-export-requests" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/approve" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/reject" in paths
     assert "/super-admin/property-data-notifications" in paths
 
 
-def test_property_data_ui_has_import_export_and_online_edit_controls():
+def test_property_data_ui_has_role_aware_import_export_and_online_edit_controls():
     from pathlib import Path
     template = Path("app/templates/property_data.html").read_text(encoding="utf-8")
     assert "property_data_base" in template
-    assert "/admin/property-data/import" in template
-    assert "/admin/property-data/save" in template
+    assert 'action="{{ property_data_base }}/import"' in template
+    assert 'action="{{ property_data_base }}/save"' in template
     assert "/admin/property-data/export/request" in template
     assert "/super-admin/property-data/export" in template
     assert "/super-admin/property-data-export-requests" in template
