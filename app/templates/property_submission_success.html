@@ -1,15 +1,29 @@
-{% extends "base.html" %}
-{% block title %}MetroCRM | Submission Received{% endblock %}
-{% block content %}
-<div style="max-width:720px;margin:70px auto;text-align:center;background:#fff;border:1px solid var(--line);border-radius:18px;padding:42px">
-  <div style="font-size:52px" aria-hidden="true">✓</div>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0, private">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>MetroCRM | Submission Received</title>
+<style>
+body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:#f4f7fb;color:#0f172a}.header{background:#fff;border-bottom:1px solid #e2e8f0;padding:18px 24px}.brand{max-width:1120px;margin:auto;font-weight:900;font-size:20px}.brand small{display:block;color:#64748b;font-size:11px;margin-top:3px}.card{max-width:720px;margin:70px auto;background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:42px;text-align:center}.ok{font-size:52px}.box{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px;margin:20px 0;text-align:left}.muted{color:#64748b}@media(max-width:700px){.card{margin:30px 16px;padding:28px 20px}}
+</style>
+</head>
+<body>
+<header class="header"><div class="brand">MetroCRM<small>Secure Sales Manager Property Submission</small></div></header>
+<div class="card">
+  <div class="ok" aria-hidden="true">✓</div>
   <h1>Property Details Received</h1>
-  <p style="color:var(--muted);font-size:16px">Thank you, {{ submission.recipient_name }}. Your property details submission has been received successfully.</p>
-  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px;margin:20px 0;text-align:left">
+  <p class="muted">Thank you, {{ submission.recipient_name }}. Your property details submission has been received successfully.</p>
+  <div class="box">
     <strong>Submission status: Received ✓</strong>
     <div style="font-size:13px;color:#475467;margin-top:6px">Your submitted data is now locked for editing and has been sent to the MetroCRM Admin/Super Admin portal for review.</div>
   </div>
-  <p style="color:var(--muted);font-size:13px">If the team needs any missing information, the same secure link can be reopened for correction. After either one Admin or Super Admin approves and processes the submission, the link becomes permanently invalid.</p>
+  <p class="muted" style="font-size:13px">If the team needs any missing information, the same secure link can be reopened for correction. After either one Admin or Super Admin approves and processes the submission, the link becomes permanently invalid.</p>
   <strong>MetroCRM</strong>
 </div>
-{% endblock %}
+</body>
+</html>
