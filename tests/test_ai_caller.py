@@ -37,7 +37,14 @@ class _ScopeDB:
     def __init__(self, users):
         self.users = users
 
-    def scalars(self, _stmt):
+    def scalars(self, stmt):
+        params = stmt.compile().params
+        manager_ids = set()
+        for value in params.values():
+            if isinstance(value, (list, tuple, set)):
+                manager_ids.update(value)
+        scoped_users = [user for user in self.users if user.reporting_manager_id in manager_ids]
+
         class Result:
             def __init__(self, users):
                 self._users = users
@@ -45,7 +52,7 @@ class _ScopeDB:
             def all(self):
                 return self._users
 
-        return Result(self.users)
+        return Result(scoped_users)
 
 
 def _user(user_id, role, manager_id=None):
