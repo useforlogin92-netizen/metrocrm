@@ -52,7 +52,14 @@ def _find_submission(db: Session, token: str) -> PropertySubmission | None:
 
 
 def _valid(submission: PropertySubmission) -> bool:
-    return not submission.revoked and submission.status not in {"SUBMITTED", "IMPORTED", "REJECTED"} and datetime.now(timezone.utc).replace(tzinfo=None) < submission.expires_at
+    # The SM link is editable only before submission or after an explicit
+    # correction request. Once submitted, it is locked until Admin/Super Admin
+    # requests changes. Once imported, the link is permanently invalid.
+    return (
+        not submission.revoked
+        and submission.status in {"OPEN", "CORRECTION_REQUESTED"}
+        and datetime.now(timezone.utc).replace(tzinfo=None) < submission.expires_at
+    )
 
 
 def _admin_role(actor: User | None) -> bool:
@@ -224,7 +231,12 @@ async def property_submission_submit(token: str, request: Request, db: Session =
         payload["configuration_details"] = details
         payload["amenities"] = form.getlist("amenities")
         submission.payload_json = json.dumps(payload, ensure_ascii=False)
+        db.commit()
         return templates.TemplateResponse("property_submission.html", {**_public_context(request, submission, token), "error": "Please select at least one configuration and complete carpet area, rate/sq.ft and bundle price for every selected configuration."}, status_code=422)
+    old_payload = json.loads(submission.payload_json or "{}")
+    revision_history = old_payload.get("revision_history") or []
+    if old_payload and old_payload.get("configuration_details"):
+        revision_history.append({"submitted_at": old_payload.get("last_submitted_at"), "payload": old_payload})
     payload = dict(BASE_FORM)
     for key in payload:
         if key in {"configurations", "configuration_details", "amenities"}:
@@ -242,10 +254,12 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     payload["bundle_price"] = first["bundle_price"]
     payload["inventory_status"] = first["inventory_status"]
     payload["available_units"] = first["available_units"]
+    payload["last_submitted_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    payload["revision_history"] = revision_history
     submission.payload_json = json.dumps(payload, ensure_ascii=False)
     submission.status = "SUBMITTED"
     submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name, "configuration_count": len(details)})))
+    db.add(AuditEvent(actor_user_id=None, action="SM_PROPERTY_SUBMITTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": submission.recipient_name, "configuration_count": len(details), "revision_count": len(revision_history)})))
     db.commit()
     return templates.TemplateResponse("property_submission_success.html", {"request": request, "submission": submission})
 
@@ -324,7 +338,7 @@ async def super_property_submission_create(request: Request, db: Session = Depen
 
 
 def _approve(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str):
-    if submission.status in {"IMPORTED", "REJECTED"}:
+    if submission.status != "SUBMITTED":
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if role == "admin":
@@ -360,7 +374,8 @@ def _approve(request: Request, db: Session, actor: User, submission: PropertySub
                 continue
             db.add(Unit(project_id=project.id, unit_number=f"SUB-{submission.id}-{index}", bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status"), availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps({"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": item.get("tower"), "floor": item.get("floor"), "plan_video": item.get("plan_video")}, ensure_ascii=False)))
         submission.status = "IMPORTED"
-        db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details)})))
+        submission.revoked = True
+        db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_IMPORTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"project_id": project.id, "developer_id": developer.id, "configuration_count": len(details), "link_locked": True})))
     db.commit()
 
 
@@ -370,7 +385,7 @@ def admin_property_submission_approve(submission_id: int, request: Request, db: 
     if not _admin_role(actor):
         return RedirectResponse("/admin/login", status_code=303)
     row = db.get(PropertySubmission, submission_id)
-    if row and row.status not in {"IMPORTED", "REJECTED"}:
+    if row and row.status == "SUBMITTED":
         _approve(request, db, actor, row, "admin")
     return RedirectResponse("/admin/property-submissions", status_code=303)
 
@@ -381,8 +396,60 @@ def super_property_submission_approve(submission_id: int, request: Request, db: 
     if not _super_role(actor):
         return RedirectResponse("/super-admin/login", status_code=303)
     row = db.get(PropertySubmission, submission_id)
-    if row and row.status not in {"IMPORTED", "REJECTED"}:
+    if row and row.status == "SUBMITTED":
         _approve(request, db, actor, row, "super")
+    return RedirectResponse("/super-admin/property-submissions", status_code=303)
+
+
+def _request_correction(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str):
+    if submission.status not in {"SUBMITTED", "ADMIN_APPROVED", "SUPER_ADMIN_APPROVED"}:
+        return
+    reason = str((request.state.correction_reason if hasattr(request.state, "correction_reason") else "")).strip()
+    if not reason:
+        return
+    submission.status = "CORRECTION_REQUESTED"
+    submission.admin_approved_by = None
+    submission.admin_approved_at = None
+    submission.super_admin_approved_by = None
+    submission.super_admin_approved_at = None
+    submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    payload = json.loads(submission.payload_json or "{}")
+    requests = payload.get("correction_requests") or []
+    requests.append({"requested_by": role, "requested_by_user_id": actor.id, "requested_at": submission.updated_at.isoformat(), "reason": reason})
+    payload["correction_requests"] = requests
+    payload["latest_correction_request"] = reason
+    submission.payload_json = json.dumps(payload, ensure_ascii=False)
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_CORRECTION_REQUESTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"role": role, "reason": reason})))
+    db.commit()
+
+
+def _correction_reason(request: Request) -> str:
+    return ""
+
+
+@router.post("/admin/property-submissions/{submission_id}/request-correction", dependencies=[Depends(require_csrf)])
+async def admin_property_submission_request_correction(submission_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _admin_role(actor):
+        return RedirectResponse("/admin/login", status_code=303)
+    form = await request.form()
+    request.state.correction_reason = str(form.get("correction_reason", "")).strip()
+    row = db.get(PropertySubmission, submission_id)
+    if row:
+        _request_correction(request, db, actor, row, "admin")
+    return RedirectResponse("/admin/property-submissions", status_code=303)
+
+
+@router.post("/super-admin/property-submissions/{submission_id}/request-correction", dependencies=[Depends(require_csrf)])
+async def super_property_submission_request_correction(submission_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not _super_role(actor):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    form = await request.form()
+    request.state.correction_reason = str(form.get("correction_reason", "")).strip()
+    row = db.get(PropertySubmission, submission_id)
+    if row:
+        _request_correction(request, db, actor, row, "super-admin")
     return RedirectResponse("/super-admin/property-submissions", status_code=303)
 
 
