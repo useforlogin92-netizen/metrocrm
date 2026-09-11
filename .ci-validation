@@ -1,0 +1,2 @@
+Latest main CI validation marker.
+This file exists only to trigger the validation workflow on the rebased verification branch.
