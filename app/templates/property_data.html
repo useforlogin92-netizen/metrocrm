@@ -34,7 +34,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 <div class="pd-card" style="margin-bottom:18px;border-color:#fed7aa;background:#fffaf5">
   <h3 style="margin:0 0 5px">Godrej Nest — Test Property</h3>
   <p class="pd-note" style="margin:0">Load the reviewed Godrej Nest test project into <b>Projects, Towers and Units</b>, plus the official gallery links. The loader is idempotent, requires the current CSRF token, and marks pricing as <b>TEST DATA</b> so you can edit it afterward.</p>
-  <form method="post" action="/admin/property-data/load-godrej-nest" style="margin-top:12px">
+  <form method="post" action="{{ property_data_base }}/load-godrej-nest" style="margin-top:12px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="pd-btn test" type="submit">＋ Load Godrej Nest Test Property</button>
   </form>
