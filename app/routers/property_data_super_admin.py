@@ -12,12 +12,12 @@ from sqlalchemy.orm import Session
 from app.csrf import require_csrf
 from app.database import get_db
 from app.routers.property_data import (
-    _guard,
     _user,
     download_approved_property_export as _download_approved_property_export,
     download_property_template as _download_property_template,
     export_property_data as _export_property_data,
     import_property_data as _import_property_data,
+    load_godrej_nest_test_data as _load_godrej_nest_test_data,
     property_data_page as _property_data_page,
     save_property_data as _save_property_data,
 )
@@ -50,6 +50,14 @@ def super_admin_property_template(request: Request, db: Session = Depends(get_db
     if not _require_super_admin(request, db):
         return RedirectResponse("/super-admin/login", status_code=303)
     return _download_property_template(request, db)
+
+
+@router.post("/super-admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
+def super_admin_load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
+    if not _require_super_admin(request, db):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    response = _load_godrej_nest_test_data(request, db)
+    return _rewrite_admin_redirect(response, "/super-admin/property-data")
 
 
 @router.post("/super-admin/property-data/import", dependencies=[Depends(require_csrf)])
