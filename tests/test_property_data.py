@@ -23,6 +23,7 @@ def test_property_data_routes_are_registered_in_production_app():
     assert "/admin/property-data/export" in paths
     assert "/admin/property-data/export/request" in paths
     assert "/admin/property-data/export/download/{request_id}" in paths
+    assert "/super-admin/property-data" in paths
     assert "/super-admin/property-data-export-requests" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/approve" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/reject" in paths
