@@ -43,8 +43,7 @@ LANGUAGE_SCRIPT = r"""
   function translateText(value, lang){
     if(lang === 'en') return value;
     const map = translations[lang] || {};
-    if(Object.prototype.hasOwnProperty.call(map, value)) return map[value];
-    return value;
+    return Object.prototype.hasOwnProperty.call(map, value) ? map[value] : value;
   }
   function apply(lang, announce){
     lang = normalize(lang);
@@ -61,7 +60,7 @@ LANGUAGE_SCRIPT = r"""
       if(!el.dataset.metrocrmOriginal) el.dataset.metrocrmOriginal = el.textContent.trim();
       const original = el.dataset.metrocrmOriginal;
       const translated = translateText(original, lang);
-      if(translated !== original && el.children.length === 0) el.textContent = translated;
+      if(el.children.length === 0) el.textContent = translated;
     });
     const label = document.querySelector('.global-language label');
     if(label) label.textContent = lang === 'hi' ? '🌐 भाषा' : (lang === 'hinglish' ? '🌐 Bhasha' : '🌐 Language');
@@ -78,11 +77,10 @@ LANGUAGE_SCRIPT = r"""
 
   function bind(){
     const select = document.getElementById('globalSpeechLanguage');
-    if(select && !select.dataset.metrocrmLanguageBound){
-      select.dataset.metrocrmLanguageBound = '1';
-      ['change','input'].forEach(function(eventName){
-        select.addEventListener(eventName, function(){ apply(select.value, true); });
-      });
+    if(select && !select.dataset.metrocrmLanguageBoundBySupport){
+      select.dataset.metrocrmLanguageBoundBySupport = '1';
+      select.addEventListener('change', function(){ apply(select.value, true); });
+      select.addEventListener('input', function(){ apply(select.value, true); });
     }
     apply(selected(), false);
   }
@@ -100,9 +98,14 @@ async def _inject_language_script(request, call_next):
         return response
     body = response.body
     marker = b"</body>"
-    if marker not in body or b"window.metrocrmLanguage" in body:
+    # Do not use the public API name as the injection marker.  The shared
+    # base.html already exposes window.metrocrmLanguage for speech controls;
+    # using that name here caused the real translation script to be skipped.
+    # A dedicated HTML marker makes the response-level translator independent
+    # of the base template implementation.
+    if marker not in body or b"data-metrocrm-language-support" in body:
         return response
-    script = ("<script>" + LANGUAGE_SCRIPT + "</script>").encode("utf-8")
+    script = ("<script data-metrocrm-language-support>" + LANGUAGE_SCRIPT + "</script>").encode("utf-8")
     response.body = body.replace(marker, script + marker, 1)
     if "content-length" in response.headers:
         del response.headers["content-length"]
