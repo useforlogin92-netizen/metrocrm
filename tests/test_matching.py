@@ -58,3 +58,46 @@ def test_mumbai_priority_breaks_equal_score_ties():
     ]
     ranked = rank_properties(customer, properties, minimum_score=10)
     assert [item.property_id for item in ranked] == [21, 20]
+
+
+def test_unfiltered_search_keeps_all_properties_regardless_of_status_format():
+    customer = {}
+    properties = [
+        {"id": 1, "name": "Dimple Westwood", "construction_status": "UNDER_CONSTRUCTION"},
+        {"id": 2, "name": "Godrej Nest", "construction_status": "READY_TO_MOVE"},
+    ]
+
+    matches = rank_properties(customer, properties)
+
+    assert {item.property_id for item in matches} == {1, 2}
+    assert {item.location_category for item in matches} == {"All"}
+
+
+def test_construction_status_accepts_spaces_hyphens_and_underscores():
+    customer = {"construction_statuses": ["Ready to Move"]}
+
+    assert score_match(customer, {"id": 1, "construction_status": "READY_TO_MOVE"}).score == 10.0
+    assert score_match(customer, {"id": 2, "construction_status": "ready-to-move"}).score == 10.0
+    assert score_match(customer, {"id": 3, "construction_status": "Ready to Move"}).score == 10.0
+    assert score_match(customer, {"id": 4, "construction_status": "UNDER_CONSTRUCTION"}).score == 0.0
+
+
+def test_construction_status_filter_does_not_hide_godrej_ready_to_move_inventory():
+    customer = {"construction_statuses": ["Ready to Move"]}
+    properties = [
+        {"id": 1, "name": "Dimple Westwood", "construction_status": "UNDER_CONSTRUCTION"},
+        {"id": 2, "name": "Godrej Nest", "construction_status": "READY_TO_MOVE"},
+    ]
+
+    matches = rank_properties(customer, properties)
+
+    assert [item.property_id for item in matches] == [2]
+
+
+def test_possession_date_still_works_with_normalized_status():
+    from datetime import date
+
+    customer = {"construction_statuses": ["Ready to Move"], "possession_by": 2025}
+    property_ = {"id": 2, "construction_status": "READY_TO_MOVE", "possession_date": date(2024, 6, 30)}
+
+    assert score_match(customer, property_).score == 20.0
