@@ -108,6 +108,73 @@ def seed_godrej_nest_test(db: Session) -> tuple[int, int, int]:
     return project.id, len(UNITS), len(OFFICIAL_GALLERY)
 
 
+def delete_godrej_nest_test(db: Session) -> tuple[int | None, int, int, int]:
+    """Delete only the explicitly identified Godrej Nest test project and its linked records."""
+    project = db.scalar(select(Project).where(
+        Project.name == "Godrej Nest",
+        Project.city == "Mumbai",
+        Project.locality == "Kandivali East",
+        Project.rera == "P51800022159",
+    ))
+    if not project:
+        return None, 0, 0, 0
+
+    project_id = project.id
+    media_rows = db.scalars(select(PropertyMedia).where(PropertyMedia.project_id == project_id)).all()
+    unit_rows = db.scalars(select(Unit).where(Unit.project_id == project_id)).all()
+    tower_rows = db.scalars(select(Tower).where(Tower.project_id == project_id)).all()
+
+    for media in media_rows:
+        db.delete(media)
+    for unit in unit_rows:
+        db.delete(unit)
+    for tower in tower_rows:
+        db.delete(tower)
+    db.delete(project)
+    db.flush()
+    return project_id, len(tower_rows), len(unit_rows), len(media_rows)
+
+
+# property_data.py imports this module after its router has been created. Register the
+# Super Admin-only delete endpoint here so the existing page button has a real POST target.
+if "app.routers.property_data" in sys.modules:
+    from fastapi import Depends, Request
+    from fastapi.responses import RedirectResponse
+    from app.csrf import require_csrf
+    from app.models import AuditEvent
+
+    _property_data_module = sys.modules["app.routers.property_data"]
+
+    def _delete_godrej_nest_test_route(request: Request, db: Session = Depends(_property_data_module.get_db)):
+        actor = _property_data_module._guard(request, db)
+        if not actor or actor.role != "SUPER_ADMIN":
+            return RedirectResponse("/dashboard", status_code=303)
+        try:
+            project_id, tower_count, unit_count, media_count = delete_godrej_nest_test(db)
+            if project_id is None:
+                return RedirectResponse("/super-admin/property-data?entity=Projects&message=Godrej+Nest+test+property+was+not+found", status_code=303)
+            db.add(AuditEvent(
+                actor_user_id=actor.id,
+                action="GODREJ_NEST_TEST_DATA_DELETED",
+                entity_type="Projects",
+                entity_id=str(project_id),
+                details=json.dumps({"towers": tower_count, "units": unit_count, "media": media_count, "scope": "Mumbai + Kandivali East + RERA P51800022159"}),
+            ))
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            return RedirectResponse("/super-admin/property-data?entity=Projects&error=Godrej+Nest+test+data+delete+failed%3A+" + str(exc).replace(" ", "+")[:300], status_code=303)
+        return RedirectResponse(f"/super-admin/property-data?entity=Projects&message=Godrej+Nest+test+property+deleted+%28project+%23{project_id}%2C+{tower_count}+towers%2C+{unit_count}+units%2C+{media_count}+media%29", status_code=303)
+
+    _property_data_module.router.add_api_route(
+        "/super-admin/property-data/delete-godrej-nest",
+        _delete_godrej_nest_test_route,
+        methods=["POST"],
+        dependencies=[Depends(require_csrf)],
+        name="delete_godrej_nest_test",
+    )
+
+
 def main() -> None:
     db = SessionLocal()
     try:
