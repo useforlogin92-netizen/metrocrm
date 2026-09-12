@@ -23,7 +23,6 @@ def test_property_data_routes_are_registered_in_production_app():
     assert "/admin/property-data/export" in paths
     assert "/admin/property-data/export/request" in paths
     assert "/admin/property-data/export/download/{request_id}" in paths
-    assert "/super-admin/property-data" in paths
     assert "/super-admin/property-data-export-requests" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/approve" in paths
     assert "/super-admin/property-data-export-requests/{request_id}/reject" in paths
@@ -43,6 +42,15 @@ def test_property_data_ui_has_role_aware_import_export_and_online_edit_controls(
     assert "csrf_token" in template
     assert "Edit" in template
     assert "Download Property Template" in template
+
+
+def test_super_admin_property_data_path_is_explicitly_bridged_to_admin_handler():
+    from app.portal_boundary import _SUPER_ADMIN_LEGACY_ROUTES, _super_admin_redirect_for_legacy_admin_path
+    assert ("/admin/property-data", "/super-admin/property-data") in _SUPER_ADMIN_LEGACY_ROUTES
+    assert _super_admin_redirect_for_legacy_admin_path("/admin/property-data") == "/super-admin/property-data"
+    assert _super_admin_redirect_for_legacy_admin_path("/admin/property-data/template") == "/super-admin/property-data/template"
+    assert _super_admin_redirect_for_legacy_admin_path("/admin/property-data/import") == "/super-admin/property-data/import"
+    assert _super_admin_redirect_for_legacy_admin_path("/admin/property-data/save") == "/super-admin/property-data/save"
 
 
 def test_property_export_uses_existing_data_request_model():
