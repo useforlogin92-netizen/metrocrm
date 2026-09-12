@@ -17,6 +17,7 @@ from app.routers.property_data import router as property_data_router
 from app.routers.property_data_notifications import router as property_data_notifications_router
 from app.routers.property_data_super_admin import router as property_data_super_admin_router
 from app.routers.godrej_test_admin import router as godrej_test_admin_router
+from app.routers.godrej_test_property_delete import router as godrej_test_property_delete_router
 from app.routers.sales_property import router as sales_property_router
 from app.routers.whatsapp import router as whatsapp_router
 
@@ -29,6 +30,7 @@ app.include_router(property_data_router)
 app.include_router(property_data_notifications_router)
 app.include_router(property_data_super_admin_router)
 app.include_router(godrej_test_admin_router)
+app.include_router(godrej_test_property_delete_router)
 app.include_router(media_catalog_router)
 app.include_router(sales_property_router)
 app.include_router(caller_assistant_router)
