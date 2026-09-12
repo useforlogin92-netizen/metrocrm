@@ -6,17 +6,15 @@ import secrets
 from datetime import datetime, timezone, timedelta
 from collections.abc import Mapping
 from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
 from app.config import settings
 from app.database import get_db
-from app.catalog_models import CatalogShare, CatalogShareVisit, PropertySocialProfile
+from app.catalog_models import CatalogShare, CatalogShareVisit, PropertyMedia, PropertySocialProfile
 from app.integration_models import PropertyVisitAlert
 from app.models import AuditEvent, User
 from app.permissions import Access, Role, user_allows
@@ -69,7 +67,22 @@ class CatalogShareRequest(BaseModel):
 
 def _payload(request: CatalogShareRequest, db: Session | None = None) -> dict[str, Any]:
     selections = tuple(ContactSelection(item.contact_type, frozenset(item.fields)) for item in request.contact_selections)
-    payload = build_share_payload(request.property_data, selected_fields=frozenset(request.selected_fields), selected_media_ids=frozenset(request.selected_media_ids), media=request.media, contacts=request.contacts, contact_selections=selections)
+    approved_media = request.media
+    if db and request.selected_media_ids:
+        selected_ids = {int(x) for x in request.selected_media_ids if str(x).isdigit()}
+        if selected_ids:
+            media_rows = db.scalars(select(PropertyMedia).where(PropertyMedia.id.in_(selected_ids), PropertyMedia.is_shareable.is_(True))).all()
+            approved = []
+            for row in media_rows:
+                if request.unit_id and row.unit_id != request.unit_id:
+                    continue
+                if not request.unit_id and request.project_id and row.project_id != request.project_id:
+                    continue
+                approved.append({"id": str(row.id), "title": row.title, "url": row.file_url, "media_type": row.media_type, "internal_only": False})
+            approved_media = approved
+        else:
+            approved_media = []
+    payload = build_share_payload(request.property_data, selected_fields=frozenset(request.selected_fields), selected_media_ids=frozenset(request.selected_media_ids), media=approved_media, contacts=request.contacts, contact_selections=selections)
     if db and request.project_id:
         profile = db.scalar(select(PropertySocialProfile).where(PropertySocialProfile.project_id == request.project_id, PropertySocialProfile.is_active.is_(True)))
         if profile:
