@@ -5,7 +5,7 @@
 {% block content %}
 <style>
 .pd-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.pd-card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
-.pd-actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.pd-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dbe3ef;background:#fff;color:#0f172a;text-decoration:none;border-radius:9px;padding:10px 14px;font-weight:750;font-size:12px;cursor:pointer}.pd-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb}.pd-btn.test{background:#f8fafc;color:#7c2d12;border-color:#fed7aa}.pd-btn:hover{filter:brightness(.98)}
+.pd-actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.pd-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dbe3ef;background:#fff;color:#0f172a;text-decoration:none;border-radius:9px;padding:10px 14px;font-weight:750;font-size:12px;cursor:pointer}.pd-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb}.pd-btn.test{background:#f8fafc;color:#7c2d12;border-color:#fed7aa}.pd-btn.danger{background:#fff1f2;color:#b42318;border-color:#fecdd3}.pd-btn:hover{filter:brightness(.98)}
 .pd-note{font-size:12px;color:#64748b;line-height:1.55}.pd-alert{padding:12px 14px;border-radius:10px;margin-bottom:15px;font-size:12px}.pd-alert.ok{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}.pd-alert.err{background:#fff1f2;color:#b42318;border:1px solid #fecdd3}
 select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #dbe3ef;border-radius:9px;font:inherit;background:#fff}label{display:block;font-size:11px;font-weight:800;color:#475569;margin:10px 0 5px}.pd-table{width:100%;border-collapse:collapse;font-size:11px}.pd-table th,.pd-table td{padding:9px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}.pd-table th{font-size:10px;text-transform:uppercase;color:#64748b}.pd-table-wrap{overflow:auto;max-height:480px}.pd-form{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}.pd-form .wide{grid-column:1/-1}.pd-small{font-size:10px;color:#64748b}.pd-title{margin:0 0 5px;font-size:18px}.pd-sub{margin:0;color:#64748b;font-size:12px}
 @media(max-width:900px){.pd-grid{grid-template-columns:1fr}.pd-form{grid-template-columns:1fr}.pd-form .wide{grid-column:auto}}
@@ -31,14 +31,17 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <p class="pd-note"><b>Template rule:</b> A blank <code>id</code> creates a new record. An existing <code>id</code> updates that record. The template includes Projects, Towers, Units, NearbyLocations and Developers sheets.</p>
 </div>
 
+{% if role == 'SUPER_ADMIN' %}
 <div class="pd-card" style="margin-bottom:18px;border-color:#fed7aa;background:#fffaf5">
   <h3 style="margin:0 0 5px">Godrej Nest — Test Property</h3>
   <p class="pd-note" style="margin:0">Load the reviewed Godrej Nest test project into <b>Projects, Towers and Units</b>, plus the official gallery links. The loader is idempotent, requires the current CSRF token, and marks pricing as <b>TEST DATA</b> so you can edit it afterward.</p>
-  <form method="post" action="{{ property_data_base }}/load-godrej-nest" style="margin-top:12px">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button class="pd-btn test" type="submit">＋ Load Godrej Nest Test Property</button>
-  </form>
+  <div class="pd-actions" style="margin-bottom:0">
+    <form method="post" action="{{ property_data_base }}/load-godrej-nest" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="pd-btn test" type="submit">＋ Load Godrej Nest Test Property</button></form>
+    <form method="post" action="/super-admin/property-data/delete-godrej-nest" style="display:inline" onsubmit="return confirm('Delete ONLY the Godrej Nest test property, its towers, units, media and linked test records? This cannot be undone.');"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="pd-btn danger" type="submit">🗑 Delete Godrej Nest Test Property</button></form>
+  </div>
+  <p class="pd-note" style="margin-top:10px"><b>Delete scope:</b> only the Godrej Nest test project identified by Mumbai + Kandivali East + RERA P51800022159 and its linked property records. Other projects are not targeted.</p>
 </div>
+{% endif %}
 
 <div class="pd-grid">
   <div class="pd-card">
