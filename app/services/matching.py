@@ -141,6 +141,16 @@ def _possession_matches(customer: dict, property_: dict) -> bool:
     return property_year <= required_year
 
 
+def _has_possession_filter(customer: dict) -> bool:
+    """Return whether possession/status is an explicit customer filter."""
+    return bool(
+        customer.get("construction_statuses")
+        or customer.get("construction_status")
+        or customer.get("possession_by")
+        or customer.get("possession_requirement")
+    )
+
+
 def _configuration_matches(requested: object, actual: object) -> bool:
     """Support one or many BHK/Jodi values while preserving exact configurations."""
     wanted = {_normalise(item) for item in _values(requested) if _normalise(item)}
@@ -209,5 +219,13 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
 
 def rank_properties(customer: dict, properties: Iterable[dict], minimum_score: float = 0.0) -> list[MatchCandidate]:
     """Return all matching properties ranked by score and regional priority."""
-    candidates = [score_match(customer, item) for item in properties]
-    return sorted((item for item in candidates if item.score >= minimum_score), key=lambda item: (-item.score, -item.regional_priority, str(item.property_id)))
+    candidates = []
+    for item in properties:
+        if not location_matches(customer, item):
+            continue
+        if _has_possession_filter(customer) and not _possession_matches(customer, item):
+            continue
+        candidate = score_match(customer, item)
+        if candidate.score >= minimum_score:
+            candidates.append(candidate)
+    return sorted(candidates, key=lambda item: (-item.score, -item.regional_priority, str(item.property_id)))
