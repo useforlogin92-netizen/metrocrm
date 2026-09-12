@@ -15,6 +15,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from app.config import settings
 
 _MAGIC = b"MCRMBKP1"
+_MAX_ARCHIVE_MEMBERS = 10_000
+_MAX_TOTAL_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def _key() -> bytes:
@@ -40,13 +42,25 @@ def _decrypt_package(package: Path, target_zip: Path) -> None:
 
 def _safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
     root = destination.resolve()
-    for member in archive.infolist():
+    members = archive.infolist()
+    if len(members) > _MAX_ARCHIVE_MEMBERS:
+        raise RuntimeError("Backup archive contains too many members")
+    total_size = 0
+    seen: set[str] = set()
+    for member in members:
         name = member.filename
         if not name or name.startswith("/") or "\\" in name:
             raise RuntimeError("Unsafe backup archive member")
         target = (root / name).resolve()
         if root != target and root not in target.parents:
             raise RuntimeError("Unsafe backup archive member")
+        normalized = target.relative_to(root).as_posix()
+        if normalized in seen:
+            raise RuntimeError("Duplicate backup archive member")
+        seen.add(normalized)
+        if member.file_size < 0 or total_size + member.file_size > _MAX_TOTAL_UNCOMPRESSED_BYTES:
+            raise RuntimeError("Backup archive is too large")
+        total_size += member.file_size
         if member.is_dir():
             target.mkdir(parents=True, exist_ok=True)
         else:
