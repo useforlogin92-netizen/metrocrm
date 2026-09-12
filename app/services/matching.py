@@ -32,7 +32,8 @@ POSSESSION_WEIGHT = 10.0
 
 
 def _normalise(value: object) -> str:
-    return str(value or "").strip().casefold()
+    """Normalize human/API variants before comparing categorical values."""
+    return str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
 
 
 def _contains_any(value: str, choices: Iterable[str]) -> bool:
@@ -66,7 +67,6 @@ def _location_component(customer: dict, property_: dict) -> tuple[float, str | N
     if property_pin and any(_normalise(property_pin) == _normalise(pin) for pin in customer_pins):
         return LOCATION_WEIGHT, "pincode"
 
-    # Mumbai caller workflow: corridor + From station -> To station + side.
     if _normalise(customer.get("city")) == "mumbai" or customer.get("mumbai_station_from") or customer.get("mumbai_station_to"):
         from_station = customer.get("mumbai_station_from")
         to_station = customer.get("mumbai_station_to")
@@ -147,7 +147,7 @@ def _configuration_matches(requested: object, actual: object) -> bool:
     actual_value = _normalise(actual)
     if not wanted or not actual_value:
         return False
-    actual_variants = {actual_value, actual_value.removeprefix("jodi ")}
+    actual_variants = {actual_value, actual_value.removeprefix("jodi_")}
     return bool(wanted & actual_variants)
 
 
