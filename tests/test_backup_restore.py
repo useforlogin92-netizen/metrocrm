@@ -1,5 +1,7 @@
 import hashlib
+import io
 import sqlite3
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -59,3 +61,43 @@ def test_restore_rejects_invalid_package(monkeypatch, tmp_path):
     package.write_bytes(b"not-a-metrocrm-backup")
     with pytest.raises(RuntimeError, match="Invalid MetroCRM backup"):
         restore_backup(package, f"sqlite:///{tmp_path / 'restored.db'}")
+
+
+def test_safe_extract_rejects_duplicate_members(tmp_path):
+    from app.services.backup_restore import _safe_extract
+
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("database/database.snapshot", b"one")
+        archive.writestr("database/database.snapshot", b"two")
+    payload.seek(0)
+    with zipfile.ZipFile(payload) as archive:
+        with pytest.raises(RuntimeError, match="Duplicate"):
+            _safe_extract(archive, tmp_path / "extract")
+
+
+def test_safe_extract_rejects_member_count_limit(monkeypatch, tmp_path):
+    from app.services import backup_restore
+
+    monkeypatch.setattr(backup_restore, "_MAX_ARCHIVE_MEMBERS", 1)
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("database/database.snapshot", b"one")
+        archive.writestr("uploads/file.txt", b"two")
+    payload.seek(0)
+    with zipfile.ZipFile(payload) as archive:
+        with pytest.raises(RuntimeError, match="too many members"):
+            backup_restore._safe_extract(archive, tmp_path / "extract")
+
+
+def test_safe_extract_rejects_total_size_limit(monkeypatch, tmp_path):
+    from app.services import backup_restore
+
+    monkeypatch.setattr(backup_restore, "_MAX_TOTAL_UNCOMPRESSED_BYTES", 3)
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("database/database.snapshot", b"1234")
+    payload.seek(0)
+    with zipfile.ZipFile(payload) as archive:
+        with pytest.raises(RuntimeError, match="too large"):
+            backup_restore._safe_extract(archive, tmp_path / "extract")
