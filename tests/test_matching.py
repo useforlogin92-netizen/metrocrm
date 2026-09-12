@@ -100,4 +100,5 @@ def test_possession_date_still_works_with_normalized_status():
     customer = {"construction_statuses": ["Ready to Move"], "possession_by": 2025}
     property_ = {"id": 2, "construction_status": "READY_TO_MOVE", "possession_date": date(2024, 6, 30)}
 
-    assert score_match(customer, property_).score == 20.0
+    # Status and possession deadline are one possession dimension; they do not stack twice.
+    assert score_match(customer, property_).score == 10.0
