@@ -16,6 +16,7 @@ from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, DataRequest, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
+from tools.seed_godrej_nest_test import seed_godrej_nest_test
 
 router = APIRouter(tags=["property-data"])
 templates = Jinja2Templates(directory="app/templates")
@@ -84,6 +85,22 @@ def property_data_page(request: Request, db: Session = Depends(get_db)):
         "show_user_management": actor.role in {"SUPER_ADMIN", "ADMIN"}, "show_integrations": False,
         "show_alerts": False, "show_approvals": actor.role in {"SUPER_ADMIN", "ADMIN"},
     })
+
+
+@router.post("/admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
+def load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
+    """Explicitly load the reviewed Godrej Nest test inventory into Property Data."""
+    actor = _guard(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    try:
+        project_id, unit_count, gallery_count = seed_godrej_nest_test(db)
+        db.add(AuditEvent(actor_user_id=actor.id, action="GODREJ_NEST_TEST_DATA_LOADED", entity_type="Projects", entity_id=str(project_id), details=json.dumps({"units": unit_count, "gallery_images": gallery_count, "source": "reviewed test seed"})))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return RedirectResponse("/admin/property-data?entity=Projects&error=Godrej+Nest+test+data+load+failed%3A+" + str(exc).replace(" ", "+")[:300], status_code=303)
+    return RedirectResponse(f"/admin/property-data?entity=Projects&message=Godrej+Nest+test+property+loaded+%28project+%23{project_id}%2C+{unit_count}+units%2C+{gallery_count}+gallery+images%29", status_code=303)
 
 
 @router.get("/admin/property-data/template")
@@ -251,17 +268,3 @@ def approve_property_export(request: Request, request_id: int, db: Session = Dep
 @router.post("/super-admin/property-data-export-requests/{request_id}/reject", dependencies=[Depends(require_csrf)])
 def reject_property_export(request: Request, request_id: int, db: Session = Depends(get_db)):
     return _decide_property_export(_user(request, db), request_id, False, db)
-
-
-@router.get("/super-admin/property-data-notifications")
-def property_data_notifications(request: Request, db: Session = Depends(get_db)):
-    actor = _user(request, db)
-    if not actor or actor.role != "SUPER_ADMIN":
-        return JSONResponse({"error": "forbidden"}, status_code=403)
-    actions = {"PROPERTY_DATA_IMPORTED", "PROPERTY_RECORD_CREATED", "PROPERTY_RECORD_UPDATED", "PROPERTY_EXPORT_REQUESTED"}
-    events = db.scalars(select(AuditEvent).join(User, User.id == AuditEvent.actor_user_id).where(User.role == "ADMIN", AuditEvent.action.in_(actions)).order_by(AuditEvent.id.desc()).limit(20)).all()
-    items = []
-    for event in events:
-        actor_user = db.get(User, event.actor_user_id) if event.actor_user_id else None
-        items.append({"id": event.id, "action": event.action, "message": {"PROPERTY_DATA_IMPORTED": "Admin imported property data", "PROPERTY_RECORD_CREATED": "Admin created a property record", "PROPERTY_RECORD_UPDATED": "Admin updated a property record", "PROPERTY_EXPORT_REQUESTED": "Admin requested a property data export"}.get(event.action, event.action), "username": actor_user.username if actor_user else "Admin", "created_at": event.created_at.isoformat() if event.created_at else None})
-    return JSONResponse({"count": len(items), "items": items})
