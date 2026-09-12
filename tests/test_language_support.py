@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from types import SimpleNamespace
 
 from app.language_support import LANGUAGE_SCRIPT, _inject_language_script
@@ -29,6 +29,28 @@ def test_language_script_is_injected_into_html_response():
     assert "'Dashboard':'डैशबोर्ड'" in body
     assert "</body>" in body
     assert "content-length" not in {key.lower() for key in response.headers.keys()}
+
+
+def test_language_script_is_injected_for_html_media_type_not_only_htmlresponse():
+    request = SimpleNamespace()
+
+    async def call_next(_request):
+        return Response("<html><body><h1>Dashboard</h1></body></html>", media_type="text/html")
+
+    response = asyncio.run(_inject_language_script(request, call_next))
+    body = response.body.decode("utf-8")
+    assert 'data-metrocrm-language-support' in body
+    assert "'Dashboard':'डैशबोर्ड'" in body
+
+
+def test_language_script_does_not_inject_into_non_html_response():
+    request = SimpleNamespace()
+
+    async def call_next(_request):
+        return Response('{"ok":true}', media_type="application/json")
+
+    response = asyncio.run(_inject_language_script(request, call_next))
+    assert b"data-metrocrm-language-support" not in response.body
 
 
 def test_language_script_does_not_double_inject_its_own_marker():
