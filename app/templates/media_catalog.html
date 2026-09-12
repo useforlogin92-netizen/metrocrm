@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Media Catalog{% endblock %}
+{% block header_title %}Property Media Catalog{% endblock %}
+{% block breadcrumb %}Property Data / Media Catalog{% endblock %}
+{% block content %}
+<style>
+.mc-wrap{display:grid;grid-template-columns:1fr 1.5fr;gap:18px}.mc-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:22px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
+.mc-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}.mc-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dbe3ef;background:#fff;color:#0f172a;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800;cursor:pointer;text-decoration:none}.mc-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb}.mc-btn.green{background:#15803d;color:#fff;border-color:#15803d}.mc-btn.small{padding:7px 9px;font-size:11px}
+.mc-note{font-size:12px;line-height:1.55;color:#64748b}.mc-alert{padding:12px 14px;border-radius:10px;margin-bottom:15px;font-size:12px}.mc-ok{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}.mc-err{background:#fff1f2;color:#b42318;border:1px solid #fecdd3}
+.mc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;margin-top:16px}.mc-item{border:1px solid #e2e8f0;border-radius:13px;overflow:hidden;background:#fff}.mc-thumb{width:100%;height:150px;object-fit:cover;background:#f1f5f9}.mc-body{padding:12px}.mc-title{font-weight:850;font-size:13px;margin-bottom:4px}.mc-meta{font-size:10px;color:#64748b;line-height:1.45}.mc-form{display:grid;gap:9px}.mc-form input,.mc-form select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #dbe3ef;border-radius:9px;font:inherit}.mc-check{display:flex;align-items:center;gap:7px;font-size:11px;color:#475569}.mc-check input{width:auto}.mc-top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.mc-search{display:flex;gap:8px;flex-wrap:wrap}.mc-search input{padding:9px;border:1px solid #dbe3ef;border-radius:9px}.mc-pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:800;margin-top:5px}.mc-muted{color:#94a3b8;font-size:10px}
+@media(max-width:900px){.mc-wrap{grid-template-columns:1fr}}
+</style>
+{% if message %}<div class="mc-alert mc-ok">✓ {{ message }}</div>{% endif %}
+{% if error %}<div class="mc-alert mc-err">{{ error }}</div>{% endif %}
+
+<div class="mc-card" style="margin-bottom:18px">
+  <div class="mc-top"><div><h2 style="margin:0 0 5px">Property Media Catalog</h2><div class="mc-note">Upload once, reuse across properties, choose a main image, and control exactly which images can be shared with clients.</div></div><a class="mc-btn" href="/admin/property-data">← Property Data</a></div>
+</div>
+
+<div class="mc-wrap">
+  <div>
+    <div class="mc-card">
+      <h3 style="margin-top:0">Upload New Image</h3>
+      <p class="mc-note">JPG, PNG, WEBP or GIF · maximum 10 MB. Uploaded images are stored in MetroCRM's configured uploads area.</p>
+      <form class="mc-form" method="post" action="/admin/media-catalog/upload" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="file" name="file" accept="image/jpeg,image/png,image/webp,image/gif" required>
+        <input name="title" placeholder="Image title e.g. Godrej Nest Elevation">
+        <select name="media_type"><option>PROPERTY_IMAGE</option><option>EXTERIOR</option><option>INTERIOR</option><option>AMENITY</option><option>FLOOR_PLAN</option><option>LOCATION_MAP</option><option>BROCHURE</option></select>
+        <select name="project_id"><option value="">Attach to project (optional)</option>{% for p in projects %}<option value="{{ p.id }}">{{ p.name }} · {{ p.locality or '' }}</option>{% endfor %}</select>
+        <select name="unit_id"><option value="">Attach to unit (optional)</option>{% for u in units %}<option value="{{ u.id }}">{{ u.unit_number }} · {{ u.bhk or '' }}</option>{% endfor %}</select>
+        <label class="mc-check"><input type="checkbox" name="is_shareable" checked> Allow client sharing</label>
+        <button class="mc-btn primary" type="submit">＋ Upload to Catalog</button>
+      </form>
+    </div>
+
+    <div class="mc-card" style="margin-top:18px">
+      <h3 style="margin-top:0">Add Image from Online Source</h3>
+      <p class="mc-note">Use this for an approved public image URL. This does not copy the remote file into MetroCRM.</p>
+      <form class="mc-form" method="post" action="/admin/media-catalog/url">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input name="file_url" type="url" placeholder="https://example.com/property-image.jpg" required>
+        <input name="title" placeholder="Image title">
+        <select name="project_id"><option value="">Attach to project (optional)</option>{% for p in projects %}<option value="{{ p.id }}">{{ p.name }} · {{ p.locality or '' }}</option>{% endfor %}</select>
+        <select name="unit_id"><option value="">Attach to unit (optional)</option>{% for u in units %}<option value="{{ u.id }}">{{ u.unit_number }} · {{ u.bhk or '' }}</option>{% endfor %}</select>
+        <label class="mc-check"><input type="checkbox" name="is_shareable" checked> Allow client sharing</label>
+        <button class="mc-btn" type="submit">＋ Add Online Image</button>
+      </form>
+    </div>
+
+    <div class="mc-card" style="margin-top:18px">
+      <h3 style="margin-top:0">Attach Selected Images</h3>
+      <p class="mc-note">Select one or multiple catalog images on the right, then attach them to a project or unit. The first image becomes the default gallery image unless you choose another as Main.</p>
+      <form id="attach-form" class="mc-form" method="post" action="/admin/media-catalog/attach">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" id="media_ids" name="media_ids" value="">
+        <select name="project_id"><option value="">Project</option>{% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select>
+        <select name="unit_id"><option value="">Unit (optional)</option>{% for u in units %}<option value="{{ u.id }}">{{ u.unit_number }} · {{ u.bhk or '' }}</option>{% endfor %}</select>
+        <button class="mc-btn green" type="submit">Attach Selected Images</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="mc-card">
+    <div class="mc-top"><div><h3 style="margin:0">Catalog Images</h3><div class="mc-note">Select multiple images. Main image and client-sharing status are controlled per image.</div></div><span class="mc-pill">{{ media|length }} shown</span></div>
+    <form class="mc-search" method="get" action="/admin/media-catalog" style="margin-top:14px">
+      <input name="q" value="{{ query }}" placeholder="Search image title">
+      <button class="mc-btn small" type="submit">Search</button>
+      <a class="mc-btn small" href="/admin/media-catalog">Clear</a>
+    </form>
+    <div class="mc-grid">
+      {% for item in media %}
+      <div class="mc-item">
+        <label style="display:block;cursor:pointer"><input class="media-choice" type="checkbox" value="{{ item.id }}" style="margin:9px"> Select</label>
+        <img class="mc-thumb" src="{{ item.file_url }}" alt="{{ item.title or 'Property image' }}" loading="lazy" onerror="this.style.opacity='.25'">
+        <div class="mc-body">
+          <div class="mc-title">{{ item.title or 'Untitled image' }}</div>
+          <div class="mc-meta">{{ item.media_type }} · {{ item.file_size or 'Remote' }}{% if item.sort_order == 0 %}<br><b>Main image</b>{% endif %}</div>
+          {% if item.is_shareable %}<span class="mc-pill">Client share ON</span>{% else %}<span class="mc-pill" style="background:#fff1f2;color:#b42318">Client share OFF</span>{% endif %}
+          <div class="mc-actions">
+            <form method="post" action="/admin/media-catalog/main"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="media_id" value="{{ item.id }}"><button class="mc-btn small" type="submit">Set Main</button></form>
+            <form method="post" action="/admin/media-catalog/shareable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="media_id" value="{{ item.id }}"><input type="hidden" name="shareable" value="{{ 'false' if item.is_shareable else 'true' }}"><button class="mc-btn small" type="submit">{{ 'Hide from Client' if item.is_shareable else 'Allow Client' }}</button></form>
+          </div>
+        </div>
+      </div>
+      {% else %}<div class="mc-muted">No media found. Upload your first property image.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const form=document.getElementById('attach-form');
+  if(!form) return;
+  form.addEventListener('submit',function(){
+    const ids=Array.from(document.querySelectorAll('.media-choice:checked')).map(x=>x.value);
+    document.getElementById('media_ids').value=ids.join(',');
+  });
+})();
+</script>
+{% endblock %}
