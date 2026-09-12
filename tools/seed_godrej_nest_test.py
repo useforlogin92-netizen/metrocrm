@@ -7,6 +7,7 @@ Prices are indicative test values and are deliberately marked in descriptions.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 
 from sqlalchemy import select
@@ -15,6 +16,13 @@ from sqlalchemy.orm import Session
 from app.catalog_models import PropertyMedia
 from app.database import SessionLocal
 from app.models import Developer, Project, Tower, Unit
+
+# property_data.py imports this module while defining its routes. Install the property-aware
+# importer into that module at import time so the existing route uses the safe staging resolver
+# without changing the generic data-tools importer.
+if "app.routers.property_data" in sys.modules:
+    from app.services.property_import import import_property_workbook
+    sys.modules["app.routers.property_data"]._import_workbook = import_property_workbook
 
 AMENITIES = [
     "7-Tier Security", "RFID-enabled campus", "Swimming Pool", "Kids' Pool",
