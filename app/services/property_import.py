@@ -33,13 +33,25 @@ def _find_or_create_developer(db, name: str):
 
 
 def _resolve_developer_name(project_name: str, explicit: str, known_names: list[str]) -> str:
+    """Resolve a developer only from an explicit reference or a conservative name-prefix match."""
     if explicit:
         return explicit
-    normalized = project_name.casefold()
+    normalized = _clean(project_name).casefold()
+    if not normalized:
+        return UNASSIGNED_DEVELOPER
+
+    project_tokens = normalized.split()
+    project_first = project_tokens[0] if project_tokens else ""
     for name in sorted(known_names, key=len, reverse=True):
-        token = name.split("/")[0].strip().casefold()
-        if token and normalized.startswith(token):
-            return name
+        candidate = _clean(name)
+        if not candidate:
+            continue
+        # Preserve support for compound developer aliases such as "DGS Group / DGS Realty".
+        for alias in candidate.split("/"):
+            alias_tokens = alias.strip().casefold().split()
+            alias_first = alias_tokens[0] if alias_tokens else ""
+            if alias_first and len(alias_first) >= 3 and project_first == alias_first:
+                return name
     return UNASSIGNED_DEVELOPER
 
 
@@ -79,7 +91,6 @@ def import_property_workbook(content: bytes, db) -> tuple[int, int, list[str]]:
     tower_map: dict[tuple[int, str], int] = {}
 
     try:
-        # 1) Developers
         if "Developers" in wb.sheetnames:
             model, fields = models["Developers"]
             for row_no, raw in _read_rows(wb["Developers"]):
@@ -96,8 +107,6 @@ def import_property_workbook(content: bytes, db) -> tuple[int, int, list[str]]:
                     errors.append(f"Developers row {row_no}: {exc}"); break
         if errors: raise ValueError(errors[0])
 
-        # 2) Projects. Resolve developer by explicit reference, obvious existing developer prefix,
-        # or the safe placeholder. Never guess a numeric FK.
         if "Projects" in wb.sheetnames:
             model, fields = models["Projects"]
             from app.models import Developer
@@ -126,7 +135,6 @@ def import_property_workbook(content: bytes, db) -> tuple[int, int, list[str]]:
                     errors.append(f"Projects row {row_no}: {exc}"); break
         if errors: raise ValueError(errors[0])
 
-        # 3) Optional Towers sheet, resolved by project_id or project name reference.
         if "Towers" in wb.sheetnames:
             model, fields = models["Towers"]
             for row_no, raw in _read_rows(wb["Towers"]):
@@ -149,7 +157,6 @@ def import_property_workbook(content: bytes, db) -> tuple[int, int, list[str]]:
                     errors.append(f"Towers row {row_no}: {exc}"); break
         if errors: raise ValueError(errors[0])
 
-        # 4) Normalized configuration staging -> Unit records.
         if "Units_Config_Staging" in wb.sheetnames:
             unit_model, unit_fields = models["Units"]
             for row_no, raw in _read_rows(wb["Units_Config_Staging"]):
