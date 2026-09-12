@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.catalog_models import PropertyMedia
 from app.database import get_db
 from app.models import Project, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
@@ -78,6 +79,10 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
         elif " east" in lowered or lowered.endswith("east"):
             side = "East"
         possession_date = unit.possession or project.possession_date
+        media = db.scalars(select(PropertyMedia).where(PropertyMedia.project_id == project.id, (PropertyMedia.unit_id == unit.id) | PropertyMedia.unit_id.is_(None)).order_by(PropertyMedia.sort_order.asc(), PropertyMedia.id.asc())).all()
+        photos = [m.file_url for m in media if m.file_url]
+        if not photos:
+            photos = _json_list(unit.photos_json) + _json_list(project.photos_json)
         rows.append({
             "id": unit.id, "title": f"{project.name} - {unit.unit_number}", "project": project.name,
             "developer_id": project.developer_id, "tower": tower.name if tower else None, "unit_number": unit.unit_number,
@@ -89,7 +94,7 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
             "possession": unit.possession, "possession_date": possession_date, "rera_possession_date": project.possession_date,
             "rera": unit.rera or project.rera, "parking": unit.parking, "facing": unit.facing, "furnishing": unit.furnishing,
             "amenities": _json_list(unit.amenities_json) + _json_list(project.amenities_json),
-            "photos": _json_list(unit.photos_json) + _json_list(project.photos_json), "floor_plan": unit.floor_plan,
+            "photos": photos, "floor_plan": unit.floor_plan,
             "brochure": unit.brochure or project.brochure, "description": unit.description or project.description,
         })
     return rows
@@ -153,7 +158,10 @@ def caller_search(body: CallerSearchRequest, request: Request, db: Session = Dep
             "locality": property_data.get("locality"), "bhk": property_data.get("bhk"),
             "property_type": property_data.get("property_type"), "price": property_data.get("price"),
             "carpet_area": property_data.get("carpet_area"), "construction_status": property_data.get("construction_status"),
-            "possession": property_data.get("possession"), "photos": property_data.get("photos", [])[:1],
+            "possession": property_data.get("possession"), "photos": property_data.get("photos", []),
+            "parking": property_data.get("parking"), "facing": property_data.get("facing"),
+            "furnishing": property_data.get("furnishing"), "rera": property_data.get("rera"),
+            "price_per_sqft": property_data.get("price_per_sqft"), "description": property_data.get("description"),
         })
         response_results.append(item)
     return {"count": len(response_results), "results": response_results}
