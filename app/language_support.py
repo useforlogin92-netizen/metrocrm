@@ -1,8 +1,6 @@
 """Global caller-language preference and lightweight UI translation support."""
 from __future__ import annotations
 
-from html import escape
-
 from fastapi.responses import HTMLResponse
 
 
@@ -94,15 +92,16 @@ LANGUAGE_SCRIPT = r"""
 
 async def _inject_language_script(request, call_next):
     response = await call_next(request)
-    if not isinstance(response, HTMLResponse):
+    # Jinja/Starlette template responses are HTML responses by media type, but
+    # are not guaranteed to be instances of fastapi.responses.HTMLResponse.
+    # The old isinstance check silently skipped the production portal pages.
+    content_type = response.headers.get("content-type", "").lower()
+    if "text/html" not in content_type:
         return response
-    body = response.body
+    body = getattr(response, "body", None)
+    if not isinstance(body, (bytes, bytearray)):
+        return response
     marker = b"</body>"
-    # Do not use the public API name as the injection marker.  The shared
-    # base.html already exposes window.metrocrmLanguage for speech controls;
-    # using that name here caused the real translation script to be skipped.
-    # A dedicated HTML marker makes the response-level translator independent
-    # of the base template implementation.
     if marker not in body or b"data-metrocrm-language-support" in body:
         return response
     script = ("<script data-metrocrm-language-support>" + LANGUAGE_SCRIPT + "</script>").encode("utf-8")
