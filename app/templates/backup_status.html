@@ -12,7 +12,7 @@
       <h2 style="margin:0 0 6px;font-size:18px">Automated backup protection</h2>
       <p style="margin:0;color:#64748b;font-size:12px">One encrypted master snapshot is created twice daily and copied to every configured destination.</p>
     </div>
-    <form method="post" action="/admin/backups/run">
+    <form method="post" action="/super-admin/backups/run" autocomplete="off">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" style="border:0;border-radius:9px;background:#2563eb;color:#fff;padding:10px 14px;font-weight:800;cursor:pointer">Run Backup Now</button>
     </form>
