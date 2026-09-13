@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -76,6 +76,18 @@ def legacy_google_callback(
     if not folder_id:
         raise HTTPException(status_code=502, detail="Google Drive did not return a folder id")
     return _oauth_result_page("google", refresh_token, folder_id)
+
+
+@app.get("/super-admin/backups/run")
+def legacy_run_backup_get(request: Request, db: Session = Depends(get_db)):
+    """Never expose a misleading 405 page for a stale/legacy GET URL.
+
+    Backup creation remains POST-only. A GET to the old action URL is safely
+    redirected back to the protected status page instead of attempting a state
+    changing operation.
+    """
+    require_super_admin(request, db)
+    return RedirectResponse("/admin/backups/status", status_code=303)
 
 
 @app.post("/super-admin/backups/run", dependencies=[Depends(require_csrf)])
