@@ -167,7 +167,12 @@ def copy_to_external_drive(package: Path, relative_path: str) -> str:
     root = settings.backup_external_path.strip()
     if not root:
         raise RuntimeError("External backup path is not configured")
-    destination = Path(root).expanduser() / relative_path
+    root_path = Path(root).expanduser()
+    if not root_path.exists():
+        raise RuntimeError(f"External backup device/path not found: {root_path}")
+    if not root_path.is_dir():
+        raise RuntimeError(f"External backup path is not a directory: {root_path}")
+    destination = root_path / relative_path
     destination.parent.mkdir(parents=True, exist_ok=True)
     if package.resolve() == destination.resolve():
         return str(destination)
