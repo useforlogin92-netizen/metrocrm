@@ -25,6 +25,8 @@ from app.routers.sales_property import router as sales_property_router
 from app.routers.whatsapp import router as whatsapp_router
 
 app = main.app
+from app import oauth_compat  # noqa: F401,E402
+
 install_property_management_ui(app)
 install_session_compatibility(app)
 install_logout_cookie_hardening(app)
