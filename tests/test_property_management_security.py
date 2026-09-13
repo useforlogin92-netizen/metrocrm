@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.models import AuditEvent, Developer, Project, SiteVisit, Unit, User
+from app.property_management_ui import PropertyManagementUIMiddleware
 from app.routers.property_management_security import _activity_rows, _delete_project
 
 
@@ -34,7 +37,7 @@ def test_project_delete_is_blocked_by_business_records(db_session):
     db_session.add(
         SiteVisit(
             project_id=project.id,
-            scheduled_at=__import__("datetime").datetime.now(),
+            scheduled_at=datetime.now(),
             status="SCHEDULED",
         )
     )
@@ -65,3 +68,20 @@ def test_activity_rows_can_hide_admin_and_super_admin_for_admin_scope(db_session
 
     rows = _activity_rows(db_session, admin_scope=True)
     assert [row["action"] for row in rows] == ["STAFF_ACTION"]
+
+
+def test_property_management_ui_injects_delete_and_activity_controls():
+    html = """
+    <html><body>
+      <aside class="sidebar"><nav class="nav"><a href="/dashboard">Dashboard</a></nav></aside>
+      <div class="profile-role">SUPER_ADMIN</div>
+      <table class="pd-table"><tbody>
+        <tr><td>42</td><td>Example Property</td><td><a class="pd-btn" href="/super-admin/property-data?entity=Projects&amp;id=42">Edit</a></td></tr>
+      </tbody></table>
+      <input type="hidden" name="csrf_token" value="csrf-value">
+    </body></html>
+    """
+    rendered = PropertyManagementUIMiddleware._inject(html, "/super-admin/property-data")
+    assert "User Activity & Audit" in rendered
+    assert "/super-admin/property-data/projects/42/delete" in rendered
+    assert "csrf_token" in rendered
