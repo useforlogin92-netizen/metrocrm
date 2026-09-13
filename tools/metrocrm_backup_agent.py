@@ -42,7 +42,6 @@ def _sha256(path: Path) -> str:
 
 
 def _safe_target(root: Path, relative: str) -> Path:
-    """Resolve a manifest path while preventing traversal outside *root*."""
     root = root.expanduser().resolve()
     target = (root / relative.replace("/", os.sep)).resolve()
     if target == root or root not in target.parents:
@@ -101,24 +100,34 @@ def sync_once() -> dict[str, int]:
                 downloaded += 1
             else:
                 skipped += 1
-            _ack(base, token, relative)
 
-            if external_root and external_root.exists():
+            # The server's agent_pc acknowledgement means the PC copy is verified.
+            # If an external HDD is configured, only acknowledge after that mirror
+            # has also been copied and hash-verified; otherwise the server would
+            # incorrectly report the offline copy as healthy.
+            if external_root:
+                if not external_root.exists() or not external_root.is_dir():
+                    raise AgentError(f"external backup device/path not found: {external_root}")
                 external_file = _safe_target(external_root, relative)
                 external_file.parent.mkdir(parents=True, exist_ok=True)
                 if not external_file.is_file() or external_file.stat().st_size != expected_size or _sha256(external_file) != expected_hash:
                     temp = external_file.with_suffix(external_file.suffix + ".part")
                     temp.parent.mkdir(parents=True, exist_ok=True)
-                    with local_file.open("rb") as source, temp.open("wb") as target:
-                        while True:
-                            chunk = source.read(1024 * 1024)
-                            if not chunk:
-                                break
-                            target.write(chunk)
-                    if temp.stat().st_size != expected_size or _sha256(temp) != expected_hash:
-                        raise AgentError(f"external HDD integrity check failed: {relative}")
-                    temp.replace(external_file)
+                    try:
+                        with local_file.open("rb") as source, temp.open("wb") as target:
+                            while True:
+                                chunk = source.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                target.write(chunk)
+                        if temp.stat().st_size != expected_size or _sha256(temp) != expected_hash:
+                            raise AgentError(f"external HDD integrity check failed: {relative}")
+                        temp.replace(external_file)
+                    finally:
+                        temp.unlink(missing_ok=True)
                     external_copied += 1
+
+            _ack(base, token, relative)
         except (OSError, urllib.error.URLError, AgentError, RuntimeError, ValueError, KeyError):
             failed += 1
 
