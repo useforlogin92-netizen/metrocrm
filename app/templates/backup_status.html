@@ -4,13 +4,13 @@
 {% block breadcrumb %}Backup Status{% endblock %}
 {% block content %}
 {% if backup_result == 'success' %}<div class="card" style="margin-bottom:18px;border-color:#bbf7d0;background:#f0fdf4"><strong>Backup completed successfully.</strong><div style="font-size:11px;color:#166534;margin-top:4px">The encrypted package was created and all configured destinations reported success.</div></div>{% endif %}
-{% if backup_result == 'partial' %}<div class="card" style="margin-bottom:18px;border-color:#fed7aa;background:#fff7ed"><strong>Backup completed with a destination warning.</strong><div style="font-size:11px;color:#9a3412;margin-top:4px">The local encrypted backup remains available; check the destination configuration for failed copies.</div></div>{% endif %}
-{% if backup_result == 'failed' %}<div class="card" style="margin-bottom:18px;border-color:#fecaca;background:#fef2f2"><strong>Backup could not be created.</strong><div style="font-size:11px;color:#991b1b;margin-top:4px">Check the server backup logs and encryption/database configuration.</div></div>{% endif %}
+{% if backup_result == 'partial' %}<div class="card" style="margin-bottom:18px;border-color:#fed7aa;background:#fff7ed"><strong>Backup completed with destination warnings.</strong><div style="font-size:11px;color:#9a3412;margin-top:4px">The local encrypted backup is retained independently; the exact failed destination and error are shown below. Connect/configure that destination and the retry job will try again.</div></div>{% endif %}
+{% if backup_result == 'failed' %}<div class="card" style="margin-bottom:18px;border-color:#fecaca;background:#fef2f2"><strong>Backup could not be created.</strong><div style="font-size:11px;color:#991b1b;margin-top:4px">The local master package was not created. Check the detailed error in server logs and database/encryption configuration.</div></div>{% endif %}
 <div class="card" style="margin-bottom:18px">
   <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap">
     <div>
       <h2 style="margin:0 0 6px;font-size:18px">Automated backup protection</h2>
-      <p style="margin:0;color:#64748b;font-size:12px">One encrypted master snapshot is created twice daily and copied to every configured destination.</p>
+      <p style="margin:0;color:#64748b;font-size:12px">One encrypted master snapshot is created twice daily and copied independently to every configured destination. A cloud or external-device failure must not block the local package.</p>
     </div>
     <form method="post" action="/super-admin/backups/run" autocomplete="off">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -25,6 +25,23 @@
   <div class="card"><div style="font-size:11px;color:#64748b">Cloud</div><div style="font-size:18px;font-weight:900;margin-top:6px">{{ backup.cloud_provider|replace('_',' ')|title }}</div><div style="font-size:11px;color:#64748b;margin-top:5px">Off-site redundancy</div></div>
 </div>
 <div class="card" style="margin-bottom:18px">
+  <h3 style="margin:0 0 14px;font-size:15px">Latest backup result</h3>
+  {% if backup.last_backup %}
+    <div style="font-size:12px;margin-bottom:10px"><strong>{{ backup.last_backup.status|replace('_',' ')|upper }}</strong> · {{ backup.last_backup.relative_path }} · {{ backup.last_backup.created_at }}</div>
+    <div style="display:grid;gap:8px">
+    {% for name, item in backup.last_backup.destinations.items() %}
+      <div style="border:1px solid #e2e8f0;border-radius:9px;padding:9px;background:#fff">
+        <div style="display:flex;justify-content:space-between;gap:10px"><strong>{{ name|replace('_',' ')|title }}</strong><span>{{ item.status|upper }}</span></div>
+        {% if item.error %}<div style="margin-top:5px;color:#991b1b;font-size:11px;word-break:break-word">{{ item.error }}</div>{% endif %}
+        {% if item.path %}<div style="margin-top:5px;color:#64748b;font-size:10px;word-break:break-all">{{ item.path }}</div>{% endif %}
+      </div>
+    {% endfor %}
+    </div>
+  {% else %}
+    <div style="font-size:12px;color:#64748b">No completed backup state has been recorded yet. Run a manual backup to create the first verified state.</div>
+  {% endif %}
+</div>
+<div class="card" style="margin-bottom:18px">
   <h3 style="margin:0 0 14px;font-size:15px">Destination configuration</h3>
   <div style="display:grid;gap:10px;font-size:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:9px"><span>Local server</span><strong>{{ 'READY' if backup.local_configured else 'NOT CONFIGURED' }}</strong></div>
@@ -35,7 +52,7 @@
 </div>
 <div class="card">
   <h3 style="margin:0 0 8px;font-size:15px">Recovery design</h3>
-  <p style="margin:0;color:#64748b;font-size:12px;line-height:1.7">MetroCRM creates one encrypted backup package per cycle, then fans that same package out to Local Server, External Drive, Google Drive and OneDrive when configured. A failed destination is recorded as a partial failure without destroying successful copies.</p>
+  <p style="margin:0;color:#64748b;font-size:12px;line-height:1.7">MetroCRM creates one encrypted backup package per cycle, then fans that same package out to Local Server, External Drive/PC Agent, Google Drive and OneDrive when configured. A failed destination is recorded without destroying successful copies, and the retry scheduler runs every 10 minutes.</p>
   <div style="margin-top:14px;padding:11px;border-radius:10px;background:#f8fafc;font-size:11px;color:#475569">Google Drive and OneDrive OAuth secrets belong in deployment environment variables, never in GitHub or the application database.</div>
 </div>
 {% endblock %}
