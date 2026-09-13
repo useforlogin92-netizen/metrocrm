@@ -31,12 +31,7 @@ def _refresh_google_token() -> str:
         "refresh_token": settings.backup_google_refresh_token,
         "grant_type": "refresh_token",
     }).encode()
-    _, result = _request_json(
-        "https://oauth2.googleapis.com/token",
-        method="POST",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data=payload,
-    )
+    _, result = _request_json("https://oauth2.googleapis.com/token", method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"}, data=payload)
     token = result.get("access_token")
     if not token:
         raise RuntimeError("Google Drive token refresh did not return an access token")
@@ -47,19 +42,11 @@ def _google_upload(package: Path, relative_path: str) -> str:
     if not settings.backup_google_folder_id:
         raise RuntimeError("BACKUP_GOOGLE_FOLDER_ID is not configured")
     token = _refresh_google_token()
-    metadata = json.dumps({
-        "name": Path(relative_path).name,
-        "parents": [settings.backup_google_folder_id],
-    }).encode()
+    metadata = json.dumps({"name": Path(relative_path).name, "parents": [settings.backup_google_folder_id]}).encode()
     request = urllib.request.Request(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name",
         data=metadata,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json; charset=UTF-8",
-            "X-Upload-Content-Type": "application/octet-stream",
-            "X-Upload-Content-Length": str(package.stat().st_size),
-        },
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": "application/octet-stream", "X-Upload-Content-Length": str(package.stat().st_size)},
         method="POST",
     )
     try:
@@ -72,16 +59,7 @@ def _google_upload(package: Path, relative_path: str) -> str:
         raise RuntimeError("Google Drive did not return a resumable upload URL")
 
     payload = package.read_bytes()
-    request = urllib.request.Request(
-        upload_url,
-        data=payload,
-        headers={
-            "Content-Type": "application/octet-stream",
-            "Content-Length": str(len(payload)),
-            "Content-Range": f"bytes 0-{len(payload) - 1}/{len(payload)}",
-        },
-        method="PUT",
-    )
+    request = urllib.request.Request(upload_url, data=payload, headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(payload)), "Content-Range": f"bytes 0-{len(payload) - 1}/{len(payload)}"}, method="PUT")
     try:
         with urllib.request.urlopen(request, timeout=300) as response:
             result = json.loads(response.read().decode("utf-8"))
@@ -97,19 +75,8 @@ def _google_upload(package: Path, relative_path: str) -> str:
 def _refresh_microsoft_token() -> str:
     if not all((settings.backup_onedrive_client_id, settings.backup_onedrive_client_secret, settings.backup_onedrive_refresh_token)):
         raise RuntimeError("OneDrive OAuth credentials are not fully configured")
-    payload = urllib.parse.urlencode({
-        "client_id": settings.backup_onedrive_client_id,
-        "client_secret": settings.backup_onedrive_client_secret,
-        "refresh_token": settings.backup_onedrive_refresh_token,
-        "grant_type": "refresh_token",
-        "scope": "offline_access Files.ReadWrite",
-    }).encode()
-    _, result = _request_json(
-        f"https://login.microsoftonline.com/{urllib.parse.quote(settings.backup_onedrive_tenant, safe='')}/oauth2/v2.0/token",
-        method="POST",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data=payload,
-    )
+    payload = urllib.parse.urlencode({"client_id": settings.backup_onedrive_client_id, "client_secret": settings.backup_onedrive_client_secret, "refresh_token": settings.backup_onedrive_refresh_token, "grant_type": "refresh_token", "scope": "offline_access Files.ReadWrite"}).encode()
+    _, result = _request_json(f"https://login.microsoftonline.com/{urllib.parse.quote(settings.backup_onedrive_tenant, safe='')}/oauth2/v2.0/token", method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"}, data=payload)
     token = result.get("access_token")
     if not token:
         raise RuntimeError("OneDrive token refresh did not return an access token")
@@ -123,17 +90,12 @@ def _onedrive_upload(package: Path, relative_path: str) -> str:
     item_path = f"{folder}/{filename}" if folder else filename
     session_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{urllib.parse.quote(item_path, safe='/')}:/createUploadSession"
     body = json.dumps({"item": {"@microsoft.graph.conflictBehavior": "replace", "name": filename}}).encode()
-    _, session = _request_json(
-        session_url,
-        method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        data=body,
-    )
+    _, session = _request_json(session_url, method="POST", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, data=body)
     upload_url = session.get("uploadUrl")
     if not upload_url:
         raise RuntimeError("OneDrive did not return an upload session URL")
 
-    # Microsoft Graph requires each fragment to be smaller than 60 MiB and aligned to 320 KiB.
+    # 10 MiB is below Microsoft's 60 MiB fragment limit and is a multiple of 320 KiB.
     chunk_size = 10 * 1024 * 1024
     total = package.stat().st_size
     result: dict = {}
@@ -142,15 +104,7 @@ def _onedrive_upload(package: Path, relative_path: str) -> str:
         while start < total:
             chunk = source.read(chunk_size)
             end = start + len(chunk) - 1
-            request = urllib.request.Request(
-                upload_url,
-                data=chunk,
-                headers={
-                    "Content-Length": str(len(chunk)),
-                    "Content-Range": f"bytes {start}-{end}/{total}",
-                },
-                method="PUT",
-            )
+            request = urllib.request.Request(upload_url, data=chunk, headers={"Content-Length": str(len(chunk)), "Content-Range": f"bytes {start}-{end}/{total}"}, method="PUT")
             try:
                 with urllib.request.urlopen(request, timeout=300) as response:
                     raw = response.read()
@@ -163,20 +117,39 @@ def _onedrive_upload(package: Path, relative_path: str) -> str:
     return f"https://onedrive.live.com/?id={urllib.parse.quote(item_id)}" if item_id else "onedrive://uploaded"
 
 
+def _looks_like_unmounted_drive(path: Path) -> bool:
+    raw = str(path)
+    if ":\\" in raw or raw.startswith("\\\\"):
+        return True
+    return any(part in path.parts for part in ("mnt", "media", "run/media"))
+
+
 def copy_to_external_drive(package: Path, relative_path: str) -> str:
     root = settings.backup_external_path.strip()
     if not root:
         raise RuntimeError("External backup path is not configured")
     root_path = Path(root).expanduser()
     if not root_path.exists():
-        raise RuntimeError(f"External backup device/path not found: {root_path}")
+        # A configured removable/mounted location must already exist; otherwise
+        # report the device as disconnected. Ordinary application directories
+        # may be initialized automatically for local/dev use.
+        if _looks_like_unmounted_drive(root_path):
+            raise RuntimeError(f"External backup device/path not found: {root_path}")
+        root_path.mkdir(parents=True, exist_ok=True)
     if not root_path.is_dir():
         raise RuntimeError(f"External backup path is not a directory: {root_path}")
     destination = root_path / relative_path
     destination.parent.mkdir(parents=True, exist_ok=True)
     if package.resolve() == destination.resolve():
         return str(destination)
-    shutil.copy2(package, destination)
+    temp = destination.with_suffix(destination.suffix + ".part")
+    try:
+        shutil.copy2(package, temp)
+        if temp.stat().st_size != package.stat().st_size:
+            raise RuntimeError("External backup copy size verification failed")
+        temp.replace(destination)
+    finally:
+        temp.unlink(missing_ok=True)
     return str(destination)
 
 
@@ -188,13 +161,9 @@ def configured_cloud_providers() -> list[str]:
 def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
     if provider in {"s3", "s3_compatible"}:
         import boto3
-        client = boto3.client(
-            "s3",
-            endpoint_url=settings.backup_s3_endpoint or None,
-            aws_access_key_id=settings.backup_s3_access_key or None,
-            aws_secret_access_key=settings.backup_s3_secret_key or None,
-            region_name=settings.backup_s3_region or None,
-        )
+        if not settings.backup_s3_bucket.strip():
+            raise RuntimeError("BACKUP_S3_BUCKET is not configured")
+        client = boto3.client("s3", endpoint_url=settings.backup_s3_endpoint or None, aws_access_key_id=settings.backup_s3_access_key or None, aws_secret_access_key=settings.backup_s3_secret_key or None, region_name=settings.backup_s3_region or None)
         client.upload_file(str(package), settings.backup_s3_bucket, relative_path)
         return f"s3://{settings.backup_s3_bucket}/{relative_path}"
     if provider in {"google_drive", "gdrive", "google"}:
