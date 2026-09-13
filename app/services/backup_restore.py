@@ -20,9 +20,6 @@ _MAX_TOTAL_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def _key() -> bytes:
-    # Keep restore key selection identical to backup creation. Existing
-    # deployments may rely on SECRET_KEY when the optional dedicated backup
-    # key is absent; the insecure placeholder is never accepted.
     raw = settings.backup_encryption_key.strip() or settings.secret_key.strip()
     if not raw or raw == "CHANGE-ME-IN-ENV":
         raise RuntimeError("A secure BACKUP_ENCRYPTION_KEY or SECRET_KEY must be configured")
@@ -69,6 +66,15 @@ def _safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
                 shutil.copyfileobj(source, dest)
 
 
+def _postgres_cli_url(url: str) -> str:
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    if "+" in scheme:
+        scheme = scheme.split("+", 1)[0]
+    return f"{scheme}://{rest}"
+
+
 def _sqlite_restore(snapshot: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     source = sqlite3.connect(snapshot)
@@ -84,7 +90,7 @@ def _sqlite_restore(snapshot: Path, target: Path) -> None:
 
 def _postgres_restore(snapshot: Path, database_url: str) -> None:
     subprocess.run(
-        ["pg_restore", "--clean", "--if-exists", "-d", database_url, str(snapshot)],
+        ["pg_restore", "--clean", "--if-exists", "-d", _postgres_cli_url(database_url), str(snapshot)],
         check=True,
         env=os.environ.copy(),
     )
@@ -96,11 +102,7 @@ def restore_backup(
     target_uploads_path: str | Path | None = None,
     expected_sha256: str | None = None,
 ) -> dict[str, object]:
-    """Restore one encrypted backup package.
-
-    This operation replaces database contents and, when requested, restores uploads.
-    Callers should use a maintenance window and verify the backup before restoring.
-    """
+    """Restore one encrypted backup package after integrity and path checks."""
     package = Path(backup_path).expanduser().resolve()
     if not package.is_file() or package.suffix != ".mcrmbackup":
         raise FileNotFoundError("Backup package not found")
