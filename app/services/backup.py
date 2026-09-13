@@ -54,8 +54,6 @@ def _sqlite_snapshot(database_url: str, target: Path) -> None:
 
 
 def _postgres_cli_url(url: str) -> str:
-    # SQLAlchemy may receive a driver-qualified URL (e.g. postgresql+psycopg2://)
-    # while pg_dump accepts the standard PostgreSQL URI only.
     if "://" not in url:
         return url
     scheme, rest = url.split("://", 1)
@@ -241,16 +239,36 @@ def _latest_backup_state() -> dict[str, object] | None:
     return None
 
 
+def _local_health() -> tuple[bool, bool, str]:
+    root = Path(settings.backup_local_path).expanduser()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe = root / ".metrocrm-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True, True, str(root)
+    except OSError as exc:
+        return bool(root.exists()), False, f"{root}: {exc}"
+
+
 def backup_health() -> dict[str, object]:
     providers = configured_cloud_providers()
     queue_root = Path(settings.backup_local_path).expanduser() / ".queue"
     queued = 0
     if queue_root.exists():
         queued = sum(1 for p in queue_root.glob("*.json") if (_read_state(p) or {}).get("status") != "success")
+    local_exists, local_writable, local_detail = _local_health()
+    external_path = Path(settings.backup_external_path).expanduser() if settings.backup_external_path.strip() else None
+    external_connected = bool(external_path and external_path.is_dir())
     latest = _latest_backup_state()
     return {
         "local_configured": bool(settings.backup_local_path),
+        "local_path_exists": local_exists,
+        "local_writable": local_writable,
+        "local_detail": local_detail,
         "external_configured": bool(settings.backup_external_path.strip()),
+        "external_connected": external_connected,
+        "external_path": str(external_path) if external_path else "",
         "backup_agent_configured": bool(settings.backup_agent_token.strip()),
         "cloud_provider": ",".join(providers) if providers else "none",
         "cloud_providers": providers,
