@@ -20,7 +20,15 @@ class PropertyManagementUIMiddleware:
             return
 
         path = scope.get("path", "")
-        if path not in {"/dashboard", "/admin/property-data", "/super-admin/property-data", "/admin/users", "/super-admin/users"}:
+        if path not in {
+            "/dashboard",
+            "/admin/property-data",
+            "/super-admin/property-data",
+            "/admin/users",
+            "/super-admin/users",
+            "/admin/activity-log",
+            "/super-admin/activity-log",
+        }:
             await self.app(scope, receive, send)
             return
 
@@ -82,8 +90,9 @@ class PropertyManagementUIMiddleware:
     if(location.pathname.includes('/activity-log')) link.classList.add('active');
     workspaceNav.appendChild(link);
   }
-  if((location.pathname==='/admin/property-data' || location.pathname==='/super-admin/property-data') && new URLSearchParams(location.search).get('entity')!=='Projects') return;
   if(location.pathname==='/admin/property-data' || location.pathname==='/super-admin/property-data'){
+    const entity=new URLSearchParams(location.search).get('entity') || 'Projects';
+    if(entity!=='Projects') return;
     const table=document.querySelector('.pd-table tbody');
     const csrf=document.querySelector('input[name="csrf_token"]');
     if(!table || !csrf) return;
