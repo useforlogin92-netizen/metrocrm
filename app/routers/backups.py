@@ -25,6 +25,7 @@ from app.services.backup_restore import restore_backup
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(prefix="/admin/backups", tags=["backups"])
+legacy_super_admin_router = APIRouter(prefix="/super-admin/backups", tags=["backups"])
 
 
 def require_super_admin(request: Request, db: Session) -> User:
@@ -79,6 +80,17 @@ def status_page(request: Request, db: Session = Depends(get_db)):
     if user.role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Super Admin access required")
     return templates.TemplateResponse("backup_status.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "backup": backup_health(), "csrf_token": csrf_token(request), "backup_result": request.query_params.get("backup")})
+
+
+@legacy_super_admin_router.get("/status")
+def legacy_status():
+    return RedirectResponse("/admin/backups/status", status_code=307)
+
+
+@legacy_super_admin_router.get("/configure")
+def legacy_configure(provider: str = ""):
+    suffix = f"?provider={urllib.parse.quote(provider)}" if provider else ""
+    return RedirectResponse(f"/admin/backups/configure{suffix}", status_code=307)
 
 
 @router.get("/status.json")
