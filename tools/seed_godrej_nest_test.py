@@ -10,12 +10,16 @@ import json
 import sys
 from datetime import datetime
 
+from fastapi import Depends, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog_models import PropertyMedia
-from app.database import SessionLocal
-from app.models import Developer, Project, Tower, Unit
+from app.csrf import require_csrf
+from app.database import SessionLocal, get_db
+from app.models import AuditEvent, Developer, Project, Tower, Unit
+from app.routers import data_tools
 
 # property_data.py imports this module while defining its routes. Install the property-aware
 # importer into that module at import time so the existing route uses the safe staging resolver
@@ -133,6 +137,40 @@ def delete_godrej_nest_test(db: Session) -> tuple[int | None, int, int, int]:
     db.delete(project)
     db.flush()
     return project_id, len(tower_rows), len(unit_rows), len(media_rows)
+
+
+@data_tools.router.post("/super-admin/property-data/delete-godrej-nest", dependencies=[Depends(require_csrf)])
+def delete_godrej_nest_test_route(request: Request, db: Session = Depends(get_db)):
+    """Super Admin-only endpoint for deleting the explicitly seeded Godrej Nest test property."""
+    from app.main import _current_user
+
+    actor = _current_user(request, db)
+    if not actor or actor.role != "SUPER_ADMIN":
+        return RedirectResponse("/dashboard", status_code=303)
+
+    try:
+        project_id, tower_count, unit_count, media_count = delete_godrej_nest_test(db)
+        if project_id is None:
+            db.rollback()
+            return RedirectResponse("/super-admin/property-data?entity=Projects&error=Godrej+Nest+test+property+was+not+found", status_code=303)
+
+        db.add(AuditEvent(
+            actor_user_id=actor.id,
+            action="GODREJ_NEST_TEST_DATA_DELETED",
+            entity_type="Projects",
+            entity_id=str(project_id),
+            details=json.dumps({"towers": tower_count, "units": unit_count, "gallery_images": media_count, "scope": "exact Godrej Nest test property only"}),
+        ))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        message = str(exc).replace(" ", "+")[:300]
+        return RedirectResponse("/super-admin/property-data?entity=Projects&error=Godrej+Nest+test+property+delete+failed%3A+" + message, status_code=303)
+
+    return RedirectResponse(
+        f"/super-admin/property-data?entity=Projects&message=Godrej+Nest+test+property+deleted+%28project+%23{project_id}%2C+{tower_count}+towers%2C+{unit_count}+units%2C+{media_count}+gallery+images%29",
+        status_code=303,
+    )
 
 
 def main() -> None:
