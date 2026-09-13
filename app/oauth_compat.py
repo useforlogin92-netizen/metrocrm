@@ -11,9 +11,10 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.csrf import require_csrf
 from app.database import get_db
 from app.main_portal import app
-from app.routers.backups import _oauth_json, _oauth_result_page, require_super_admin
+from app.routers.backups import _oauth_json, _oauth_result_page, require_super_admin, run_manual
 
 
 @app.get("/super-admin/backups/google/callback", response_class=HTMLResponse)
@@ -75,3 +76,9 @@ def legacy_google_callback(
     if not folder_id:
         raise HTTPException(status_code=502, detail="Google Drive did not return a folder id")
     return _oauth_result_page("google", refresh_token, folder_id)
+
+
+@app.post("/super-admin/backups/run", dependencies=[Depends(require_csrf)])
+def legacy_run_backup(request: Request, db: Session = Depends(get_db)):
+    """Preserve the legacy Super Admin backup URL as a safe POST endpoint."""
+    return run_manual(request, db)
