@@ -43,7 +43,7 @@ def test_backup_fans_out_to_external_destination(tmp_path, monkeypatch):
 def test_external_destination_does_not_create_a_missing_device_mount(tmp_path, monkeypatch):
     package = tmp_path / "backup.mcrmbackup"
     package.write_bytes(b"backup")
-    missing = tmp_path / "not-connected-drive"
+    missing = tmp_path / "mnt" / "not-connected-drive"
     monkeypatch.setattr(settings, "backup_external_path", str(missing))
 
     with pytest.raises(RuntimeError, match="External backup device/path not found"):
