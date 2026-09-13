@@ -18,6 +18,7 @@ def test_backup_fans_out_to_external_destination(tmp_path, monkeypatch):
     database.write_bytes(b"sqlite-placeholder")
     local_root = tmp_path / "local"
     external_root = tmp_path / "external"
+    external_root.mkdir()
 
     monkeypatch.setattr(settings, "database_url", f"sqlite:///{database}")
     monkeypatch.setattr(settings, "backup_local_path", str(local_root))
@@ -28,7 +29,6 @@ def test_backup_fans_out_to_external_destination(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "uploads_path", str(tmp_path / "uploads"))
     monkeypatch.setattr(settings, "backup_encryption_key", "test-encryption-key")
 
-    # Avoid requiring a real SQLite file for the focused fan-out test.
     monkeypatch.setattr("app.services.backup._database_snapshot", lambda target: Path(target).write_bytes(b"db"))
     result = create_full_backup("test")
 
