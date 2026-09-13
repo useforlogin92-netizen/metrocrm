@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from app.config import settings
 from app.services.backup import create_full_backup
-from app.services.backup_destinations import configured_cloud_providers
+from app.services.backup_destinations import configured_cloud_providers, copy_to_external_drive
 
 
 def test_configured_cloud_providers_support_multiple_destinations(monkeypatch):
@@ -36,3 +38,15 @@ def test_backup_fans_out_to_external_destination(tmp_path, monkeypatch):
     external_path = Path(result["destinations"]["external"]["path"])
     assert external_path.exists()
     assert external_path.read_bytes().startswith(b"MCRMBKP1")
+
+
+def test_external_destination_does_not_create_a_missing_device_mount(tmp_path, monkeypatch):
+    package = tmp_path / "backup.mcrmbackup"
+    package.write_bytes(b"backup")
+    missing = tmp_path / "not-connected-drive"
+    monkeypatch.setattr(settings, "backup_external_path", str(missing))
+
+    with pytest.raises(RuntimeError, match="External backup device/path not found"):
+        copy_to_external_drive(package, "2026-09-14/backup.mcrmbackup")
+
+    assert not missing.exists()
