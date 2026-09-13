@@ -4,6 +4,7 @@ from app import portal  # noqa: F401,E402
 from app import portal_boundary  # noqa: F401,E402
 from app.language_support import install_language_support  # noqa: E402
 from app.session_compat import install_session_compatibility  # noqa: E402
+from app.property_management_ui import install_property_management_ui
 from app.routers import recovery_login_link  # noqa: F401,E402
 from app.routers.accounting import router as accounting_router
 from app.routers.ai_caller import router as ai_caller_router
@@ -25,6 +26,7 @@ from app.routers.whatsapp import router as whatsapp_router
 app = main.app
 install_session_compatibility(app)
 install_language_support(app)
+install_property_management_ui(app)
 app.include_router(health_router)
 app.include_router(accounting_router)
 app.include_router(property_data_router)
