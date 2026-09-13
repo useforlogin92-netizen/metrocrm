@@ -114,6 +114,13 @@ def configure_page(request: Request, provider: str = "", db: Session = Depends(g
 <div class='card'><p class='muted'><strong>Redirect URIs for OAuth:</strong><br><code>/admin/backups/google/callback</code><br><code>/admin/backups/onedrive/callback</code><br>Register the complete HTTPS URL of your MetroCRM deployment with these paths.</p></div></div></body></html>""")
 
 
+@router.get("/run")
+def run_get(request: Request, db: Session = Depends(get_db)):
+    """Keep accidental/stale GET requests non-mutating and never return raw 405."""
+    require_super_admin(request, db)
+    return RedirectResponse("/admin/backups/status", status_code=303)
+
+
 @router.get("/google/connect")
 def google_connect(request: Request, db: Session = Depends(get_db)):
     require_super_admin(request, db)
