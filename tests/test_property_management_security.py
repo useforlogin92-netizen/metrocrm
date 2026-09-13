@@ -83,5 +83,6 @@ def test_property_management_ui_injects_delete_and_activity_controls():
     """
     rendered = PropertyManagementUIMiddleware._inject(html, "/super-admin/property-data")
     assert "User Activity & Audit" in rendered
-    assert "/super-admin/property-data/projects/42/delete" in rendered
+    assert "projects/'+id+'/delete" in rendered
+    assert "const base=location.pathname.startsWith('/super-admin/')" in rendered
     assert "csrf_token" in rendered
