@@ -50,12 +50,7 @@ def _sha256(path: Path) -> str:
 
 
 def _oauth_json(url: str, payload: dict[str, str]) -> dict:
-    request = urllib.request.Request(
-        url,
-        data=urllib.parse.urlencode(payload).encode("utf-8"),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
+    request = urllib.request.Request(url, data=urllib.parse.urlencode(payload).encode("utf-8"), headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -68,11 +63,10 @@ def _oauth_result_page(provider: str, refresh_token: str, folder_value: str) -> 
     label = "Google Drive" if provider == "google" else "OneDrive"
     token_name = "BACKUP_GOOGLE_REFRESH_TOKEN" if provider == "google" else "BACKUP_ONEDRIVE_REFRESH_TOKEN"
     folder_name = "BACKUP_GOOGLE_FOLDER_ID" if provider == "google" else "BACKUP_ONEDRIVE_FOLDER_PATH"
-    folder_text = html.escape(folder_value)
     return HTMLResponse(f"""
 <!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{label} OAuth complete</title>
 <style>body{{font-family:system-ui;background:#f4f7fb;color:#0f172a;margin:0;padding:30px}}.wrap{{max-width:820px;margin:auto}}.card{{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:18px}}code{{display:block;background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:9px;word-break:break-all}}.warn{{color:#9a3412}}a{{display:inline-block;padding:10px 14px;border-radius:9px;background:#2563eb;color:#fff;text-decoration:none;font-weight:800}}</style></head>
-<body><div class='wrap'><div class='card'><h2>{label} authorization successful</h2><p>MetroCRM received the OAuth refresh token. It is <strong>not stored in the application database</strong>. Copy it into the deployment environment variable shown below.</p><h3>{token_name}</h3><code>{html.escape(refresh_token)}</code><h3>{folder_name}</h3><code>{folder_text}</code><p class='warn'><strong>Security:</strong> do not commit this token to GitHub or send it in chat/screenshots. After copying it to Render environment variables, restart/redeploy MetroCRM.</p><a href='/admin/backups/status'>Return to Backup Status</a></div></div></body></html>""")
+<body><div class='wrap'><div class='card'><h2>{label} authorization successful</h2><p>MetroCRM received the OAuth refresh token. It is <strong>not stored in the application database</strong>. Copy it into the deployment environment variable shown below.</p><h3>{token_name}</h3><code>{html.escape(refresh_token)}</code><h3>{folder_name}</h3><code>{html.escape(folder_value)}</code><p class='warn'><strong>Security:</strong> do not commit this token to GitHub or send it in chat/screenshots. After copying it to Render environment variables, restart/redeploy MetroCRM.</p><a href='/admin/backups/status'>Return to Backup Status</a></div></div></body></html>""")
 
 
 @router.get("/status", response_class=HTMLResponse)
@@ -116,15 +110,7 @@ def google_connect(request: Request, db: Session = Depends(get_db)):
     state = secrets.token_urlsafe(32)
     request.session["backup_google_oauth_state"] = state
     redirect_uri = str(request.base_url).rstrip("/") + "/admin/backups/google/callback"
-    params = {
-        "client_id": settings.backup_google_client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "access_type": "offline",
-        "prompt": "consent",
-        "scope": "https://www.googleapis.com/auth/drive.file",
-        "state": state,
-    }
+    params = {"client_id": settings.backup_google_client_id, "redirect_uri": redirect_uri, "response_type": "code", "access_type": "offline", "prompt": "consent", "scope": "https://www.googleapis.com/auth/drive.file", "state": state}
     return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params), status_code=303)
 
 
@@ -187,9 +173,8 @@ def onedrive_callback(request: Request, code: str | None = None, state: str | No
     access_token = result.get("access_token")
     if not refresh_token or not access_token:
         raise HTTPException(status_code=502, detail="Microsoft did not return the required offline refresh token")
-    folder_name = settings.backup_onedrive_folder_path.strip() or "MetroCRM-Backups"
-    url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + urllib.parse.quote(folder_name.strip("/"), safe="") + ":"
-    request_obj = urllib.request.Request(url, data=json.dumps({"name": folder_name.strip("/") or "MetroCRM-Backups", "folder": {}, "@microsoft.graph.conflictBehavior": "fail"}).encode(), headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, method="PUT")
+    folder_name = settings.backup_onedrive_folder_path.strip().strip("/") or "MetroCRM-Backups"
+    request_obj = urllib.request.Request("https://graph.microsoft.com/v1.0/me/drive/root/children", data=json.dumps({"name": folder_name, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"}).encode(), headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(request_obj, timeout=60):
             pass
