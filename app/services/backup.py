@@ -26,10 +26,6 @@ def _now() -> datetime:
 
 
 def _key() -> bytes:
-    # Prefer the dedicated backup key. For existing deployments that only have
-    # the mandatory application SECRET_KEY configured, use it as a stable
-    # encryption root so manual backups do not fail merely because the optional
-    # BACKUP_ENCRYPTION_KEY variable is absent. The placeholder is never accepted.
     raw = settings.backup_encryption_key.strip() or settings.secret_key.strip()
     if not raw or raw == "CHANGE-ME-IN-ENV":
         raise RuntimeError("A secure BACKUP_ENCRYPTION_KEY or SECRET_KEY must be configured")
@@ -38,10 +34,10 @@ def _key() -> bytes:
 
 def _encrypted_package(source_zip: Path, destination: Path) -> None:
     nonce = os.urandom(12)
-    aes = AESGCM(_key())
-    plaintext = source_zip.read_bytes()
-    ciphertext = aes.encrypt(nonce, plaintext, None)
-    destination.write_bytes(b"MCRMBKP1" + nonce + ciphertext)
+    ciphertext = AESGCM(_key()).encrypt(nonce, source_zip.read_bytes(), None)
+    temp = destination.with_suffix(destination.suffix + ".part")
+    temp.write_bytes(b"MCRMBKP1" + nonce + ciphertext)
+    temp.replace(destination)
 
 
 def _sqlite_snapshot(database_url: str, target: Path) -> None:
@@ -57,16 +53,24 @@ def _sqlite_snapshot(database_url: str, target: Path) -> None:
         source.close()
 
 
+def _postgres_cli_url(url: str) -> str:
+    # SQLAlchemy may receive a driver-qualified URL (e.g. postgresql+psycopg2://)
+    # while pg_dump accepts the standard PostgreSQL URI only.
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    if "+" in scheme:
+        scheme = scheme.split("+", 1)[0]
+    return f"{scheme}://{rest}"
+
+
 def _database_snapshot(target: Path) -> None:
     url = settings.database_url
     if url.startswith("sqlite:///"):
         _sqlite_snapshot(url, target)
         return
     if url.startswith("postgresql") or url.startswith("postgres"):
-        # Render's native Python runtime includes the PostgreSQL client tools,
-        # so use the standard portable custom-format dump. This is the same
-        # format consumed by pg_restore during recovery.
-        subprocess.run(["pg_dump", url, "-Fc", "-f", str(target)], check=True, env=os.environ.copy())
+        subprocess.run(["pg_dump", "-Fc", _postgres_cli_url(url), "-f", str(target)], check=True, env=os.environ.copy())
         return
     raise RuntimeError("Unsupported database URL for backup")
 
