@@ -63,6 +63,9 @@ def _database_snapshot(target: Path) -> None:
         _sqlite_snapshot(url, target)
         return
     if url.startswith("postgresql") or url.startswith("postgres"):
+        # Render's native Python runtime includes the PostgreSQL client tools,
+        # so use the standard portable custom-format dump. This is the same
+        # format consumed by pg_restore during recovery.
         subprocess.run(["pg_dump", url, "-Fc", "-f", str(target)], check=True, env=os.environ.copy())
         return
     raise RuntimeError("Unsupported database URL for backup")
@@ -121,6 +124,8 @@ def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, ob
         destinations.pop("agent_pc", None)
     if settings.backup_external_path.strip():
         destinations.setdefault("external", {"status": "pending", "path": None, "error": None})
+    else:
+        destinations.pop("external", None)
     for provider in configured_cloud_providers():
         destinations.setdefault(provider, {"status": "pending", "path": None, "error": None})
 
@@ -220,10 +225,36 @@ def acknowledge_agent_backup(relative_path: str) -> bool:
     return True
 
 
+def _latest_backup_state() -> dict[str, object] | None:
+    root = Path(settings.backup_local_path).expanduser() / ".queue"
+    if not root.exists():
+        return None
+    candidates = sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True)
+    for path in candidates:
+        state = _read_state(path)
+        if state:
+            return state
+    return None
+
+
 def backup_health() -> dict[str, object]:
     providers = configured_cloud_providers()
     queue_root = Path(settings.backup_local_path).expanduser() / ".queue"
     queued = 0
     if queue_root.exists():
         queued = sum(1 for p in queue_root.glob("*.json") if (_read_state(p) or {}).get("status") != "success")
-    return {"local_configured": bool(settings.backup_local_path), "external_configured": bool(settings.backup_external_path.strip()), "backup_agent_configured": bool(settings.backup_agent_token.strip()), "cloud_provider": ",".join(providers) if providers else "none", "cloud_providers": providers, "cloud_configured": bool(providers), "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id), "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token), "queued_retries": queued, "timezone": settings.backup_timezone, "schedule": ["11:00", "19:00"]}
+    latest = _latest_backup_state()
+    return {
+        "local_configured": bool(settings.backup_local_path),
+        "external_configured": bool(settings.backup_external_path.strip()),
+        "backup_agent_configured": bool(settings.backup_agent_token.strip()),
+        "cloud_provider": ",".join(providers) if providers else "none",
+        "cloud_providers": providers,
+        "cloud_configured": bool(providers),
+        "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id),
+        "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token and settings.backup_onedrive_folder_path),
+        "queued_retries": queued,
+        "timezone": settings.backup_timezone,
+        "schedule": ["11:00", "19:00"],
+        "last_backup": latest,
+    }
