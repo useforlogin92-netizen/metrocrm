@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -61,6 +63,25 @@ def status_json(request: Request, db: Session = Depends(get_db)):
     return {"user": user.username, **backup_health()}
 
 
+@router.get("/configure", response_class=HTMLResponse)
+def configure_page(request: Request, provider: str = "", db: Session = Depends(get_db)):
+    user = require_super_admin(request, db)
+    selected = provider.lower().strip()
+    if selected not in {"google_drive", "onedrive"}:
+        selected = ""
+    health = backup_health()
+    google_ready_for_oauth = bool(settings.backup_google_client_id.strip() and settings.backup_google_client_secret.strip())
+    onedrive_ready_for_oauth = bool(settings.backup_onedrive_client_id.strip() and settings.backup_onedrive_client_secret.strip())
+    return HTMLResponse(f"""
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Backup Cloud Configuration · MetroCRM</title>
+<style>body{{font-family:system-ui;background:#f4f7fb;color:#0f172a;margin:0;padding:30px}}.wrap{{max-width:900px;margin:auto}}.card{{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:18px}}a,button{{display:inline-block;padding:10px 14px;border-radius:9px;text-decoration:none;font-weight:800;border:0;cursor:pointer}}.primary{{background:#2563eb;color:#fff}}.muted{{color:#64748b;font-size:13px;line-height:1.6}}.ok{{color:#166534;font-weight:800}}.pending{{color:#9a3412;font-weight:800}}code{{background:#f8fafc;padding:2px 5px;border-radius:5px}}</style></head>
+<body><div class='wrap'><div class='card'><h2>MetroCRM Cloud Backup Configuration</h2><p class='muted'>Signed in as <strong>{html.escape(user.username)}</strong>. Cloud credentials are deployment secrets and are never saved in the application database.</p><a class='primary' href='/admin/backups/status'>← Back to Backup Status</a></div>
+<div class='card'><h3>Google Drive</h3><p class='muted'>Status: <span class='{'ok' if health.get('google_drive_configured') else 'pending'}'>{'READY' if health.get('google_drive_configured') else 'CREDENTIALS PENDING'}</span></p><p class='muted'>Required Render environment variables: <code>BACKUP_GOOGLE_CLIENT_ID</code>, <code>BACKUP_GOOGLE_CLIENT_SECRET</code>, <code>BACKUP_GOOGLE_REFRESH_TOKEN</code>, <code>BACKUP_GOOGLE_FOLDER_ID</code>.</p><p class='muted'>First create a Google OAuth Web Application client and authorize Drive access. Google requires an OAuth client and an exact authorized redirect URI for a web-server flow. urlGoogle OAuth documentationhttps://developers.google.com/identity/protocols/oauth2/web-server</p>{"<a class='primary' href='/admin/backups/google/connect'>Start Google OAuth</a>" if google_ready_for_oauth else "<span class='pending'>OAuth client ID/secret are not configured in Render yet.</span>"}</div>
+<div class='card'><h3>OneDrive</h3><p class='muted'>Status: <span class='{'ok' if health.get('onedrive_configured') else 'pending'}'>{'READY' if health.get('onedrive_configured') else 'CREDENTIALS PENDING'}</span></p><p class='muted'>Required Render environment variables: <code>BACKUP_ONEDRIVE_TENANT</code>, <code>BACKUP_ONEDRIVE_CLIENT_ID</code>, <code>BACKUP_ONEDRIVE_CLIENT_SECRET</code>, <code>BACKUP_ONEDRIVE_REFRESH_TOKEN</code>, <code>BACKUP_ONEDRIVE_FOLDER_PATH</code>.</p><p class='muted'>Register a Microsoft Entra application and configure its Web redirect URI before authorizing OneDrive.</p>{"<a class='primary' href='/admin/backups/onedrive/connect'>Start OneDrive OAuth</a>" if onedrive_ready_for_oauth else "<span class='pending'>Microsoft client ID/secret are not configured in Render yet.</span>"}</div>
+<div class='card'><h3>Important</h3><p class='muted'>Do not paste client secrets or refresh tokens into GitHub, chat, screenshots, or the application database. Put them only in the deployment environment variables. After changing Render environment variables, redeploy/restart MetroCRM and refresh this page.</p></div></div></body></html>""")
+
+
 @router.post("/run", dependencies=[Depends(require_csrf)])
 def run_manual(request: Request, db: Session = Depends(get_db)):
     user = require_super_admin(request, db)
@@ -83,11 +104,7 @@ def run_manual(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/restore", dependencies=[Depends(require_csrf)])
 def restore(request: Request, relative_path: str, confirmation: str, expected_sha256: str | None = None, db: Session = Depends(get_db)):
-    """Restore the selected encrypted backup into the configured live database.
-
-    This is deliberately limited to Super Admins, requires CSRF, and requires
-    the literal RESTORE confirmation to prevent accidental destructive actions.
-    """
+    """Restore the selected encrypted backup into the configured live database."""
     user = require_super_admin(request, db)
     if confirmation != "RESTORE":
         raise HTTPException(status_code=400, detail="Explicit RESTORE confirmation required")
@@ -108,7 +125,6 @@ def restore(request: Request, relative_path: str, confirmation: str, expected_sh
 
 @router.get("/agent/manifest")
 def agent_manifest(x_backup_agent_token: str | None = Header(default=None)):
-    """Return encrypted backup files available for a trusted desktop backup agent."""
     require_backup_agent(x_backup_agent_token)
     root = Path(settings.backup_local_path).expanduser().resolve()
     if not root.exists():
@@ -124,7 +140,6 @@ def agent_manifest(x_backup_agent_token: str | None = Header(default=None)):
 
 @router.get("/agent/file/{relative_path:path}")
 def agent_file(relative_path: str, x_backup_agent_token: str | None = Header(default=None)):
-    """Download one encrypted backup to a trusted local backup agent."""
     require_backup_agent(x_backup_agent_token)
     root = Path(settings.backup_local_path).expanduser().resolve()
     target = (root / relative_path).resolve()
@@ -135,7 +150,6 @@ def agent_file(relative_path: str, x_backup_agent_token: str | None = Header(def
 
 @router.post("/agent/ack")
 def agent_ack(relative_path: str, x_backup_agent_token: str | None = Header(default=None)):
-    """Acknowledge a verified backup copied to the fixed desktop agent."""
     require_backup_agent(x_backup_agent_token)
     if not acknowledge_agent_backup(relative_path):
         raise HTTPException(status_code=404, detail="Backup file not found")
