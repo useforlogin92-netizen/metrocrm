@@ -1,6 +1,7 @@
 """Backup destination adapters for local disks and cloud drives."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import shutil
@@ -156,6 +157,83 @@ def configured_cloud_providers() -> list[str]:
     return [item.strip().lower() for item in raw.split(",") if item.strip() and item.strip().lower() not in {"none", "disabled"}]
 
 
+def _b2_native_upload(package: Path, relative_path: str, bucket: str, access_key: str, secret_key: str) -> str:
+    """Fallback transport for B2 when the S3-compatible connection is closed by the network."""
+    basic = base64.b64encode(f"{access_key}:{secret_key}".encode("utf-8")).decode("ascii")
+    _, auth = _request_json(
+        "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+        headers={"Authorization": f"Basic {basic}"},
+    )
+    storage = auth.get("apiInfo", {}).get("storageApi", {})
+    api_url = str(storage.get("apiUrl", "")).rstrip("/")
+    authorization = str(auth.get("authorizationToken", ""))
+    account_id = str(auth.get("accountId", ""))
+    if not api_url or not authorization or not account_id:
+        raise RuntimeError("Backblaze Native API authorization response was incomplete")
+
+    bucket_id = None
+    allowed_buckets = storage.get("allowed", {}).get("buckets", [])
+    if isinstance(allowed_buckets, list):
+        for item in allowed_buckets:
+            if isinstance(item, dict) and item.get("name") == bucket and item.get("id"):
+                bucket_id = str(item["id"])
+                break
+    if not bucket_id:
+        _, bucket_result = _request_json(
+            f"{api_url}/b2api/v4/b2_list_buckets",
+            method="POST",
+            headers={"Authorization": authorization, "Content-Type": "application/json"},
+            data=json.dumps({"accountId": account_id, "bucketName": bucket}).encode("utf-8"),
+        )
+        buckets = bucket_result.get("buckets", [])
+        if isinstance(buckets, list):
+            for item in buckets:
+                if isinstance(item, dict) and item.get("bucketName") == bucket and item.get("bucketId"):
+                    bucket_id = str(item["bucketId"])
+                    break
+    if not bucket_id:
+        raise RuntimeError(f"Backblaze bucket not found or key cannot list bucket: {bucket}")
+
+    _, upload_target = _request_json(
+        f"{api_url}/b2api/v4/b2_get_upload_url",
+        method="POST",
+        headers={"Authorization": authorization, "Content-Type": "application/json"},
+        data=json.dumps({"bucketId": bucket_id}).encode("utf-8"),
+    )
+    upload_url = str(upload_target.get("uploadUrl", ""))
+    upload_authorization = str(upload_target.get("authorizationToken", ""))
+    if not upload_url or not upload_authorization:
+        raise RuntimeError("Backblaze did not return an upload target")
+
+    payload = package.read_bytes()
+    sha1 = hashlib.sha1(payload).hexdigest()
+    encoded_name = urllib.parse.quote(relative_path, safe="")
+    request = urllib.request.Request(
+        upload_url,
+        data=payload,
+        headers={
+            "Authorization": upload_authorization,
+            "X-Bz-File-Name": encoded_name,
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(payload)),
+            "X-Bz-Content-Sha1": sha1,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:1000]
+        raise RuntimeError(f"Backblaze Native API upload failed with HTTP {exc.code}: {detail}") from exc
+
+    if int(result.get("contentLength", -1)) != len(payload):
+        raise RuntimeError("Backblaze Native API upload verification failed: size mismatch")
+    if str(result.get("contentSha1", "")).lower() != sha1:
+        raise RuntimeError("Backblaze Native API upload verification failed: SHA-1 mismatch")
+    return f"b2://{bucket}/{relative_path}"
+
+
 def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
     if provider in {"s3", "s3_compatible"}:
         import boto3
@@ -189,8 +267,6 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
             ),
         )
         try:
-            # Keep path-style addressing to avoid the earlier virtual-host TLS failure,
-            # while leaving payload signing and other HTTP behavior at botocore defaults.
             client.put_object(
                 Bucket=bucket,
                 Key=relative_path,
@@ -206,7 +282,14 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
             if remote_digest != digest:
                 raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
             return f"s3://{bucket}/{relative_path}"
-        except (BotoCoreError, ClientError, OSError, RuntimeError) as exc:
+        except ClientError as exc:
+            raise RuntimeError(f"Backblaze B2 S3 upload failed: {exc}") from exc
+        except (BotoCoreError, OSError) as exc:
+            try:
+                return _b2_native_upload(package, relative_path, bucket, access_key, secret_key)
+            except Exception as native_exc:
+                raise RuntimeError(f"Backblaze B2 upload failed over S3 and Native API fallback: S3={exc}; Native={native_exc}") from native_exc
+        except RuntimeError as exc:
             raise RuntimeError(f"Backblaze B2 S3 upload failed: {exc}") from exc
     if provider in {"google_drive", "gdrive", "google"}:
         return _google_upload(package, relative_path)
