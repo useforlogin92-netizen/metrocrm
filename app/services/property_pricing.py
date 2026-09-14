@@ -53,6 +53,21 @@ def _trim(value: Decimal, places: str = "0.01") -> str:
     return text or "0"
 
 
+def _indian_integer(value: Decimal) -> str:
+    n = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    sign = "-" if n < 0 else ""
+    digits = str(abs(n))
+    if len(digits) <= 3:
+        return sign + digits
+    last = digits[-3:]
+    prefix = digits[:-3]
+    groups = []
+    while prefix:
+        groups.append(prefix[-2:])
+        prefix = prefix[:-2]
+    return sign + ",".join(reversed(groups)) + "," + last
+
+
 def format_property_value(value: Any) -> str:
     """Display property value below 1 Cr in lakh, otherwise in Cr."""
     amount = parse_money(value)
@@ -62,14 +77,14 @@ def format_property_value(value: Any) -> str:
         return f"{_trim(amount / CRORE)} Cr"
     if amount >= LAKH:
         return f"{_trim(amount / LAKH)} lakh"
-    return f"₹{_trim(amount, '1')}"
+    return f"₹{_indian_integer(amount)}"
 
 
 def format_rate_per_sqft(value: Any) -> str:
     amount = _decimal(value)
     if amount is None:
         return ""
-    return f"₹{_trim(amount, '1')}/sq.ft."
+    return f"₹{_indian_integer(amount)}/sq.ft."
 
 
 def calculate_total_price(carpet_area: Any, rate_per_sqft: Any) -> Decimal | None:
