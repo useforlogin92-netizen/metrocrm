@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+import json
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, event, inspect
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.services.property_pricing import pricing_pair
 
 
 class PropertySubmission(Base):
@@ -30,19 +32,43 @@ class PropertySubmission(Base):
 
 @event.listens_for(PropertySubmission, "before_update")
 def _preserve_payload_when_status_does_not_change(mapper, connection, target: PropertySubmission) -> None:
-    """Do not replace the last good payload during a failed validation retry.
-
-    The public submission handler stores the form state before returning a 422
-    validation response. A real correction/resubmission changes the status in
-    the same transaction, so that update is intentionally allowed. If only the
-    payload changes while the workflow status stays OPEN/CORRECTION_REQUESTED,
-    keep the last committed property payload intact.
-    """
+    """Preserve failed-form payloads, while normalizing a real submission's pricing."""
     state = inspect(target)
     payload_history = state.attrs.payload_json.history
     status_history = state.attrs.status.history
-    if payload_history.has_changes() and not status_history.has_changes():
+    if not payload_history.has_changes():
+        return
+    if not status_history.has_changes():
         if payload_history.deleted:
             target.payload_json = payload_history.deleted[0]
         elif payload_history.unchanged:
             target.payload_json = payload_history.unchanged[0]
+        return
+
+    try:
+        payload = json.loads(target.payload_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return
+    details = payload.get("configuration_details")
+    if not isinstance(details, list):
+        return
+    normalized = []
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        item = dict(item)
+        source = str(item.get("pricing_source") or "rate").lower()
+        rate, total = pricing_pair(item.get("carpet_area"), item.get("rate_per_sqft"), item.get("bundle_price"), source)
+        if rate is not None:
+            item["rate_per_sqft"] = format(rate, ".2f").rstrip("0").rstrip(".")
+        if total is not None:
+            item["bundle_price"] = format(total, ".2f").rstrip("0").rstrip(".")
+        item["pricing_source"] = source if source in {"rate", "total"} else "rate"
+        normalized.append(item)
+    payload["configuration_details"] = normalized
+    if normalized:
+        first = normalized[0]
+        payload["starting_price"] = first.get("bundle_price", payload.get("starting_price", ""))
+        payload["rate_per_sqft"] = first.get("rate_per_sqft", payload.get("rate_per_sqft", ""))
+        payload["bundle_price"] = first.get("bundle_price", payload.get("bundle_price", ""))
+    target.payload_json = json.dumps(payload, ensure_ascii=False)
