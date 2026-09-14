@@ -1,0 +1,11 @@
+{
+  "name": "MetroCRM Emergency Offline",
+  "short_name": "MetroCRM",
+  "description": "MetroCRM emergency offline workspace and recovery shell.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#0b1224",
+  "icons": []
+}
