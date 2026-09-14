@@ -1,8 +1,8 @@
-from datetime import datetime
-
 from app.catalog_models import CatalogShare
 from app.marketing_models import MarketingCampaign, MarketingLandingVisit, MarketingLeadEvent
 from app.models import Customer, Lead, User
+from app.routers.marketing import _attribution_values, _has_active_catalog_share
+from starlette.requests import Request
 
 
 def test_marketing_models_register_and_store(db_session):
@@ -47,3 +47,58 @@ def test_catalog_share_remains_the_customer_safe_property_source(db_session):
     db_session.add(campaign)
     db_session.commit()
     assert db_session.get(MarketingCampaign, campaign.id).catalog_share_id == share.id
+
+
+def test_campaign_activation_requires_active_catalog_share(db_session):
+    assert _has_active_catalog_share(db_session, None) is False
+    assert _has_active_catalog_share(db_session, 999999) is False
+    share = CatalogShare(token_hash="a" * 64, payload_json='{"title":"Safe Property"}', created_by_id=1, active=True)
+    db_session.add(share)
+    db_session.flush()
+    assert _has_active_catalog_share(db_session, share.id) is True
+    share.active = False
+    db_session.flush()
+    assert _has_active_catalog_share(db_session, share.id) is False
+
+
+def test_attribution_prefers_query_parameters_and_falls_back_to_campaign_defaults(db_session):
+    campaign = MarketingCampaign(
+        name="Meta Attribution",
+        channel="FACEBOOK",
+        status="ACTIVE",
+        landing_token="attribution-token",
+        utm_source="campaign-source",
+        utm_medium="campaign-medium",
+        utm_campaign="campaign-name",
+        created_by_id=1,
+    )
+    db_session.add(campaign)
+    db_session.flush()
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/m/attribution-token",
+        "query_string": b"utm_source=facebook&utm_medium=paid_social&utm_campaign=sep_2bhk&utm_content=creative_a&utm_term=2bhk&fbclid=fb-123",
+        "headers": [],
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+        "scheme": "http",
+    }
+    request = Request(scope)
+    attribution = _attribution_values(request, campaign)
+    assert attribution == {
+        "source": "facebook",
+        "medium": "paid_social",
+        "campaign": "sep_2bhk",
+        "content": "creative_a",
+        "term": "2bhk",
+        "click_id": "fb-123",
+    }
+
+    fallback_request = Request({**scope, "query_string": b""})
+    fallback = _attribution_values(fallback_request, campaign)
+    assert fallback["source"] == "campaign-source"
+    assert fallback["medium"] == "campaign-medium"
+    assert fallback["campaign"] == "campaign-name"
+    assert fallback["click_id"] is None
