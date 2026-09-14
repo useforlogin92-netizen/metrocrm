@@ -63,13 +63,89 @@ def _decimal(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
 
+def _project_media(db: Session, project_id: int, unit_id: int | None = None) -> list[str]:
+    media = db.scalars(
+        select(PropertyMedia)
+        .where(
+            PropertyMedia.project_id == project_id,
+            (PropertyMedia.unit_id == unit_id) | PropertyMedia.unit_id.is_(None),
+        )
+        .order_by(PropertyMedia.sort_order.asc(), PropertyMedia.id.asc())
+    ).all()
+    return [m.file_url for m in media if m.file_url]
+
+
+def _project_level_rows(db: Session, city: str) -> list[dict[str, Any]]:
+    """Expose projects even when the inventory has no Unit rows yet."""
+    stmt = select(Project).order_by(Project.id.desc())
+    if city:
+        stmt = stmt.where(Project.city.ilike(city.strip()))
+    rows: list[dict[str, Any]] = []
+    for project in db.scalars(stmt).all():
+        station, corridor = _station_metadata(" ".join(filter(None, [project.locality, project.address, project.sector])))
+        location_text = " ".join(filter(None, [project.locality, project.sector, project.address]))
+        lowered = location_text.casefold()
+        side = "Both"
+        if " west" in lowered or lowered.endswith("west"):
+            side = "West"
+        elif " east" in lowered or lowered.endswith("east"):
+            side = "East"
+        photos = _project_media(db, project.id)
+        if not photos:
+            photos = _json_list(project.photos_json)
+        rows.append({
+            "id": project.id,
+            "title": project.name,
+            "project": project.name,
+            "developer_id": project.developer_id,
+            "tower": None,
+            "unit_number": None,
+            "city": project.city,
+            "district": project.district,
+            "state": project.state,
+            "locality": project.locality,
+            "location": location_text,
+            "sector": project.sector,
+            "pincode": project.pincode,
+            "station": station,
+            "railway_station": station,
+            "corridor": corridor,
+            "side": side,
+            "bhk": None,
+            "property_type": "Project",
+            "carpet_area": None,
+            "price": None,
+            "price_per_sqft": None,
+            "construction_status": project.construction_status,
+            "possession": project.possession_date,
+            "possession_date": project.possession_date,
+            "rera_possession_date": project.possession_date,
+            "rera": project.rera,
+            "parking": None,
+            "facing": None,
+            "furnishing": None,
+            "amenities": _json_list(project.amenities_json),
+            "photos": photos,
+            "floor_plan": None,
+            "brochure": project.brochure,
+            "description": project.description,
+        })
+    return rows
+
+
 def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
-    """Adapt Unit + Project data into the caller-search matching contract."""
+    """Adapt Unit + Project data into the caller-search matching contract.
+
+    Unit-level inventory is preferred. Projects without Units are also returned
+    so an imported project catalogue remains searchable before unit enrichment.
+    """
     stmt = select(Unit, Project, Tower).join(Project, Unit.project_id == Project.id).outerjoin(Tower, Unit.tower_id == Tower.id)
     if city:
         stmt = stmt.where(Project.city.ilike(city.strip()))
     rows: list[dict[str, Any]] = []
+    project_ids_with_units: set[int] = set()
     for unit, project, tower in db.execute(stmt).all():
+        project_ids_with_units.add(project.id)
         station, corridor = _station_metadata(" ".join(filter(None, [project.locality, project.address, project.sector])))
         side = "Both"
         location_text = " ".join(filter(None, [project.locality, project.sector, project.address]))
@@ -79,8 +155,7 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
         elif " east" in lowered or lowered.endswith("east"):
             side = "East"
         possession_date = unit.possession or project.possession_date
-        media = db.scalars(select(PropertyMedia).where(PropertyMedia.project_id == project.id, (PropertyMedia.unit_id == unit.id) | PropertyMedia.unit_id.is_(None)).order_by(PropertyMedia.sort_order.asc(), PropertyMedia.id.asc())).all()
-        photos = [m.file_url for m in media if m.file_url]
+        photos = _project_media(db, project.id, unit.id)
         if not photos:
             photos = _json_list(unit.photos_json) + _json_list(project.photos_json)
         rows.append({
@@ -97,6 +172,9 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
             "photos": photos, "floor_plan": unit.floor_plan,
             "brochure": unit.brochure or project.brochure, "description": unit.description or project.description,
         })
+    for project_row in _project_level_rows(db, city):
+        if project_row["id"] not in project_ids_with_units:
+            rows.append(project_row)
     return rows
 
 
