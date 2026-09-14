@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b1224">
+<link rel="manifest" href="/static/metrocrm-manifest.json">
 <title>MetroCRM · Emergency Offline</title>
 <style>
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f7fb;color:#0f172a;display:grid;place-items:center;min-height:100vh}.card{width:min(680px,calc(100% - 32px));background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:28px;box-shadow:0 12px 35px rgba(15,23,42,.08)}h1{margin:0 0 8px}.status{display:inline-flex;padding:7px 10px;border-radius:999px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-weight:800;font-size:12px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:22px 0}.item{padding:14px;border:1px solid #e2e8f0;border-radius:12px}.item b{display:block;margin-bottom:4px}.muted{color:#64748b;font-size:13px;line-height:1.5}button{border:0;border-radius:10px;padding:11px 15px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer}@media(max-width:560px){.grid{grid-template-columns:1fr}}
@@ -15,4 +16,4 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background
 <p class="muted">Internet/server connectivity is unavailable. This emergency workspace is available so the CRM can be extended with encrypted local data entry and later synchronization.</p>
 <div class="grid"><div class="item"><b>Local workspace</b><span class="muted">Available shell</span></div><div class="item"><b>Server sync</b><span class="muted">Waiting for connection</span></div><div class="item"><b>Data safety</b><span class="muted">Do not enter sensitive data until Offline Data Sync is enabled for this device.</span></div><div class="item"><b>Recovery</b><span class="muted">Reconnect and return to MetroCRM.</span></div></div>
 <button type="button" onclick="location.href='/dashboard'">Retry MetroCRM</button>
-</main></body></html>
+</main><script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/metrocrm-sw.js',{scope:'/'}).catch(()=>{});}</script></body></html>
