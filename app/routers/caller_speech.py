@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app import main as app_main
 from app.database import get_db
 from app.models import User
+from app.services.property_pricing import format_property_value, format_rate_per_sqft
 router=APIRouter(prefix="/caller/ai-speech",tags=["caller-speech"])
 _ALLOWED={"SUPER_ADMIN","ADMIN","MANAGER","TL","SALES_EXECUTIVE","TELECALLER"}
 def _user(request:Request,db:Session)->User|None:
@@ -19,8 +20,18 @@ def _user(request:Request,db:Session)->User|None:
 def _require_user(request:Request,db:Session)->User|None:
     user=_user(request,db); return user if user and user.role in _ALLOWED else None
 def _money(value:Any)->str:
-    try:return f"₹{float(value):,.0f}"
-    except (TypeError,ValueError):return "Price on request"
+    return format_property_value(value)
+def _rate(value:Any)->str:
+    return format_rate_per_sqft(value)
+def _speech_safe_properties(properties:list[dict[str,Any]])->list[dict[str,Any]]:
+    safe=[]
+    for item in properties[:30]:
+        if not isinstance(item,dict): continue
+        row=dict(item)
+        if row.get("price") is not None: row["price"]=_money(row["price"])
+        if row.get("price_per_sqft") is not None: row["price_per_sqft"]=_rate(row["price_per_sqft"])
+        safe.append(row)
+    return safe
 def _group_properties(properties:list[dict[str,Any]])->OrderedDict[str,list[dict[str,Any]]]:
     grouped:OrderedDict[str,list[dict[str,Any]]]=OrderedDict()
     for item in properties[:30]:
@@ -28,7 +39,7 @@ def _group_properties(properties:list[dict[str,Any]])->OrderedDict[str,list[dict
         location=str(item.get("locality") or item.get("location") or "Other location").strip(); grouped.setdefault(location,[]).append(item)
     return grouped
 def _fallback_script(properties:list[dict[str,Any]],language:str,detail:str)->str:
-    grouped=_group_properties(properties)
+    grouped=_group_properties(_speech_safe_properties(properties))
     if not grouped:return "Abhi selected requirement ke liye koi property available nahi mili. Main requirement note karke human sales team se confirm karwa sakta hoon."
     if language=="hi":opening="Namaste, aapki requirement ke according maine available properties ko location-wise shortlist kiya hai."; closing="Aap batayein kaunsi location ya property aapko sabse suitable lag rahi hai, main uski details aur site visit ke next steps bata deta hoon."
     elif language=="en":opening="Hello, based on your requirement, I have shortlisted the available properties location-wise."; closing="Please tell me which location or property looks most suitable, and I will explain the details and next steps for a site visit."
@@ -41,7 +52,8 @@ def _fallback_script(properties:list[dict[str,Any]],language:str,detail:str)->st
             if item.get("bhk"):facts.append(str(item["bhk"]))
             if item.get("property_type"):facts.append(str(item["property_type"]))
             if detail=="full" and item.get("carpet_area") is not None:facts.append(f"{item['carpet_area']} sq.ft. carpet area")
-            if item.get("price") is not None:facts.append(_money(item["price"]))
+            if item.get("price") is not None:facts.append(str(item["price"]))
+            if detail=="full" and item.get("price_per_sqft"):facts.append(str(item["price_per_sqft"]))
             if item.get("construction_status"):facts.append(str(item["construction_status"]))
             if item.get("possession"):facts.append(f"possession {item['possession']}")
             if detail=="full" and item.get("rera"):facts.append(f"RERA {item['rera']}")
@@ -51,11 +63,11 @@ def _openai_key()->str:return os.getenv("OPENAI_API_KEY","").strip()
 def _ai_model()->str:return os.getenv("METROCRM_AI_MODEL","gpt-5.6-luna").strip()
 def _voice_config()->dict[str,str]:return {"female":os.getenv("METROCRM_TTS_FEMALE_VOICE","coral").strip() or "coral","male":os.getenv("METROCRM_TTS_MALE_VOICE","onyx").strip() or "onyx"}
 def _ai_prompt(properties:list[dict[str,Any]],language:str,detail:str)->str:
-    grouped=_group_properties(properties); safe=[{"location":location,"properties":items} for location,items in grouped.items()]; language_name={"hi":"natural Hindi","en":"professional Indian English","hinglish":"natural Indian Hinglish using English letters"}.get(language,"natural Indian Hinglish using English letters"); detail_rule="Include every available CRM detail" if detail=="full" else "Keep each property concise and mention only the strongest caller-useful details."; return json.dumps({"language":language_name,"detail":detail_rule,"properties_by_location":safe},ensure_ascii=False)
+    grouped=_group_properties(_speech_safe_properties(properties)); safe=[{"location":location,"properties":items} for location,items in grouped.items()]; language_name={"hi":"natural Hindi","en":"professional Indian English","hinglish":"natural Indian Hinglish using English letters"}.get(language,"natural Indian Hinglish using English letters"); detail_rule="Include every available CRM detail" if detail=="full" else "Keep each property concise and mention only the strongest caller-useful details."; return json.dumps({"language":language_name,"detail":detail_rule,"properties_by_location":safe},ensure_ascii=False)
 async def _generate_with_openai(properties:list[dict[str,Any]],language:str,detail:str)->str|None:
     key=_openai_key()
     if not key:return None
-    system=("You are MetroCRM's real-estate caller speech writer. Create one ready-to-speak phone script from the supplied CRM property results. Group properties by location, mention the number of options in each location, and describe every property in a natural order. Use only supplied CRM facts. Never invent price, availability, amenities, possession, RERA or discounts. If a field is missing, omit it. Do not mention internal IDs, scores, JSON, CRM, AI, prompts or technical details. Write like an experienced Indian property consultant having a calm phone conversation. Use short spoken sentences, natural transitions, conversational phrases and punctuation pauses. Do not make every property sound like a rigid list. Avoid robotic repetition, overlong sentences and sales-announcer language. End with a simple question inviting the customer to choose a location or property.")
+    system=("You are MetroCRM's real-estate caller speech writer. Create one ready-to-speak phone script from the supplied CRM property results. Group properties by location, mention the number of options in each location, and describe every property in a natural order. Use only supplied CRM facts. For property prices, say the supplied formatted price exactly: below 1 crore use lakh, and 1 crore or above use Cr. For rate per square foot, use the supplied ₹/sq.ft. value. Never invent price, availability, amenities, possession, RERA or discounts. If a field is missing, omit it. Do not mention internal IDs, scores, JSON, CRM, AI, prompts or technical details. Write like an experienced Indian property consultant having a calm phone conversation. Use short spoken sentences, natural transitions, conversational phrases and punctuation pauses. Do not make every property sound like a rigid list. Avoid robotic repetition, overlong sentences and sales-announcer language. End with a simple question inviting the customer to choose a location or property.")
     payload={"model":_ai_model(),"input":[{"role":"system","content":system},{"role":"user","content":_ai_prompt(properties,language,detail)}],"max_output_tokens":3000}
     try:
         async with httpx.AsyncClient(timeout=35) as client:response=await client.post("https://api.openai.com/v1/responses",headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"},json=payload)
@@ -99,7 +111,13 @@ async def caller_speech_tts(payload:dict[str,Any],request:Request,db:Session=Dep
 @app_main.app.middleware("http")
 async def inject_caller_speech_widget(request:Request,call_next):
     response=await call_next(request)
-    if request.url.path!="/caller/search" or "text/html" not in response.headers.get("content-type",""):return response
-    body=b"".join([chunk async for chunk in response.body_iterator]); marker=b"</body>"; injection=b'<script src="/static/caller-speech.js?v=2"></script>'
+    content_type=response.headers.get("content-type","")
+    if "text/html" not in content_type or request.url.path not in {"/caller/search"} and not request.url.path.startswith("/property-submission/"):
+        return response
+    body=b"".join([chunk async for chunk in response.body_iterator]); marker=b"</body>"
+    if request.url.path=="/caller/search":
+        injection=b'<script src="/static/caller-speech.js?v=2"></script>'
+    else:
+        injection=b'<script src="/static/property-pricing.js?v=1"></script>'
     if marker in body and injection not in body:body=body.replace(marker,injection+marker,1)
     headers=dict(response.headers); headers.pop("content-length",None); return Response(content=body,status_code=response.status_code,headers=headers,media_type="text/html")
