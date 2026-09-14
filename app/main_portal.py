@@ -27,6 +27,7 @@ from app.routers.backup_devices import router as backup_devices_router
 
 app = main.app
 from app import oauth_compat  # noqa: F401,E402
+from app.routers import user_management_compat  # noqa: F401,E402
 
 install_property_management_ui(app)
 install_session_compatibility(app)
