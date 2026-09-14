@@ -2,8 +2,8 @@
 from app import main
 from app import portal  # noqa: F401,E402
 from app import portal_boundary  # noqa: F401,E402
-from app.language_support import install_language_support  # noqa: E402
-from app.session_compat import install_session_compatibility  # noqa: E402
+from app.language_support import install_language_support
+from app.session_compat import install_session_compatibility
 from app.logout_cookie_hardening import install_logout_cookie_hardening
 from app.property_management_ui import install_property_management_ui
 from app.routers import recovery_login_link  # noqa: F401,E402
@@ -28,6 +28,7 @@ from app.routers.backup_devices import router as backup_devices_router
 app = main.app
 from app import oauth_compat  # noqa: F401,E402
 from app.routers import user_management_compat  # noqa: F401,E402
+from app.routers import system_storage  # noqa: F401,E402
 
 install_property_management_ui(app)
 install_session_compatibility(app)
