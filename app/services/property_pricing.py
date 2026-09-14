@@ -53,6 +53,12 @@ def _trim(value: Decimal, places: str = "0.01") -> str:
     return text or "0"
 
 
+def _crore_display(value: Decimal) -> str:
+    """Format crore values with exactly two decimal places for speech/display."""
+    rounded = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return format(rounded, ".2f")
+
+
 def _indian_integer(value: Decimal) -> str:
     n = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     sign = "-" if n < 0 else ""
@@ -69,12 +75,12 @@ def _indian_integer(value: Decimal) -> str:
 
 
 def format_property_value(value: Any) -> str:
-    """Display property value below 1 Cr in lakh, otherwise in Cr."""
+    """Display property value below 1 Cr in lakh, otherwise in Cr with two decimals."""
     amount = parse_money(value)
     if amount is None:
         return "Price on request"
     if amount >= CRORE:
-        return f"{_trim(amount / CRORE)} Cr"
+        return f"{_crore_display(amount / CRORE)} Cr"
     if amount >= LAKH:
         return f"{_trim(amount / LAKH)} lakh"
     return f"₹{_indian_integer(amount)}"
