@@ -184,24 +184,17 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
             region_name=region,
             config=Config(
                 signature_version="s3v4",
-                connect_timeout=15,
-                read_timeout=300,
                 retries={"mode": "standard", "total_max_attempts": 5},
-                request_checksum_calculation="when_required",
-                response_checksum_validation="when_required",
-                s3={"addressing_style": "path", "payload_signing_enabled": False},
             ),
         )
         try:
-            # Backblaze's documented S3 API supports path-style bucket URLs. Keep the
-            # endpoint hostname unchanged so TLS validation is against the documented
-            # regional certificate, and avoid optional SDK checksum/streaming headers.
+            # Match Backblaze's official boto3 integration pattern: the endpoint is
+            # the regional S3 hostname and the SDK handles SigV4 request signing.
             client.put_object(
                 Bucket=bucket,
                 Key=relative_path,
                 Body=payload,
                 Metadata={"sha256": digest},
-                ContentLength=len(payload),
             )
             remote = client.head_object(Bucket=bucket, Key=relative_path)
             remote_size = int(remote.get("ContentLength", -1))
