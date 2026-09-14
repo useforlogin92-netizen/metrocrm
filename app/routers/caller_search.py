@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from decimal import Decimal
 from typing import Any
@@ -63,6 +64,21 @@ def _decimal(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
 
+def _project_catalog_details(description: str | None) -> dict[str, Any]:
+    """Recover searchable/displayable basics from imported project descriptions."""
+    text = str(description or "")
+    bhk_match = re.search(r"(\d+)\s*BHK", text, re.IGNORECASE)
+    area_match = re.search(r"area\s+([0-9]+(?:\s*[-/]\s*[0-9]+)?)\s*(?:sq\.?\s*ft)?", text, re.IGNORECASE)
+    price_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*Cr\b", text, re.IGNORECASE)
+    possession_match = re.search(r"possession\s+([^|]+)", text, re.IGNORECASE)
+    return {
+        "bhk": f"{bhk_match.group(1)} BHK" if bhk_match else None,
+        "carpet_area": float(re.split(r"[-/]", area_match.group(1))[0].strip()) if area_match else None,
+        "price": float(price_match.group(1)) * 10_000_000 if price_match else None,
+        "possession": possession_match.group(1).strip()[:100] if possession_match else None,
+    }
+
+
 def _project_media(db: Session, project_id: int, unit_id: int | None = None) -> list[str]:
     media = db.scalars(
         select(PropertyMedia)
@@ -93,6 +109,7 @@ def _project_level_rows(db: Session, city: str) -> list[dict[str, Any]]:
         photos = _project_media(db, project.id)
         if not photos:
             photos = _json_list(project.photos_json)
+        details = _project_catalog_details(project.description)
         rows.append({
             "id": project.id,
             "title": project.name,
@@ -111,13 +128,13 @@ def _project_level_rows(db: Session, city: str) -> list[dict[str, Any]]:
             "railway_station": station,
             "corridor": corridor,
             "side": side,
-            "bhk": None,
+            "bhk": details["bhk"],
             "property_type": "Project",
-            "carpet_area": None,
-            "price": None,
+            "carpet_area": details["carpet_area"],
+            "price": details["price"],
             "price_per_sqft": None,
             "construction_status": project.construction_status,
-            "possession": project.possession_date,
+            "possession": project.possession_date or details["possession"],
             "possession_date": project.possession_date,
             "rera_possession_date": project.possession_date,
             "rera": project.rera,
