@@ -37,6 +37,12 @@ services:
         sync: false
       - key: BACKUP_S3_REGION
         sync: false
+      - key: BACKUP_B2_KEY_ID
+        sync: false
+      - key: BACKUP_B2_APPLICATION_KEY
+        sync: false
+      - key: BACKUP_B2_BUCKET_ID
+        sync: false
       - key: BACKUP_GOOGLE_CLIENT_ID
         sync: false
       - key: BACKUP_GOOGLE_CLIENT_SECRET
