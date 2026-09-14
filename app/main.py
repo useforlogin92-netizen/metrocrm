@@ -30,6 +30,7 @@ from app.routers.advanced_reports import router as advanced_reports_router
 from app.routers.lead_import import router as lead_import_router
 from app.routers.property_social import router as property_social_router
 from app.routers.property_submissions import router as property_submissions_router
+from app.routers.marketing import router as marketing_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
@@ -38,6 +39,7 @@ import app.integration_models  # noqa: F401
 import app.whatsapp_models  # noqa: F401
 import app.email_verification  # noqa: F401
 import app.property_submission_models  # noqa: F401
+import app.marketing_models  # noqa: F401
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -71,7 +73,7 @@ async def enforce_idle_session(request: Request, call_next):
             session.clear()
             response = RedirectResponse("/", status_code=303)
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
-            response.headers["Pragma"] = "no-cache"
+            response.headers["Pragma"] = "0"
             response.headers["Expires"] = "0"
             return response
         session["last_activity"] = now
@@ -81,10 +83,6 @@ async def enforce_idle_session(request: Request, call_next):
     response.headers["Expires"] = "0"
     return response
 
-# SessionMiddleware is declared after idle enforcement because Starlette's
-# add_middleware inserts each declaration at the front of user_middleware.
-# Therefore SessionMiddleware is the outer layer and request.session exists
-# before enforce_idle_session executes.
 app.add_middleware(BaseHTTPMiddleware, dispatch=enforce_idle_session)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
@@ -100,6 +98,7 @@ app.include_router(advanced_reports_router)
 app.include_router(lead_import_router)
 app.include_router(property_social_router)
 app.include_router(property_submissions_router)
+app.include_router(marketing_router)
 
 _super_admin_failures: dict[str, list[float]] = {}
 _SUPER_ADMIN_MAX_FAILURES = 5
@@ -217,193 +216,3 @@ def setup(username: str = Form(...), password: str = Form(...), role: str = Form
     db.add(user)
     db.commit()
     return RedirectResponse("/", status_code=303)
-
-def _current_user(request: Request, db: Session) -> User | None:
-    user_id = request.session.get("user_id")
-    user = db.get(User, user_id) if user_id else None
-    if not user or not user.is_active or user.session_version != request.session.get("session_version"):
-        return None
-    return user
-
-@app.get("/profile", response_class=HTMLResponse)
-def profile(request: Request, db: Session = Depends(get_db)):
-    user = _current_user(request, db)
-    if not user:
-        return RedirectResponse("/", status_code=303)
-    last_login = db.scalar(select(AuditEvent.created_at).where(AuditEvent.actor_user_id == user.id, AuditEvent.action == "LOGIN_SUCCESS").order_by(AuditEvent.created_at.desc()).limit(1))
-    return templates.TemplateResponse(request, "profile.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "user": user, "last_login": last_login, "csrf_token": csrf_token(request)})
-
-@app.post("/profile", dependencies=[Depends(require_csrf)])
-def update_profile(request: Request, mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
-    user = _current_user(request, db)
-    if not user:
-        return RedirectResponse("/", status_code=303)
-    user.mobile = mobile.strip() or None
-    user.email = email.strip().lower() or None
-    user.category = category.strip() or None
-    user.team = team.strip() or None
-    user.security_question = security_question.strip() or None
-    if security_answer.strip():
-        user.security_answer_hash = hash_password(security_answer.strip())
-    _audit(db, user.id, "PROFILE_UPDATED", user)
-    db.commit()
-    return RedirectResponse("/profile", status_code=303)
-
-@app.post("/profile/password", dependencies=[Depends(require_csrf)])
-def change_password(request: Request, current_password: str = Form(...), new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
-    user = _current_user(request, db)
-    if not user:
-        return RedirectResponse("/", status_code=303)
-    if not authenticate_password(user, current_password):
-        return RedirectResponse("/profile?error=current_password", status_code=303)
-    if len(new_password) < 8 or new_password != confirm_password:
-        return RedirectResponse("/profile?error=password", status_code=303)
-    user.password_hash = hash_password(new_password)
-    user.session_version += 1
-    _audit(db, user.id, "PASSWORD_CHANGED", user)
-    db.commit()
-    request.session.clear()
-    return RedirectResponse("/", status_code=303)
-
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)):
-    user = _current_user(request, db)
-    if not user:
-        return RedirectResponse("/", status_code=303)
-    show_user_management = user.role in {"SUPER_ADMIN", "ADMIN"}
-    show_integrations = user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER"}
-    show_alerts = user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}
-    show_approvals = user.role in {"SUPER_ADMIN", "ADMIN"}
-    return templates.TemplateResponse(request, "dashboard.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "show_user_management": show_user_management, "show_integrations": show_integrations, "show_alerts": show_alerts, "show_approvals": show_approvals})
-
-@app.get("/admin/users", response_class=HTMLResponse)
-def admin_users(request: Request, db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    if not actor or actor.role not in {"SUPER_ADMIN", "ADMIN"}:
-        return RedirectResponse("/dashboard", status_code=303)
-    users = db.scalars(select(User).order_by(User.id.asc())).all()
-    visible_users = users if actor.role == "SUPER_ADMIN" else [u for u in users if u.role not in {"SUPER_ADMIN", "ADMIN"}]
-    managers = [u for u in users if u.is_active and u.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} and (actor.role == "SUPER_ADMIN" or u.role != "SUPER_ADMIN")]
-    return templates.TemplateResponse(request, "admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "user": actor, "users": visible_users, "managers": managers, "roles": [r.value for r in Role if actor.role == "SUPER_ADMIN" or r.value not in {"SUPER_ADMIN", "ADMIN"}], "csrf_token": csrf_token(request)})
-
-@app.post("/admin/users/create", dependencies=[Depends(require_csrf)])
-def create_user(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), manager_id: str = Form(""), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    role = role.upper()
-    if not actor or not _can_manage_user(actor, target_role=role):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    if len(password) < 8 or not security_question.strip() or not security_answer.strip():
-        return RedirectResponse("/admin/users?error=validation", status_code=303)
-    manager = int(manager_id) if manager_id.isdigit() else None
-    if not _valid_reporting_manager(actor, manager, None, db):
-        return RedirectResponse("/admin/users?error=manager", status_code=303)
-    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip(), security_answer_hash=hash_password(security_answer.strip()), is_active=True, is_approved=False)
-    db.add(user)
-    _audit(db, actor.id, "USER_CREATED", user, {"role": role})
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.post("/admin/users/{user_id}/edit", dependencies=[Depends(require_csrf)])
-def edit_user(request: Request, user_id: int, username: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), manager_id: str = Form(""), db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    target = db.get(User, user_id)
-    role = role.upper()
-    if not actor or not target or not _can_manage_user(actor, target=target, target_role=role):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    manager = int(manager_id) if manager_id.isdigit() else None
-    if not _valid_reporting_manager(actor, manager, target, db):
-        return RedirectResponse("/admin/users?error=manager", status_code=303)
-    target.username = username.strip()
-    target.role = role
-    target.mobile = mobile.strip() or None
-    target.category = category.strip() or None
-    target.team = team.strip() or None
-    target.reporting_manager_id = manager
-    target.email = email.strip().lower() or None
-    _audit(db, actor.id, "USER_UPDATED", target, {"role": role})
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.post("/admin/users/{user_id}/toggle", dependencies=[Depends(require_csrf)])
-def toggle_user(request: Request, user_id: int, db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    target = db.get(User, user_id)
-    if not actor or not target or not _can_manage_user(actor, target=target):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    target.is_active = not target.is_active
-    target.session_version += 1
-    _audit(db, actor.id, "USER_TOGGLED", target, {"active": target.is_active})
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.post("/admin/users/{user_id}/reset-sessions", dependencies=[Depends(require_csrf)])
-def reset_user_sessions(request: Request, user_id: int, db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    target = db.get(User, user_id)
-    if not actor or not target or not _can_manage_user(actor, target=target):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    target.session_version += 1
-    _audit(db, actor.id, "SESSIONS_RESET", target)
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.post("/admin/users/{user_id}/reset-password", dependencies=[Depends(require_csrf)])
-def reset_user_password(request: Request, user_id: int, new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    target = db.get(User, user_id)
-    if not actor or not target or not _can_manage_user(actor, target=target):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    if len(new_password) < 8 or new_password != confirm_password:
-        return RedirectResponse("/admin/users?error=password", status_code=303)
-    target.password_hash = hash_password(new_password)
-    target.session_version += 1
-    _audit(db, actor.id, "PASSWORD_RESET", target)
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.post("/admin/users/{user_id}/approve", dependencies=[Depends(require_csrf)])
-def approve_user(request: Request, user_id: int, db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    target = db.get(User, user_id)
-    if not actor or not target or not _can_approve(actor, target):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    target.is_approved = True
-    _audit(db, actor.id, "USER_APPROVED", target)
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.post("/admin/users/{user_id}/revoke-approval", dependencies=[Depends(require_csrf)])
-def revoke_approval(request: Request, user_id: int, db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    target = db.get(User, user_id)
-    if not actor or not target or not _can_approve(actor, target):
-        return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    target.is_approved = False
-    target.session_version += 1
-    _audit(db, actor.id, "USER_APPROVAL_REVOKED", target)
-    db.commit()
-    return RedirectResponse("/admin/users", status_code=303)
-
-@app.get("/admin/users/pending", response_class=HTMLResponse)
-def pending_users(request: Request, db: Session = Depends(get_db)):
-    actor = _current_user(request, db)
-    if not actor or actor.role not in {"SUPER_ADMIN", "ADMIN"}:
-        return RedirectResponse("/dashboard", status_code=303)
-    users = db.scalars(select(User).where(User.is_approved.is_(False)).order_by(User.id.asc())).all()
-    visible = users if actor.role == "SUPER_ADMIN" else [u for u in users if u.role not in {"SUPER_ADMIN", "ADMIN"}]
-    return templates.TemplateResponse(request, "pending_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "users": visible, "csrf_token": csrf_token(request)})
-
-@app.get("/auth/logout")
-def logout(request: Request, db: Session = Depends(get_db)):
-    user_id = request.session.get("user_id")
-    if user_id:
-        user = db.get(User, user_id)
-        if user:
-            _audit(db, user.id, "LOGOUT", user)
-            db.commit()
-    request.session.clear()
-    response = RedirectResponse("/", status_code=303)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
