@@ -267,12 +267,19 @@ def backup_health() -> dict[str, object]:
     external_path = Path(settings.backup_external_path).expanduser() if settings.backup_external_path.strip() else None
     external_connected = bool(external_path and external_path.is_dir())
     latest = _latest_backup_state()
+    s3_configured = bool(
+        settings.backup_s3_endpoint.strip()
+        and settings.backup_s3_bucket.strip()
+        and settings.backup_s3_access_key.strip()
+        and settings.backup_s3_secret_key.strip()
+    )
     return {
         "local_configured": bool(settings.backup_local_path), "local_path_exists": local_exists,
         "local_writable": local_writable, "local_detail": local_detail,
         "external_configured": bool(settings.backup_external_path.strip()), "external_connected": external_connected,
         "external_path": str(external_path) if external_path else "", "backup_agent_configured": bool(settings.backup_agent_token.strip()),
         "cloud_provider": ",".join(providers) if providers else "none", "cloud_providers": providers, "cloud_configured": bool(providers),
+        "s3_configured": s3_configured,
         "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id),
         "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token and settings.backup_onedrive_folder_path),
         "queued_retries": queued, "timezone": settings.backup_timezone, "schedule": ["11:00", "19:00"], "last_backup": latest,
