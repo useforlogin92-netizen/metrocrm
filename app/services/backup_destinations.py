@@ -97,7 +97,6 @@ def _onedrive_upload(package: Path, relative_path: str) -> str:
     if not upload_url:
         raise RuntimeError("OneDrive did not return an upload session URL")
 
-    # 10 MiB is below Microsoft's 60 MiB fragment limit and is a multiple of 320 KiB.
     chunk_size = 10 * 1024 * 1024
     total = package.stat().st_size
     result: dict = {}
@@ -157,8 +156,8 @@ def configured_cloud_providers() -> list[str]:
     return [item.strip().lower() for item in raw.split(",") if item.strip() and item.strip().lower() not in {"none", "disabled"}]
 
 
-def _b2_native_upload(package: Path, relative_path: str, bucket: str, access_key: str, secret_key: str) -> str:
-    """Fallback transport for B2 when the S3-compatible connection is closed by the network."""
+def _b2_native_upload(package: Path, relative_path: str, bucket: str, access_key: str, secret_key: str, bucket_id: str = "") -> str:
+    """Use the B2 Native API with dedicated credentials when configured."""
     basic = base64.b64encode(f"{access_key}:{secret_key}".encode("utf-8")).decode("ascii")
     _, auth = _request_json(
         "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
@@ -171,14 +170,14 @@ def _b2_native_upload(package: Path, relative_path: str, bucket: str, access_key
     if not api_url or not authorization or not account_id:
         raise RuntimeError("Backblaze Native API authorization response was incomplete")
 
-    bucket_id = None
+    resolved_bucket_id = bucket_id.strip() or None
     allowed_buckets = storage.get("allowed", {}).get("buckets", [])
-    if isinstance(allowed_buckets, list):
+    if not resolved_bucket_id and isinstance(allowed_buckets, list):
         for item in allowed_buckets:
             if isinstance(item, dict) and item.get("name") == bucket and item.get("id"):
-                bucket_id = str(item["id"])
+                resolved_bucket_id = str(item["id"])
                 break
-    if not bucket_id:
+    if not resolved_bucket_id:
         _, bucket_result = _request_json(
             f"{api_url}/b2api/v4/b2_list_buckets",
             method="POST",
@@ -189,16 +188,16 @@ def _b2_native_upload(package: Path, relative_path: str, bucket: str, access_key
         if isinstance(buckets, list):
             for item in buckets:
                 if isinstance(item, dict) and item.get("bucketName") == bucket and item.get("bucketId"):
-                    bucket_id = str(item["bucketId"])
+                    resolved_bucket_id = str(item["bucketId"])
                     break
-    if not bucket_id:
-        raise RuntimeError(f"Backblaze bucket not found or key cannot list bucket: {bucket}")
+    if not resolved_bucket_id:
+        raise RuntimeError(f"Backblaze bucket not found or key cannot access bucket: {bucket}")
 
     _, upload_target = _request_json(
         f"{api_url}/b2api/v4/b2_get_upload_url",
         method="POST",
         headers={"Authorization": authorization, "Content-Type": "application/json"},
-        data=json.dumps({"bucketId": bucket_id}).encode("utf-8"),
+        data=json.dumps({"bucketId": resolved_bucket_id}).encode("utf-8"),
     )
     upload_url = str(upload_target.get("uploadUrl", ""))
     upload_authorization = str(upload_target.get("authorizationToken", ""))
@@ -251,6 +250,9 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
         if not access_key or not secret_key:
             raise RuntimeError("BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be configured")
 
+        native_key_id = settings.backup_b2_key_id.strip() or access_key
+        native_application_key = settings.backup_b2_application_key.strip() or secret_key
+        native_bucket_id = settings.backup_b2_bucket_id.strip()
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
         region = settings.backup_s3_region.strip() or None
         payload = package.read_bytes()
@@ -286,7 +288,7 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
             raise RuntimeError(f"Backblaze B2 S3 upload failed: {exc}") from exc
         except (BotoCoreError, OSError) as exc:
             try:
-                return _b2_native_upload(package, relative_path, bucket, access_key, secret_key)
+                return _b2_native_upload(package, relative_path, bucket, native_key_id, native_application_key, native_bucket_id)
             except Exception as native_exc:
                 raise RuntimeError(f"Backblaze B2 upload failed over S3 and Native API fallback: S3={exc}; Native={native_exc}") from native_exc
         except RuntimeError as exc:
