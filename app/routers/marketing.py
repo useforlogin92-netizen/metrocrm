@@ -70,6 +70,24 @@ def _catalog_payload(db: Session, share_id: int | None) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _has_active_catalog_share(db: Session, share_id: int | None) -> bool:
+    if not share_id:
+        return False
+    return bool(db.scalar(select(CatalogShare.id).where(CatalogShare.id == share_id, CatalogShare.active.is_(True))))
+
+
+def _attribution_values(request: Request, campaign: MarketingCampaign) -> dict[str, str | None]:
+    params = request.query_params
+    return {
+        "source": params.get("utm_source") or campaign.utm_source or campaign.channel,
+        "medium": params.get("utm_medium") or campaign.utm_medium,
+        "campaign": params.get("utm_campaign") or campaign.utm_campaign,
+        "content": params.get("utm_content"),
+        "term": params.get("utm_term"),
+        "click_id": params.get("fbclid") or params.get("gclid"),
+    }
+
+
 @router.get("/marketing", response_class=HTMLResponse)
 def marketing_page(request: Request, db: Session = Depends(get_db)):
     user = _current_user(request, db)
@@ -117,7 +135,7 @@ def create_campaign(
     user = _require_admin(request, db)
     require_csrf(request, csrf_token_value)
     share_id = int(catalog_share_id) if catalog_share_id.isdigit() else None
-    if share_id and not db.scalar(select(CatalogShare.id).where(CatalogShare.id == share_id, CatalogShare.active.is_(True))):
+    if share_id and not _has_active_catalog_share(db, share_id):
         raise HTTPException(400, "invalid_catalog_share")
     campaign = MarketingCampaign(
         name=name.strip()[:200], channel=channel.strip().upper()[:40] or "OTHER", landing_token=secrets.token_urlsafe(24),
@@ -138,6 +156,8 @@ def activate_campaign(campaign_id: int, request: Request, csrf_token_value: str 
     campaign = db.get(MarketingCampaign, campaign_id)
     if not campaign:
         raise HTTPException(404, "campaign_not_found")
+    if not _has_active_catalog_share(db, campaign.catalog_share_id):
+        raise HTTPException(400, "active_catalog_share_required")
     campaign.status = "ACTIVE"
     db.add(AuditEvent(actor_user_id=user.id, action="MARKETING_CAMPAIGN_ACTIVATED", entity_type="MarketingCampaign", entity_id=str(campaign.id), details="{}"))
     db.commit()
@@ -158,7 +178,7 @@ def campaign_stats(campaign_id: int, request: Request, db: Session = Depends(get
 
 def _visitor_hash(request: Request) -> str:
     client = request.client.host if request.client else "unknown"
-    return hashlib.sha256((client + "|" + (request.headers.get("user-agent") or "")) .encode()).hexdigest()
+    return hashlib.sha256((client + "|" + (request.headers.get("user-agent") or "")).encode()).hexdigest()
 
 
 @router.get("/m/{token}", response_class=HTMLResponse)
@@ -181,12 +201,30 @@ def public_marketing_landing(token: str, request: Request, db: Session = Depends
         if isinstance(value, list): value = ", ".join(str(x) for x in value)
         if value not in (None, "", []): fields.append(f"<div><b>{_esc(key.replace('_',' ').title())}</b><br>{_esc(value)}</div>")
     image = f"<img src='{_esc(first_photo)}' alt='Property' style='width:100%;max-height:360px;object-fit:cover;border-radius:14px;margin-bottom:16px'>" if first_photo else ""
+    attribution = _attribution_values(request, campaign)
+    hidden_attribution = "".join(f"<input type='hidden' name='{key}' value='{_esc(value)}'>" for key, value in (("utm_source", attribution["source"]), ("utm_medium", attribution["medium"]), ("utm_campaign", attribution["campaign"]), ("utm_content", attribution["content"]), ("utm_term", attribution["term"]), ("fbclid", request.query_params.get("fbclid")), ("gclid", request.query_params.get("gclid"))) if value)
     return HTMLResponse(f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='description' content='{_esc(description[:155])}'><title>{_esc(campaign.landing_title or property_title)}</title>
-<style>body{{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}}.wrap{{max-width:900px;margin:auto;padding:22px}}.hero,.form{{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:22px;box-shadow:0 8px 28px #0f172a0d;margin-bottom:18px}}h1{{font-size:30px;margin:0 0 8px}}p{{color:#475569;line-height:1.6}}.details{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0}}.details div{{padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc}}input{{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin:6px 0 12px;box-sizing:border-box}}button{{width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:white;font-weight:800;font-size:15px}}@media(max-width:650px){{.details{{grid-template-columns:1fr}}h1{{font-size:24px}}}}</style></head><body><div class='wrap'><div class='hero'>{image}<h1>{_esc(campaign.landing_title or property_title)}</h1><p>{_esc(description)}</p><div class='details'>{''.join(fields)}</div></div><div class='form'><h2>Get details / callback</h2><form method='post' action='/m/{_esc(token)}/lead'><input name='name' placeholder='Your name' required maxlength='200'><input name='mobile' placeholder='Mobile number' required maxlength='30'><input name='email' type='email' placeholder='Email (optional)' maxlength='255'><input name='message' placeholder='What would you like to know?' maxlength='500'><input type='text' name='website' tabindex='-1' autocomplete='off' style='display:none'><button type='submit'>Request Details</button></form><p style='font-size:12px'>By submitting, you are requesting a callback/details from the business. Your information is used for this enquiry.</p></div></div></body></html>""")
+<style>body{{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}}.wrap{{max-width:900px;margin:auto;padding:22px}}.hero,.form{{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:22px;box-shadow:0 8px 28px #0f172a0d;margin-bottom:18px}}h1{{font-size:30px;margin:0 0 8px}}p{{color:#475569;line-height:1.6}}.details{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0}}.details div{{padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc}}input{{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin:6px 0 12px;box-sizing:border-box}}button{{width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:white;font-weight:800;font-size:15px}}@media(max-width:650px){{.details{{grid-template-columns:1fr}}h1{{font-size:24px}}}}</style></head><body><div class='wrap'><div class='hero'>{image}<h1>{_esc(campaign.landing_title or property_title)}</h1><p>{_esc(description)}</p><div class='details'>{''.join(fields)}</div></div><div class='form'><h2>Get details / callback</h2><form method='post' action='/m/{_esc(token)}/lead'><input name='name' placeholder='Your name' required maxlength='200'><input name='mobile' placeholder='Mobile number' required maxlength='30'><input name='email' type='email' placeholder='Email (optional)' maxlength='255'><input name='message' placeholder='What would you like to know?' maxlength='500'>{hidden_attribution}<input type='text' name='website' tabindex='-1' autocomplete='off' style='display:none'><button type='submit'>Request Details</button></form><p style='font-size:12px'>By submitting, you are requesting a callback/details from the business. Your information is used for this enquiry.</p></div></div></body></html>""")
 
 
 @router.post("/m/{token}/lead")
-def public_marketing_lead(token: str, request: Request, name: str = Form(...), mobile: str = Form(...), email: str = Form(""), message: str = Form(""), website: str = Form(""), db: Session = Depends(get_db)):
+def public_marketing_lead(
+    token: str,
+    request: Request,
+    name: str = Form(...),
+    mobile: str = Form(...),
+    email: str = Form(""),
+    message: str = Form(""),
+    website: str = Form(""),
+    utm_source: str = Form(""),
+    utm_medium: str = Form(""),
+    utm_campaign: str = Form(""),
+    utm_content: str = Form(""),
+    utm_term: str = Form(""),
+    fbclid: str = Form(""),
+    gclid: str = Form(""),
+    db: Session = Depends(get_db),
+):
     campaign = db.scalar(select(MarketingCampaign).where(MarketingCampaign.landing_token == token, MarketingCampaign.status == "ACTIVE"))
     if not campaign:
         raise HTTPException(404, "campaign_not_found_or_not_active")
@@ -202,8 +240,18 @@ def public_marketing_lead(token: str, request: Request, name: str = Form(...), m
     db.add(customer); db.flush()
     lead = Lead(customer_id=customer.id, source=f"MARKETING_{campaign.channel}", status="NEW", requirement=message)
     db.add(lead); db.flush()
-    params = request.query_params
-    event = MarketingLeadEvent(campaign_id=campaign.id, lead_id=lead.id, source=params.get("utm_source") or campaign.utm_source or campaign.channel, medium=params.get("utm_medium") or campaign.utm_medium, campaign=params.get("utm_campaign") or campaign.utm_campaign, content=params.get("utm_content"), term=params.get("utm_term"), click_id=params.get("fbclid") or params.get("gclid"), landing_path=str(request.url.path))
+    query_values = _attribution_values(request, campaign)
+    event = MarketingLeadEvent(
+        campaign_id=campaign.id,
+        lead_id=lead.id,
+        source=(utm_source.strip()[:100] or query_values["source"]),
+        medium=(utm_medium.strip()[:100] or query_values["medium"]),
+        campaign=(utm_campaign.strip()[:150] or query_values["campaign"]),
+        content=(utm_content.strip()[:200] or query_values["content"]),
+        term=(utm_term.strip()[:200] or query_values["term"]),
+        click_id=(fbclid.strip()[:255] or gclid.strip()[:255] or query_values["click_id"]),
+        landing_path=str(request.url.path),
+    )
     db.add(event)
     db.add(AuditEvent(action="MARKETING_LEAD_CAPTURED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"campaign_id": campaign.id, "channel": campaign.channel})))
     db.commit()
