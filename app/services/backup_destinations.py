@@ -156,25 +156,6 @@ def configured_cloud_providers() -> list[str]:
     return [item.strip().lower() for item in raw.split(",") if item.strip() and item.strip().lower() not in {"none", "disabled"}]
 
 
-def _b2_endpoint_candidates(endpoint: str, bucket: str) -> list[tuple[str, str]]:
-    """Return B2 S3 endpoint/addressing combinations.
-
-    Backblaze documents both path-style and virtual-hosted bucket URLs. Keep the
-    configured path-style endpoint first for existing deployments/tests, then retry
-    with the bucket-specific hostname for gateways that behave better with virtual
-    hosting.
-    """
-    parsed = urllib.parse.urlsplit(endpoint)
-    if parsed.scheme != "https" or not parsed.netloc:
-        raise RuntimeError("BACKUP_S3_ENDPOINT must be a full HTTPS URL")
-    base = f"{parsed.scheme}://{parsed.netloc}"
-    candidates: list[tuple[str, str]] = [(base + parsed.path.rstrip("/"), "path")]
-    host = parsed.netloc.split(":", 1)[0]
-    if bucket and not host.startswith(f"{bucket}."):
-        candidates.append((f"{parsed.scheme}://{bucket}.{host}", "virtual"))
-    return list(dict.fromkeys(candidates))
-
-
 def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
     if provider in {"s3", "s3_compatible"}:
         import boto3
@@ -195,47 +176,43 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
         region = settings.backup_s3_region.strip() or None
         payload = package.read_bytes()
-        last_error: Exception | None = None
-
-        for candidate_endpoint, addressing_style in _b2_endpoint_candidates(endpoint, bucket):
-            client = boto3.client(
-                "s3",
-                endpoint_url=candidate_endpoint,
-                aws_access_key_id=access_key,
-                aws_secret_access_key=secret_key,
-                region_name=region,
-                config=Config(
-                    signature_version="s3v4",
-                    connect_timeout=10,
-                    read_timeout=300,
-                    retries={"mode": "standard", "total_max_attempts": 3},
-                    s3={"addressing_style": addressing_style},
-                ),
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+            config=Config(
+                signature_version="s3v4",
+                connect_timeout=15,
+                read_timeout=300,
+                retries={"mode": "standard", "total_max_attempts": 5},
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+                s3={"addressing_style": "path", "payload_signing_enabled": False},
+            ),
+        )
+        try:
+            # Backblaze's documented S3 API supports path-style bucket URLs. Keep the
+            # endpoint hostname unchanged so TLS validation is against the documented
+            # regional certificate, and avoid optional SDK checksum/streaming headers.
+            client.put_object(
+                Bucket=bucket,
+                Key=relative_path,
+                Body=payload,
+                Metadata={"sha256": digest},
+                ContentLength=len(payload),
             )
-            try:
-                # Single PutObject keeps the request deterministic and avoids the
-                # multipart/streaming path that can be less compatible with S3 gateways.
-                client.put_object(
-                    Bucket=bucket,
-                    Key=relative_path,
-                    Body=payload,
-                    Metadata={"sha256": digest},
-                    ContentLength=len(payload),
-                )
-                remote = client.head_object(Bucket=bucket, Key=relative_path)
-                remote_size = int(remote.get("ContentLength", -1))
-                remote_digest = str(remote.get("Metadata", {}).get("sha256", "")).lower()
-                if remote_size != len(payload):
-                    raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {len(payload)}")
-                if remote_digest != digest:
-                    raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
-                return f"s3://{bucket}/{relative_path}"
-            except (BotoCoreError, ClientError, OSError, RuntimeError) as exc:
-                last_error = exc
-                continue
-
-        detail = str(last_error) if last_error else "unknown S3 connection error"
-        raise RuntimeError(f"Backblaze B2 S3 upload failed after path-style and virtual-host attempts: {detail}") from last_error
+            remote = client.head_object(Bucket=bucket, Key=relative_path)
+            remote_size = int(remote.get("ContentLength", -1))
+            remote_digest = str(remote.get("Metadata", {}).get("sha256", "")).lower()
+            if remote_size != len(payload):
+                raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {len(payload)}")
+            if remote_digest != digest:
+                raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
+            return f"s3://{bucket}/{relative_path}"
+        except (BotoCoreError, ClientError, OSError, RuntimeError) as exc:
+            raise RuntimeError(f"Backblaze B2 S3 upload failed: {exc}") from exc
     if provider in {"google_drive", "gdrive", "google"}:
         return _google_upload(package, relative_path)
     if provider in {"onedrive", "one_drive", "microsoft"}:
