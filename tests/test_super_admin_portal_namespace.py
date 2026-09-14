@@ -1,5 +1,7 @@
+import asyncio
+
 from fastapi import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import main_portal
 from app import portal_boundary
@@ -40,6 +42,18 @@ def test_super_admin_user_actions_stay_on_dedicated_namespace():
     )
     assert "/super-admin/users/3/approve" in response.body.decode("utf-8")
     assert "/admin/users/3/approve" not in response.body.decode("utf-8")
+
+
+def test_super_admin_legacy_post_is_not_redirected_to_get():
+    request = _request("/admin/users/3/approve", "POST")
+
+    async def call_next(next_request):
+        assert next_request.url.path == "/admin/users/3/approve"
+        return RedirectResponse("/admin/users", status_code=303)
+
+    response = asyncio.run(portal_boundary.enforce_dedicated_portal_session(request, call_next))
+    assert response.status_code == 303
+    assert response.headers["location"] == "/super-admin/users"
 
 
 def test_dedicated_super_admin_namespace_covers_admin_scoped_pages():
