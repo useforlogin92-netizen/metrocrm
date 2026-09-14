@@ -22,6 +22,16 @@ services:
         value: onedrive
       - key: BACKUP_ENCRYPTION_KEY
         generateValue: true
+      - key: BACKUP_S3_ENDPOINT
+        sync: false
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY
+        sync: false
+      - key: BACKUP_S3_SECRET_KEY
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
       - key: BACKUP_GOOGLE_CLIENT_ID
         sync: false
       - key: BACKUP_GOOGLE_CLIENT_SECRET
@@ -40,3 +50,13 @@ services:
         sync: false
       - key: BACKUP_ONEDRIVE_FOLDER_PATH
         value: MetroCRM-Backups
+      - key: BACKUP_ALERT_EMAIL_TO
+        sync: false
+      - key: BACKUP_ALERT_WHATSAPP_TO
+        sync: false
+      - key: BACKUP_ALERT_WEBHOOK_URL
+        sync: false
+      - key: BACKUP_ALERT_WEBHOOK_TOKEN
+        sync: false
+      - key: BACKUP_MISSED_CYCLE_GRACE_MINUTES
+        value: "30"
