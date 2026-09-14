@@ -35,6 +35,8 @@ def test_super_admin_created_user_is_auto_approved(db_session):
         username="new-manager",
         password="strongpass123",
         role="MANAGER",
+        security_question="What is your favorite city?",
+        security_answer="Mumbai",
         db=db_session,
     )
 
@@ -61,6 +63,8 @@ def test_admin_created_user_still_requires_approval(db_session):
         username="new-manager",
         password="strongpass123",
         role="MANAGER",
+        security_question="What is your favorite city?",
+        security_answer="Mumbai",
         db=db_session,
     )
 
