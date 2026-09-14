@@ -14,7 +14,7 @@ def test_backup_status_template_exposes_configuration_links():
     from pathlib import Path
 
     content = Path("app/templates/backup_status.html").read_text(encoding="utf-8")
-    assert "/admin/backups/configure?provider=google_drive" in content
-    assert "/admin/backups/configure?provider=onedrive" in content
+    assert "/super-admin/backups/configure?provider=google_drive" in content
+    assert "/super-admin/backups/configure?provider=onedrive" in content
     assert "/super-admin/backups/run" in content
     assert "Latest backup result" in content
