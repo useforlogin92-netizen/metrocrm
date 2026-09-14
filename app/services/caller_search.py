@@ -49,12 +49,7 @@ def _location_filter_is_active(filters: dict[str, Any]) -> bool:
 
 
 def _strict_preferred_location_filter(filters: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """When the caller enters locations, keep only properties whose structured CRM location contains one of them.
-
-    This is deliberately a hard filter rather than a ranking hint so a Kandivali search
-    can never surface an unrelated Andheri property merely because it scores well on
-    budget/BHK/other fields.
-    """
+    """When the caller enters locations, keep only properties whose structured CRM location contains one of them."""
     requested = filters.get("preferred_locations") or filters.get("locations") or []
     if isinstance(requested, str):
         requested = [requested]
@@ -78,11 +73,13 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
     construction = filters.get("construction_statuses") or filters.get("construction_status")
     if construction:
         wanted = {str(v).strip().casefold().replace(" ", "_").replace("-", "_") for v in (construction if isinstance(construction, (list, tuple, set)) else [construction])}
-        # The UI previously sent all four statuses as selected by default. Treating
-        # that as a real hard filter incorrectly discarded properties whose CRM data
-        # has a blank/variant construction status. All four means "Any".
+        # All four UI options selected means "Any". In that case there is no
+        # construction-status filter at all, including for records with blanks.
         if wanted != ALL_CONSTRUCTION_STATUSES:
-            candidates = [p for p in candidates if str(p.get("construction_status") or p.get("possession") or "").strip().casefold().replace(" ", "_").replace("-", "_") in wanted]
+            candidates = [
+                p for p in candidates
+                if str(p.get("construction_status") or "").strip().casefold().replace(" ", "_").replace("-", "_") in wanted
+            ]
 
     if filters.get("city"):
         city = str(filters["city"]).strip().casefold()
@@ -95,9 +92,6 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
 
     candidates = _strict_preferred_location_filter(filters, candidates)
     candidates = _station_range_filter(filters, candidates)
-    # Location/station constraints are already hard filters above. Do not discard
-    # valid CRM records merely because they have sparse fields and therefore receive
-    # a low ranking score; the caller should see the complete filtered inventory.
     return rank_properties(filters, candidates, minimum_score=0.0)
 
 
