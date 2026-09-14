@@ -16,18 +16,18 @@ from app.models import AuditEvent, User
 router = APIRouter(prefix="/caller/ai-speech/settings", tags=["caller-speech-settings"])
 
 VOICE_CATALOG = {
-    "marin": {"label": "Marin — natural / recommended", "style": "Natural, balanced, recommended starting point"},
-    "cedar": {"label": "Cedar — natural / recommended", "style": "Natural, clear, recommended starting point"},
-    "coral": {"label": "Coral — warm conversational", "style": "Warm and friendly"},
-    "nova": {"label": "Nova — bright conversational", "style": "Conversational and energetic"},
-    "shimmer": {"label": "Shimmer — soft conversational", "style": "Soft and gentle"},
-    "onyx": {"label": "Onyx — deeper professional", "style": "Deeper and professional"},
-    "echo": {"label": "Echo — clear professional", "style": "Clear and steady"},
-    "ash": {"label": "Ash — neutral conversational", "style": "Neutral and controlled"},
-    "sage": {"label": "Sage — calm professional", "style": "Calm and measured"},
-    "verse": {"label": "Verse — expressive conversational", "style": "Expressive and natural"},
-    "alloy": {"label": "Alloy — balanced", "style": "Balanced general-purpose"},
-    "ballad": {"label": "Ballad — expressive", "style": "Expressive and warm"},
+    "marin": {"label": "Marin — Warm Natural", "style": "Warm, natural, balanced caller delivery", "tone": "warm and naturally conversational"},
+    "cedar": {"label": "Cedar — Calm Natural", "style": "Calm, clear, trustworthy caller delivery", "tone": "calm, clear and reassuring"},
+    "coral": {"label": "Coral — Friendly", "style": "Friendly, approachable and soft", "tone": "friendly, warm and approachable"},
+    "nova": {"label": "Nova — Energetic", "style": "Bright, confident and engaging", "tone": "confident, lively but restrained"},
+    "shimmer": {"label": "Shimmer — Soft", "style": "Soft, gentle and patient", "tone": "soft, gentle and patient"},
+    "onyx": {"label": "Onyx — Deep Professional", "style": "Deeper, mature and professional", "tone": "mature, grounded and professional"},
+    "echo": {"label": "Echo — Clear Professional", "style": "Clear, steady and businesslike", "tone": "clear, steady and professional"},
+    "ash": {"label": "Ash — Neutral", "style": "Neutral, controlled and conversational", "tone": "neutral, relaxed and conversational"},
+    "sage": {"label": "Sage — Calm Consultant", "style": "Measured, calm and consultant-like", "tone": "calm, measured and trustworthy"},
+    "verse": {"label": "Verse — Expressive", "style": "Expressive, natural and engaging", "tone": "expressive, natural and engaging"},
+    "alloy": {"label": "Alloy — Balanced", "style": "Balanced, neutral and versatile", "tone": "balanced, natural and versatile"},
+    "ballad": {"label": "Ballad — Warm Expressive", "style": "Warm, expressive and personable", "tone": "warm, expressive and personable"},
 }
 DEFAULT_VOICE = "marin"
 SETTING_ACTION = "CALLER_SPEECH_VOICE_SET"
@@ -57,19 +57,25 @@ def selected_voice(db: Session) -> str:
     return DEFAULT_VOICE
 
 
+def _voice_instructions(voice: str) -> str:
+    tone = VOICE_CATALOG.get(voice, VOICE_CATALOG[DEFAULT_VOICE])["tone"]
+    return (
+        f"Speak in natural Indian Hinglish for a real-estate phone conversation. Your delivery should be {tone}. "
+        "Sound like a calm, experienced Indian property consultant speaking directly to a customer, not like a presenter, announcer, audiobook or computer voice. "
+        "Use a comfortable medium-slow conversational pace, realistic short pauses between thoughts, subtle pitch and energy changes, and relaxed sentence endings. "
+        "Give gentle emphasis to location, BHK, price and possession; let numbers and property names land clearly. "
+        "Avoid fixed rhythmic patterns, monotone delivery, exaggerated sales enthusiasm, artificial cheerfulness or rushing through lists. "
+        "Use natural Indian pronunciation for Mumbai locations and real-estate terms."
+    )
+
+
 @router.get("")
 def caller_voice_settings(request: Request, db: Session = Depends(get_db)):
     user = _current_user(request, db)
     if not user or user.role not in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
     current = selected_voice(db)
-    return {
-        "voice": current,
-        "voice_info": VOICE_CATALOG[current],
-        "voices": [{"id": key, **value} for key, value in VOICE_CATALOG.items()],
-        "can_manage": user.role in {"SUPER_ADMIN", "ADMIN"},
-        "csrf_token": csrf_token(request),
-    }
+    return {"voice": current, "voice_info": VOICE_CATALOG[current], "voices": [{"id": key, **value} for key, value in VOICE_CATALOG.items()], "can_manage": user.role in {"SUPER_ADMIN", "ADMIN"}, "csrf_token": csrf_token(request)}
 
 
 @router.post("", dependencies=[Depends(require_csrf_header)])
@@ -78,15 +84,7 @@ def set_caller_voice(payload: dict, request: Request, db: Session = Depends(get_
     voice = str(payload.get("voice") or "").strip().lower()
     if voice not in VOICE_CATALOG:
         raise HTTPException(status_code=400, detail="Unsupported voice")
-    db.add(
-        AuditEvent(
-            actor_user_id=user.id,
-            action=SETTING_ACTION,
-            entity_type="CallerSpeechVoice",
-            entity_id=voice,
-            details=json.dumps({"voice": voice, "label": VOICE_CATALOG[voice]["label"]}),
-        )
-    )
+    db.add(AuditEvent(actor_user_id=user.id, action=SETTING_ACTION, entity_type="CallerSpeechVoice", entity_id=voice, details=json.dumps({"voice": voice, "label": VOICE_CATALOG[voice]["label"]}))
     db.commit()
     os.environ["METROCRM_TTS_FEMALE_VOICE"] = voice
     os.environ["METROCRM_TTS_MALE_VOICE"] = voice
@@ -103,13 +101,7 @@ async def preview_caller_voice(payload: dict, request: Request, db: Session = De
     if not key:
         return JSONResponse({"detail": "AI voice is not configured"}, status_code=503)
     text = "Namaste, main MetroCRM se baat kar raha hoon. Kandivali mein available properties mein se main aapko suitable options ki details aaram se bata sakta hoon."
-    body = {
-        "model": "gpt-4o-mini-tts",
-        "voice": voice,
-        "input": text,
-        "instructions": "Speak in natural Indian Hinglish for a real-estate phone conversation. Warm, relaxed, medium-slow pace, subtle pitch variation, realistic pauses, clear property names and numbers, and a calm professional consultant tone. Avoid robotic rhythm or announcer delivery.",
-        "response_format": "mp3",
-    }
+    body = {"model": "gpt-4o-mini-tts", "voice": voice, "input": text, "instructions": _voice_instructions(voice), "response_format": "mp3"}
     try:
         async with httpx.AsyncClient(timeout=45) as client:
             response = await client.post("https://api.openai.com/v1/audio/speech", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json=body)
