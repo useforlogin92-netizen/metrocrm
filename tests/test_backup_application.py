@@ -94,3 +94,43 @@ def test_b2_uses_s3_compatible_configuration(monkeypatch, tmp_path):
     assert client.uploaded["Key"] == "2026-09-14/backup.mcrmbackup"
     assert client.uploaded["ContentLength"] == package.stat().st_size
     assert client.uploaded["Metadata"]["sha256"] == hashlib.sha256(package.read_bytes()).hexdigest()
+
+
+def test_b2_native_fallback_is_used_for_transport_failure(monkeypatch, tmp_path):
+    from app.config import settings
+    import app.services.backup_destinations as destinations
+    from botocore.exceptions import ConnectionClosedError
+
+    monkeypatch.setattr(settings, "backup_s3_endpoint", "https://s3.us-west-002.backblazeb2.com")
+    monkeypatch.setattr(settings, "backup_s3_bucket", "metrocrm-test")
+    monkeypatch.setattr(settings, "backup_s3_access_key", "key")
+    monkeypatch.setattr(settings, "backup_s3_secret_key", "secret")
+    monkeypatch.setattr(settings, "backup_s3_region", "us-west-002")
+
+    package = tmp_path / "backup.mcrmbackup"
+    package.write_bytes(b"backup")
+
+    class FakeClient:
+        def put_object(self, **kwargs):
+            raise ConnectionClosedError(endpoint_url="https://s3.us-west-002.backblazeb2.com")
+
+    class FakeBoto3:
+        @staticmethod
+        def client(*args, **kwargs):
+            return FakeClient()
+
+    called = {}
+
+    def fake_native(package_arg, relative_path, bucket, access_key, secret_key):
+        called.update({"package": package_arg, "relative_path": relative_path, "bucket": bucket, "access_key": access_key, "secret_key": secret_key})
+        return "b2://metrocrm-test/2026-09-14/backup.mcrmbackup"
+
+    monkeypatch.setitem(__import__("sys").modules, "boto3", FakeBoto3)
+    monkeypatch.setattr(destinations, "_b2_native_upload", fake_native)
+    uri = destinations.upload_cloud(package, "2026-09-14/backup.mcrmbackup", "s3")
+
+    assert uri == "b2://metrocrm-test/2026-09-14/backup.mcrmbackup"
+    assert called["package"] == package
+    assert called["bucket"] == "metrocrm-test"
+    assert called["access_key"] == "key"
+    assert called["secret_key"] == "secret"
