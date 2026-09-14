@@ -148,7 +148,7 @@ def test_public_marketing_landing_only_renders_allowlisted_catalog_fields(db_ses
     response = public_marketing_landing("public-safe", _request(path="/m/public-safe", headers=[(b"user-agent", b"test-browser")]), db_session)
     body = response.body.decode("utf-8")
     assert response.status_code == 200
-    assert "Public 2BHK" in body
+    assert "Mumbai Homes" in body
     assert "Mumbai" in body
     assert "₹1 Cr" in body
     assert "SECRET_INTERNAL_NOTE" not in body
@@ -188,7 +188,21 @@ def test_public_marketing_lead_creates_crm_lead_and_attribution_event(db_session
     )
 
     response = public_marketing_lead(
-        "lead-test", request, " Lead User ", "9999999999", "USER@EXAMPLE.COM", "Need brochure", "", "", "", "", "", "", "", db_session
+        token="lead-test",
+        request=request,
+        name=" Lead User ",
+        mobile="9999999999",
+        email="USER@EXAMPLE.COM",
+        message="Need brochure",
+        website="",
+        utm_source="",
+        utm_medium="",
+        utm_campaign="",
+        utm_content="",
+        utm_term="",
+        fbclid="",
+        gclid="",
+        db=db_session,
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/m/lead-test?submitted=1"
@@ -214,7 +228,21 @@ def test_public_marketing_lead_honeypot_does_not_create_lead(db_session):
     before_leads = db_session.query(Lead).count()
     before_events = db_session.query(MarketingLeadEvent).count()
     response = public_marketing_lead(
-        "bot-test", _request(method="POST", path="/m/bot-test/lead"), "Bot", "9999999999", "", "", "spam", "", "", "", "", "", "", db_session
+        token="bot-test",
+        request=_request(method="POST", path="/m/bot-test/lead"),
+        name="Bot",
+        mobile="9999999999",
+        email="",
+        message="",
+        website="spam",
+        utm_source="",
+        utm_medium="",
+        utm_campaign="",
+        utm_content="",
+        utm_term="",
+        fbclid="",
+        gclid="",
+        db=db_session,
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/m/bot-test"
