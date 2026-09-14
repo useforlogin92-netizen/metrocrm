@@ -133,16 +133,22 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
     """Keep Admin and Super Admin sessions strictly isolated."""
     original_path = request.url.path
     current_portal = request.session.get("login_portal")
+    legacy_super_admin_post = False
 
     if current_portal == "super_admin":
         dedicated_path = _super_admin_redirect_for_legacy_admin_path(original_path)
         if dedicated_path:
-            return RedirectResponse(dedicated_path, status_code=303)
+            # GET/HEAD can safely redirect to the dedicated browser namespace.
+            # POST must NOT be redirected with 303 because that converts the
+            # form submission into a GET and produces a misleading 405.
+            if request.method in {"GET", "HEAD"}:
+                return RedirectResponse(dedicated_path, status_code=303)
+            legacy_super_admin_post = True
 
     required = _required_portal(original_path)
     if required and not _is_portal_login(original_path, required):
         current_user_id = request.session.get("user_id")
-        if current_user_id and current_portal != required:
+        if current_user_id and current_portal != required and not legacy_super_admin_post:
             login_path = "/admin/login" if required == "admin" else "/super-admin/login"
             return RedirectResponse(login_path, status_code=303)
 
