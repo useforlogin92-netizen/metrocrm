@@ -1,6 +1,7 @@
 """Backup destination adapters for local disks and cloud drives."""
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import urllib.error
@@ -161,10 +162,42 @@ def configured_cloud_providers() -> list[str]:
 def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
     if provider in {"s3", "s3_compatible"}:
         import boto3
+        from botocore.config import Config
+
         if not settings.backup_s3_bucket.strip():
             raise RuntimeError("BACKUP_S3_BUCKET is not configured")
-        client = boto3.client("s3", endpoint_url=settings.backup_s3_endpoint or None, aws_access_key_id=settings.backup_s3_access_key or None, aws_secret_access_key=settings.backup_s3_secret_key or None, region_name=settings.backup_s3_region or None)
-        client.upload_file(str(package), settings.backup_s3_bucket, relative_path)
+        if not settings.backup_s3_endpoint.strip():
+            raise RuntimeError("BACKUP_S3_ENDPOINT is not configured")
+        if not settings.backup_s3_access_key.strip() or not settings.backup_s3_secret_key.strip():
+            raise RuntimeError("BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be configured")
+
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        client = boto3.client(
+            "s3",
+            endpoint_url=settings.backup_s3_endpoint,
+            aws_access_key_id=settings.backup_s3_access_key,
+            aws_secret_access_key=settings.backup_s3_secret_key,
+            region_name=settings.backup_s3_region or None,
+            config=Config(retries={"mode": "standard", "total_max_attempts": 5}),
+        )
+        client.upload_file(
+            str(package),
+            settings.backup_s3_bucket,
+            relative_path,
+            ExtraArgs={"Metadata": {"sha256": digest}},
+        )
+
+        try:
+            remote = client.head_object(Bucket=settings.backup_s3_bucket, Key=relative_path)
+        except Exception as exc:
+            raise RuntimeError(f"S3 upload completed but remote verification failed: {exc}") from exc
+
+        remote_size = int(remote.get("ContentLength", -1))
+        remote_digest = str(remote.get("Metadata", {}).get("sha256", "")).lower()
+        if remote_size != package.stat().st_size:
+            raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {package.stat().st_size}")
+        if remote_digest != digest:
+            raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
         return f"s3://{settings.backup_s3_bucket}/{relative_path}"
     if provider in {"google_drive", "gdrive", "google"}:
         return _google_upload(package, relative_path)
