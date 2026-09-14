@@ -49,6 +49,7 @@ def test_sync_once_downloads_verifies_and_mirrors(monkeypatch, tmp_path):
         return b'{"status":"success"}'
 
     monkeypatch.setattr(agent, "_request", fake_request)
+    monkeypatch.setattr(agent, "_register", lambda *args: {"status": "APPROVED"})
     monkeypatch.setattr(agent.urllib.request, "urlopen", lambda request, timeout=300: _Response(payload))
 
     result = agent.sync_once()
@@ -82,6 +83,7 @@ def test_sync_once_reuses_valid_local_backup(monkeypatch, tmp_path):
         return b'{"status":"success"}'
 
     monkeypatch.setattr(agent, "_request", fake_request)
+    monkeypatch.setattr(agent, "_register", lambda *args: {"status": "APPROVED"})
     result = agent.sync_once()
 
     assert result == {"downloaded": 0, "skipped": 1, "external_copied": 0, "failed": 0}
