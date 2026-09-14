@@ -6,8 +6,8 @@ from fastapi.responses import HTMLResponse
 from app import portal_boundary
 
 
-def _request(path, session):
-    return SimpleNamespace(url=SimpleNamespace(path=path), session=session)
+def _request(path, session, method="GET"):
+    return SimpleNamespace(url=SimpleNamespace(path=path), session=session, method=method)
 
 
 def _run_boundary(request, call_next):
@@ -61,6 +61,7 @@ def test_super_admin_legacy_route_bridge_maps_dedicated_url_to_existing_handler(
     request = SimpleNamespace(
         url=SimpleNamespace(path="/super-admin/property-data/social/7"),
         session={"user_id": 1, "login_portal": "super_admin"},
+        method="GET",
         scope={"path": "/super-admin/property-data/social/7", "raw_path": b"/super-admin/property-data/social/7"},
     )
 
