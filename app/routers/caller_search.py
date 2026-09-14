@@ -18,6 +18,7 @@ from app.database import get_db
 from app.models import Project, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
 from app.services.caller_search import BHK_OPTIONS, BUDGET_SLABS, CONSTRUCTION_OPTIONS, JODI_OPTIONS, SIDE_OPTIONS, filter_and_rank_properties
+from app.services.property_pricing import format_property_value, format_rate_per_sqft
 
 router = APIRouter(prefix="/caller", tags=["caller-search"])
 templates = Jinja2Templates(directory="app/templates")
@@ -175,9 +176,8 @@ def caller_search(body: CallerSearchRequest, request: Request, db: Session = Dep
     for result in results:
         item = asdict(result)
         property_data = by_id.get(str(result.property_id), {})
-        # Return the complete caller-safe property payload, not only the
-        # headline fields used by the result cards. This lets the UI and AI
-        # caller speech show every available CRM detail.
+        price = property_data.get("price")
+        rate = property_data.get("price_per_sqft")
         item.update({
             "title": property_data.get("title"), "project": property_data.get("project"), "developer_id": property_data.get("developer_id"),
             "tower": property_data.get("tower"), "unit_number": property_data.get("unit_number"), "city": property_data.get("city"),
@@ -185,7 +185,9 @@ def caller_search(body: CallerSearchRequest, request: Request, db: Session = Dep
             "location": property_data.get("location"), "sector": property_data.get("sector"), "pincode": property_data.get("pincode"),
             "station": property_data.get("station"), "railway_station": property_data.get("railway_station"), "corridor": property_data.get("corridor"),
             "side": property_data.get("side"), "bhk": property_data.get("bhk"), "property_type": property_data.get("property_type"),
-            "price": property_data.get("price"), "carpet_area": property_data.get("carpet_area"), "price_per_sqft": property_data.get("price_per_sqft"),
+            "price": price, "price_display": format_property_value(price) if price is not None else "Price on request",
+            "carpet_area": property_data.get("carpet_area"), "price_per_sqft": rate,
+            "price_per_sqft_display": format_rate_per_sqft(rate) if rate is not None else "",
             "construction_status": property_data.get("construction_status"), "possession": property_data.get("possession"),
             "possession_date": property_data.get("possession_date"), "rera_possession_date": property_data.get("rera_possession_date"),
             "rera": property_data.get("rera"), "parking": property_data.get("parking"), "facing": property_data.get("facing"),
