@@ -95,9 +95,10 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
 
     candidates = _strict_preferred_location_filter(filters, candidates)
     candidates = _station_range_filter(filters, candidates)
-    has_location_filter = _location_filter_is_active(filters)
-    minimum_score = 1.0 if has_location_filter else 0.0
-    return rank_properties(filters, candidates, minimum_score=minimum_score)
+    # Location/station constraints are already hard filters above. Do not discard
+    # valid CRM records merely because they have sparse fields and therefore receive
+    # a low ranking score; the caller should see the complete filtered inventory.
+    return rank_properties(filters, candidates, minimum_score=0.0)
 
 
 def group_search_results(results: Iterable[MatchCandidate]) -> dict[str, list[MatchCandidate]]:
