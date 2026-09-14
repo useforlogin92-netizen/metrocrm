@@ -156,60 +156,86 @@ def configured_cloud_providers() -> list[str]:
     return [item.strip().lower() for item in raw.split(",") if item.strip() and item.strip().lower() not in {"none", "disabled"}]
 
 
+def _b2_endpoint_candidates(endpoint: str, bucket: str) -> list[tuple[str, str]]:
+    """Return B2 S3 endpoint/addressing combinations, preferring virtual-hosted style.
+
+    Backblaze documents both virtual-hosted and path-style bucket URLs. Using the
+    bucket hostname first avoids intermediaries that mishandle path-style S3 traffic;
+    the original configured endpoint remains the compatibility fallback.
+    """
+    parsed = urllib.parse.urlsplit(endpoint)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise RuntimeError("BACKUP_S3_ENDPOINT must be a full HTTPS URL")
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    candidates: list[tuple[str, str]] = []
+    host = parsed.netloc.split(":", 1)[0]
+    if bucket and not host.startswith(f"{bucket}."):
+        candidates.append((f"{base.split('://', 1)[0]}://{bucket}.{host}", "virtual"))
+    candidates.append((base + parsed.path.rstrip("/"), "path"))
+    return list(dict.fromkeys(candidates))
+
+
 def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
     if provider in {"s3", "s3_compatible"}:
         import boto3
         from botocore.config import Config
+        from botocore.exceptions import BotoCoreError, ClientError
 
-        if not settings.backup_s3_bucket.strip():
+        bucket = settings.backup_s3_bucket.strip()
+        endpoint = settings.backup_s3_endpoint.strip().rstrip("/")
+        access_key = settings.backup_s3_access_key.strip()
+        secret_key = settings.backup_s3_secret_key.strip()
+        if not bucket:
             raise RuntimeError("BACKUP_S3_BUCKET is not configured")
-        if not settings.backup_s3_endpoint.strip():
+        if not endpoint:
             raise RuntimeError("BACKUP_S3_ENDPOINT is not configured")
-        if not settings.backup_s3_access_key.strip() or not settings.backup_s3_secret_key.strip():
+        if not access_key or not secret_key:
             raise RuntimeError("BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be configured")
 
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
-        endpoint = settings.backup_s3_endpoint.strip().rstrip("/")
         region = settings.backup_s3_region.strip() or None
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=settings.backup_s3_access_key,
-            aws_secret_access_key=settings.backup_s3_secret_key,
-            region_name=region,
-            config=Config(
-                signature_version="s3v4",
-                connect_timeout=15,
-                read_timeout=300,
-                retries={"mode": "standard", "total_max_attempts": 5},
-                s3={"addressing_style": "path"},
-            ),
-        )
-
-        # Use a single PutObject request rather than the transfer manager's
-        # multipart/chunked path. This is more compatible with B2's S3 gateway
-        # and avoids connection-close failures seen during streamed uploads.
         payload = package.read_bytes()
-        client.put_object(
-            Bucket=settings.backup_s3_bucket,
-            Key=relative_path,
-            Body=payload,
-            Metadata={"sha256": digest},
-            ContentLength=len(payload),
-        )
+        last_error: Exception | None = None
 
-        try:
-            remote = client.head_object(Bucket=settings.backup_s3_bucket, Key=relative_path)
-        except Exception as exc:
-            raise RuntimeError(f"S3 upload completed but remote verification failed: {exc}") from exc
+        for candidate_endpoint, addressing_style in _b2_endpoint_candidates(endpoint, bucket):
+            client = boto3.client(
+                "s3",
+                endpoint_url=candidate_endpoint,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region,
+                config=Config(
+                    signature_version="s3v4",
+                    connect_timeout=10,
+                    read_timeout=300,
+                    retries={"mode": "standard", "total_max_attempts": 3},
+                    s3={"addressing_style": addressing_style},
+                ),
+            )
+            try:
+                # Single PutObject keeps the request deterministic and avoids the
+                # multipart/streaming path that can be less compatible with S3 gateways.
+                client.put_object(
+                    Bucket=bucket,
+                    Key=relative_path,
+                    Body=payload,
+                    Metadata={"sha256": digest},
+                    ContentLength=len(payload),
+                )
+                remote = client.head_object(Bucket=bucket, Key=relative_path)
+                remote_size = int(remote.get("ContentLength", -1))
+                remote_digest = str(remote.get("Metadata", {}).get("sha256", "")).lower()
+                if remote_size != len(payload):
+                    raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {len(payload)}")
+                if remote_digest != digest:
+                    raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
+                return f"s3://{bucket}/{relative_path}"
+            except (BotoCoreError, ClientError, OSError, RuntimeError) as exc:
+                last_error = exc
+                continue
 
-        remote_size = int(remote.get("ContentLength", -1))
-        remote_digest = str(remote.get("Metadata", {}).get("sha256", "")).lower()
-        if remote_size != len(payload):
-            raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {len(payload)}")
-        if remote_digest != digest:
-            raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
-        return f"s3://{settings.backup_s3_bucket}/{relative_path}"
+        detail = str(last_error) if last_error else "unknown S3 connection error"
+        raise RuntimeError(f"Backblaze B2 S3 upload failed after virtual-host and path-style attempts: {detail}") from last_error
     if provider in {"google_drive", "gdrive", "google"}:
         return _google_upload(package, relative_path)
     if provider in {"onedrive", "one_drive", "microsoft"}:
