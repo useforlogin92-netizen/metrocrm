@@ -15,8 +15,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from app.config import settings
 
 _MAGIC = b"MCRMBKP1"
-_MAX_ARCHIVE_MEMBERS = 10_000
-_MAX_TOTAL_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 100_000
+_MAX_TOTAL_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024
 
 
 def _key() -> bytes:
@@ -89,20 +89,17 @@ def _sqlite_restore(snapshot: Path, target: Path) -> None:
 
 
 def _postgres_restore(snapshot: Path, database_url: str) -> None:
-    subprocess.run(
-        ["pg_restore", "--clean", "--if-exists", "-d", _postgres_cli_url(database_url), str(snapshot)],
-        check=True,
-        env=os.environ.copy(),
-    )
+    subprocess.run(["pg_restore", "--clean", "--if-exists", "-d", _postgres_cli_url(database_url), str(snapshot)], check=True, env=os.environ.copy())
 
 
 def restore_backup(
     backup_path: str | Path,
     target_database_url: str | None = None,
     target_uploads_path: str | Path | None = None,
+    target_application_path: str | Path | None = None,
     expected_sha256: str | None = None,
 ) -> dict[str, object]:
-    """Restore one encrypted backup package after integrity and path checks."""
+    """Restore DB, uploads and optionally the complete application tree."""
     package = Path(backup_path).expanduser().resolve()
     if not package.is_file() or package.suffix != ".mcrmbackup":
         raise FileNotFoundError("Backup package not found")
@@ -148,9 +145,20 @@ def restore_backup(
                         shutil.copy2(source, target)
                 uploads_restored = True
 
-    return {
-        "status": "success",
-        "backup": str(package),
-        "database": database_url.split(":", 1)[0],
-        "uploads_restored": uploads_restored,
-    }
+        application_restored = False
+        if target_application_path:
+            source_application = extract_root / "application"
+            if source_application.exists():
+                destination = Path(target_application_path).expanduser()
+                destination.mkdir(parents=True, exist_ok=True)
+                for source in source_application.rglob("*"):
+                    relative = source.relative_to(source_application)
+                    target = destination / relative
+                    if source.is_dir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source, target)
+                application_restored = True
+
+    return {"status": "success", "backup": str(package), "database": database_url.split(":", 1)[0], "uploads_restored": uploads_restored, "application_restored": application_restored}
