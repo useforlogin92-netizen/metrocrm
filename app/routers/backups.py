@@ -130,13 +130,19 @@ def google_connect(request: Request, db: Session = Depends(get_db)):
     request.session["backup_google_oauth_state"] = state
     redirect_uri = str(request.base_url).rstrip("/") + "/admin/backups/google/callback"
     params = {"client_id": settings.backup_google_client_id, "redirect_uri": redirect_uri, "response_type": "code", "access_type": "offline", "prompt": "consent", "scope": "https://www.googleapis.com/auth/drive.file", "state": state}
-    return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params), status_code=303)
+    response = RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params), status_code=303)
+    response.set_cookie("metrocrm_google_oauth_state", state, max_age=600, httponly=True, secure=True, samesite="lax", path="/")
+    return response
 
 
 @router.get("/google/callback", response_class=HTMLResponse)
 def google_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, db: Session = Depends(get_db)):
     require_super_admin(request, db)
-    expected = request.session.pop("backup_google_oauth_state", None)
+    expected_session = request.session.pop("backup_google_oauth_state", None)
+    expected_cookie = request.cookies.get("metrocrm_google_oauth_state")
+    if expected_session and expected_cookie and not secrets.compare_digest(expected_session, expected_cookie):
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    expected = expected_session or expected_cookie
     if not expected or not state or not secrets.compare_digest(expected, state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     if error:
@@ -159,7 +165,9 @@ def google_callback(request: Request, code: str | None = None, state: str | None
     folder_id = folder.get("id")
     if not folder_id:
         raise HTTPException(status_code=502, detail="Google Drive did not return a folder id")
-    return _oauth_result_page("google", refresh_token, folder_id)
+    response = _oauth_result_page("google", refresh_token, folder_id)
+    response.delete_cookie("metrocrm_google_oauth_state", path="/")
+    return response
 
 
 @router.get("/onedrive/connect")
