@@ -1,13 +1,14 @@
-"""MetroCRM fixed-PC backup agent.
+"""MetroCRM fixed-PC backup agent with Super Admin-approved device registration.
 
 Pulls encrypted backups from the CRM server, stores them on the PC and mirrors
-them to an external HDD when connected. It is safe to start at Windows boot;
-it immediately catches up and then retries every configured interval.
+them to an approved external HDD when connected. A new device is registered as
+PENDING and must be approved by a Super Admin before external mirroring.
 """
 from __future__ import annotations
 
 import hashlib
 import os
+import platform
 import tempfile
 import time
 import urllib.error
@@ -33,6 +34,13 @@ def _request(url: str, token: str, method: str = "GET") -> bytes:
         return response.read()
 
 
+def _json_request(url: str, token: str, payload: dict[str, str]) -> dict:
+    request = urllib.request.Request(url, data=__import__("json").dumps(payload).encode("utf-8"), headers={"X-Backup-Agent-Token": token, "Content-Type": "application/json"}, method="POST")
+    # The endpoint accepts query parameters, so this helper is intentionally not used for registration.
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return __import__("json").loads(response.read().decode("utf-8"))
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -47,6 +55,26 @@ def _safe_target(root: Path, relative: str) -> Path:
     if target == root or root not in target.parents:
         raise AgentError(f"unsafe backup path: {relative}")
     return target
+
+
+def _device_id(external_root: Path | None) -> str:
+    # Stable for the same PC + external mount/path and different for a newly attached target.
+    seed = f"{platform.node()}|{external_root or 'no-external-device'}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:32]
+
+
+def _register(base: str, token: str, device_id: str, device_name: str, device_path: str) -> dict:
+    query = urllib.parse.urlencode({"device_id": device_id, "device_name": device_name, "device_path": device_path})
+    request = urllib.request.Request(f"{base}/admin/backups/devices/agent/register?{query}", headers={"X-Backup-Agent-Token": token}, method="POST")
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return __import__("json").loads(response.read().decode("utf-8"))
+
+
+def _approved(base: str, token: str, device_id: str) -> bool:
+    query = urllib.parse.urlencode({"device_id": device_id})
+    request = urllib.request.Request(f"{base}/admin/backups/devices/agent/approved?{query}", headers={"X-Backup-Agent-Token": token})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return bool(__import__("json").loads(response.read().decode("utf-8")).get("approved"))
 
 
 def _download(base: str, token: str, relative: str, target: Path, expected_size: int, expected_hash: str) -> None:
@@ -83,6 +111,11 @@ def sync_once() -> dict[str, int]:
     external_root = Path(external_value).expanduser().resolve() if external_value else None
     local_root.mkdir(parents=True, exist_ok=True)
 
+    device_id = _device_id(external_root)
+    device_name = os.environ.get("METROCRM_DEVICE_NAME", platform.node() or "MetroCRM Backup Device")
+    registration = _register(base, token, device_id, device_name, str(external_root or ""))
+    device_approved = registration.get("status") == "APPROVED" or _approved(base, token, device_id)
+
     manifest = __import__("json").loads(_request(f"{base}/admin/backups/agent/manifest", token).decode("utf-8"))
     downloaded = 0
     skipped = 0
@@ -101,11 +134,10 @@ def sync_once() -> dict[str, int]:
             else:
                 skipped += 1
 
-            # The server's agent_pc acknowledgement means the PC copy is verified.
-            # If an external HDD is configured, only acknowledge after that mirror
-            # has also been copied and hash-verified; otherwise the server would
-            # incorrectly report the offline copy as healthy.
+            # External mirroring is permitted only after Super Admin approval.
             if external_root:
+                if not device_approved:
+                    raise AgentError("external backup device is pending Super Admin approval")
                 if not external_root.exists() or not external_root.is_dir():
                     raise AgentError(f"external backup device/path not found: {external_root}")
                 external_file = _safe_target(external_root, relative)
@@ -127,7 +159,8 @@ def sync_once() -> dict[str, int]:
                         temp.unlink(missing_ok=True)
                     external_copied += 1
 
-            _ack(base, token, relative)
+            if device_approved or not external_root:
+                _ack(base, token, relative)
         except (OSError, urllib.error.URLError, AgentError, RuntimeError, ValueError, KeyError):
             failed += 1
 
