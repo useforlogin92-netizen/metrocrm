@@ -1,9 +1,4 @@
-"""Dedicated Super Admin routes for the property-data workspace.
-
-These routes intentionally reuse the property-data implementation while exposing
-separate Super Admin URLs. This prevents the Super Admin UI from depending on
-/admin/property-data URLs and keeps the portal boundary explicit.
-"""
+"""Dedicated Super Admin routes for the property-data workspace."""
 
 import re
 
@@ -46,33 +41,54 @@ def _rewrite_admin_redirect(response, target: str):
 
 
 def _inject_project_selection(response):
-    """Add selection controls to the rendered Projects table without changing the shared legacy template."""
+    """Add robust Projects selection controls to the rendered shared table."""
     if not getattr(response, "body", None):
         return response
     html = response.body.decode("utf-8")
-    if 'id="property-select-all"' in html:
-        return response
-    if "<h3>Projects Records</h3>" not in html:
+    if 'id="property-select-all"' in html or "<h3>Projects Records</h3>" not in html:
         return response
     csrf = _csrf_placeholder(html)
-    html = html.replace(
-        '<table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>',
-        '<form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" onsubmit="return confirm(\'Delete the selected properties and all linked property inventory/media/share records? This cannot be undone.\');"><input type="hidden" name="csrf_token" value="' + csrf + '"><div class="pd-actions" style="align-items:center;margin-bottom:10px"><label style="display:flex;align-items:center;gap:7px;margin:0"><input id="property-select-all" type="checkbox" onchange="document.querySelectorAll(\'.property-select\').forEach(x=>x.checked=this.checked);updatePropertySelectionCount()"> Select All</label><button class="pd-btn danger" type="submit">🗑 Delete Selected</button><span id="property-selection-count" class="pd-small">0 selected</span></div></form><table class="pd-table"><thead><tr><th><input type="checkbox" aria-label="Select all properties" onchange="document.getElementById(\'property-select-all\').checked=this.checked;document.getElementById(\'property-select-all\').dispatchEvent(new Event(\'change\'));" style="width:auto"></th><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>'
+    bulk_form = (
+        '<form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" '
+        'onsubmit="return confirm(\'Delete the selected properties and all linked inventory/media/share records? This cannot be undone.\');">'
+        f'<input type="hidden" name="csrf_token" value="{csrf}"></form>'
     )
-    html = re.sub(
-        r'<tr><td>(\d+)</td><td>(.*?)</td><td><a class="pd-btn" href="/super-admin/property-data\?entity=Projects&amp;id=(\d+)">Edit</a></td></tr>',
-        lambda m: f'<tr><td><input class="property-select" type="checkbox" name="project_ids" value="{m.group(1)}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" style="width:auto"></td><td>{m.group(1)}</td><td>{m.group(2)}</td><td><a class="pd-btn" href="/super-admin/property-data?entity=Projects&amp;id={m.group(3)}">Edit</a></td></tr>',
-        html,
+    controls = (
+        '<div class="pd-actions" style="align-items:center;margin-bottom:10px;gap:10px">'
+        '<label style="display:flex;align-items:center;gap:7px;margin:0;font-weight:700">'
+        '<input id="property-select-all" type="checkbox" onchange="toggleAllProperties(this.checked);updatePropertySelectionCount()" style="width:auto"> Select All</label>'
+        '<button class="pd-btn danger" type="submit" form="project-bulk-delete">🗑 Delete Selected</button>'
+        '<span id="property-selection-count" class="pd-small">0 selected</span></div>'
     )
-    marker = '</body>'
+    table_start = '<table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>'
+    table_replacement = (
+        '<table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th><th>Edit</th><th style="width:90px;text-align:center">Select</th><th>Delete</th></tr></thead><tbody>'
+    )
+    if table_start in html:
+        html = html.replace(table_start, bulk_form + controls + table_replacement, 1)
+    row_pattern = re.compile(
+        r'<tr>\s*<td>(\d+)</td>\s*<td>(.*?)</td>\s*<td>\s*<a class="pd-btn" href="/(?:admin|super-admin)/property-data\?entity=Projects&amp;id=(\d+)">Edit</a>\s*</td>\s*</tr>',
+        re.S,
+    )
+
+    def replace_row(match):
+        project_id = match.group(1)
+        details = match.group(2)
+        edit_id = match.group(3)
+        return (
+            f'<tr><td>{project_id}</td><td>{details}</td>'
+            f'<td><a class="pd-btn" href="/super-admin/property-data?entity=Projects&amp;id={edit_id}">Edit</a></td>'
+            f'<td style="text-align:center"><input class="property-select" type="checkbox" name="project_ids" value="{project_id}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" aria-label="Select property {project_id}" style="width:auto"></td>'
+            f'<td><button class="pd-btn danger" type="submit" form="project-bulk-delete" name="project_ids" value="{project_id}" onclick="return confirm(\'Delete this property and all linked records? This cannot be undone.\')">Delete</button></td></tr>'
+        )
+
+    html = row_pattern.sub(replace_row, html)
     script = '''<script>
-function updatePropertySelectionCount(){
-  const n=document.querySelectorAll('.property-select:checked').length;
-  const box=document.getElementById('property-selection-count');
-  if(box) box.textContent=n+' selected';
-}
+function toggleAllProperties(checked){document.querySelectorAll('.property-select').forEach(function(x){x.checked=checked;});}
+function updatePropertySelectionCount(){var n=document.querySelectorAll('.property-select:checked').length;var box=document.getElementById('property-selection-count');if(box)box.textContent=n+' selected';}
+document.addEventListener('DOMContentLoaded',updatePropertySelectionCount);
 </script>'''
-    html = html.replace(marker, script + marker)
+    html = html.replace('</body>', script + '</body>', 1)
     response.body = html.encode("utf-8")
     response.headers["content-length"] = str(len(response.body))
     return response
@@ -93,57 +109,45 @@ def super_admin_property_data(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/super-admin/property-data/template")
 def super_admin_property_template(request: Request, db: Session = Depends(get_db)):
-    if not _require_super_admin(request, db):
-        return RedirectResponse("/super-admin/login", status_code=303)
+    if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
     return _download_property_template(request, db)
 
 
 @router.post("/super-admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
 def super_admin_load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
-    if not _require_super_admin(request, db):
-        return RedirectResponse("/super-admin/login", status_code=303)
-    response = _load_godrej_nest_test_data(request, db)
-    return _rewrite_admin_redirect(response, "/super-admin/property-data")
+    if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
+    return _rewrite_admin_redirect(_load_godrej_nest_test_data(request, db), "/super-admin/property-data")
 
 
 @router.post("/super-admin/property-data/import", dependencies=[Depends(require_csrf)])
 async def super_admin_import_property_data(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if not _require_super_admin(request, db):
-        return RedirectResponse("/super-admin/login", status_code=303)
-    response = await _import_property_data(request, file, db)
-    return _rewrite_admin_redirect(response, "/super-admin/property-data")
+    if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
+    return _rewrite_admin_redirect(await _import_property_data(request, file, db), "/super-admin/property-data")
 
 
 @router.post("/super-admin/property-data/save", dependencies=[Depends(require_csrf)])
 async def super_admin_save_property_data(request: Request, db: Session = Depends(get_db)):
-    if not _require_super_admin(request, db):
-        return RedirectResponse("/super-admin/login", status_code=303)
-    response = await _save_property_data(request, db)
-    return _rewrite_admin_redirect(response, "/super-admin/property-data")
+    if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
+    return _rewrite_admin_redirect(await _save_property_data(request, db), "/super-admin/property-data")
 
 
 @router.post("/super-admin/property-data/delete-selected", dependencies=[Depends(require_csrf)])
 async def super_admin_delete_selected_properties(request: Request, db: Session = Depends(get_db)):
     actor = _require_super_admin(request, db)
-    if not actor:
-        return RedirectResponse("/super-admin/login", status_code=303)
+    if not actor: return RedirectResponse("/super-admin/login", status_code=303)
     form = await request.form()
     raw_ids = form.getlist("project_ids")
     project_ids = sorted({int(value) for value in raw_ids if str(value).isdigit()})
     if not project_ids:
         return RedirectResponse("/super-admin/property-data?entity=Projects&error=Select+at+least+one+property", status_code=303)
-
     try:
         projects = db.scalars(select(Project).where(Project.id.in_(project_ids))).all()
         actual_ids = [project.id for project in projects]
-        if not actual_ids:
-            return RedirectResponse("/super-admin/property-data?entity=Projects&error=Selected+properties+were+not+found", status_code=303)
-
+        if not actual_ids: return RedirectResponse("/super-admin/property-data?entity=Projects&error=Selected+properties+were+not+found", status_code=303)
         share_ids = db.scalars(select(CatalogShare.id).where(CatalogShare.project_id.in_(actual_ids))).all()
         unit_ids = db.scalars(select(Unit.id).where(Unit.project_id.in_(actual_ids))).all()
         if unit_ids:
-            unit_share_ids = db.scalars(select(CatalogShare.id).where(CatalogShare.unit_id.in_(unit_ids))).all()
-            share_ids = sorted(set(share_ids) | set(unit_share_ids))
+            share_ids = sorted(set(share_ids) | set(db.scalars(select(CatalogShare.id).where(CatalogShare.unit_id.in_(unit_ids))).all()))
         campaign_ids = db.scalars(select(MarketingCampaign.id).where(MarketingCampaign.catalog_share_id.in_(share_ids))).all() if share_ids else []
         if campaign_ids:
             db.execute(delete(MarketingLeadEvent).where(MarketingLeadEvent.campaign_id.in_(campaign_ids)))
@@ -152,16 +156,13 @@ async def super_admin_delete_selected_properties(request: Request, db: Session =
         if share_ids:
             db.execute(delete(CatalogShareVisit).where(CatalogShareVisit.share_id.in_(share_ids)))
             db.execute(delete(CatalogShare).where(CatalogShare.id.in_(share_ids)))
-
         db.execute(delete(PropertySocialProfile).where(PropertySocialProfile.project_id.in_(actual_ids)))
         db.execute(delete(PropertyMedia).where(PropertyMedia.project_id.in_(actual_ids)))
         db.execute(delete(NearbyLocation).where(NearbyLocation.project_id.in_(actual_ids)))
-        if unit_ids:
-            db.execute(delete(Unit).where(Unit.id.in_(unit_ids)))
+        if unit_ids: db.execute(delete(Unit).where(Unit.id.in_(unit_ids)))
         db.execute(delete(Tower).where(Tower.project_id.in_(actual_ids)))
         db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "Projects", AuditEvent.entity_id.in_([str(x) for x in actual_ids])))
-        for project in projects:
-            db.delete(project)
+        for project in projects: db.delete(project)
         db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_PROJECTS_BULK_DELETED", entity_type="Projects", entity_id=None, details=f"Deleted project ids: {actual_ids}"))
         db.commit()
     except Exception as exc:
@@ -172,14 +173,11 @@ async def super_admin_delete_selected_properties(request: Request, db: Session =
 
 @router.get("/super-admin/property-data/export")
 def super_admin_export_property_data(request: Request, db: Session = Depends(get_db)):
-    if not _require_super_admin(request, db):
-        return RedirectResponse("/super-admin/login", status_code=303)
+    if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
     return _export_property_data(request, db)
 
 
 @router.get("/super-admin/property-data/export/download/{request_id}")
 def super_admin_download_property_export(request: Request, request_id: int, db: Session = Depends(get_db)):
-    if not _require_super_admin(request, db):
-        return RedirectResponse("/super-admin/login", status_code=303)
-    response = _download_approved_property_export(request, request_id, db)
-    return _rewrite_admin_redirect(response, "/super-admin/property-data")
+    if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
+    return _rewrite_admin_redirect(_download_approved_property_export(request, request_id, db), "/super-admin/property-data")
