@@ -1,25 +1,16 @@
+"""Marketing attribution models.
+
+MarketingCampaign is defined in crm_plus_models because it is part of the
+existing CRM campaign model. This module re-exports it for the marketing
+router/tests and owns the marketing-specific event/visit tables.
+"""
 from datetime import datetime, timezone
+
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.database import Base
-
-
-class MarketingCampaign(Base):
-    __tablename__ = "marketing_campaigns"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(200), index=True)
-    channel: Mapped[str] = mapped_column(String(40), index=True)
-    objective: Mapped[str] = mapped_column(String(80), default="LEAD_GENERATION")
-    status: Mapped[str] = mapped_column(String(30), default="DRAFT", index=True)
-    landing_token: Mapped[str] = mapped_column(String(80), unique=True, index=True)
-    landing_title: Mapped[str | None] = mapped_column(String(250))
-    landing_subtitle: Mapped[str | None] = mapped_column(String(500))
-    catalog_share_id: Mapped[int | None] = mapped_column(ForeignKey("catalog_shares.id"), index=True)
-    utm_source: Mapped[str | None] = mapped_column(String(100))
-    utm_medium: Mapped[str | None] = mapped_column(String(100))
-    utm_campaign: Mapped[str | None] = mapped_column(String(150))
-    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+from app.crm_plus_models import MarketingCampaign
 
 
 class MarketingLeadEvent(Base):
