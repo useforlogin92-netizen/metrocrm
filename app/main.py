@@ -300,9 +300,12 @@ def create_user(request: Request, username: str = Form(...), password: str = For
     manager = int(manager_id) if manager_id.isdigit() else None
     if not _valid_reporting_manager(actor, manager, None, db):
         return RedirectResponse("/admin/users?error=manager", status_code=303)
-    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip(), security_answer_hash=hash_password(security_answer.strip()), is_active=True, is_approved=False)
+    auto_approved = actor.role.upper() == "SUPER_ADMIN"
+    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip(), security_answer_hash=hash_password(security_answer.strip()), is_active=True, is_approved=auto_approved)
     db.add(user)
-    _audit(db, actor.id, "USER_CREATED", user, {"role": role})
+    _audit(db, actor.id, "USER_CREATED", user, {"role": role, "auto_approved": auto_approved})
+    if auto_approved:
+        _audit(db, actor.id, "USER_AUTO_APPROVED", user, {"reason": "created_by_super_admin"})
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
 
