@@ -18,6 +18,23 @@ def _request(user_id: int = 1) -> Request:
     })
 
 
+def _create_user(db_session, request, role):
+    return create_user(
+        request,
+        username="new-manager",
+        password="strongpass123",
+        role=role,
+        mobile="",
+        email="",
+        category="",
+        team="",
+        manager_id="",
+        security_question="What is your favorite city?",
+        security_answer="Mumbai",
+        db=db_session,
+    )
+
+
 def test_super_admin_created_user_is_auto_approved(db_session):
     db_session.add(User(
         id=1,
@@ -30,15 +47,7 @@ def test_super_admin_created_user_is_auto_approved(db_session):
     ))
     db_session.commit()
 
-    response = create_user(
-        _request(),
-        username="new-manager",
-        password="strongpass123",
-        role="MANAGER",
-        security_question="What is your favorite city?",
-        security_answer="Mumbai",
-        db=db_session,
-    )
+    response = _create_user(db_session, _request(), "MANAGER")
 
     assert response.status_code == 303
     created = db_session.query(User).filter_by(username="new-manager").one()
@@ -58,15 +67,7 @@ def test_admin_created_user_still_requires_approval(db_session):
     ))
     db_session.commit()
 
-    response = create_user(
-        _request(),
-        username="new-manager",
-        password="strongpass123",
-        role="MANAGER",
-        security_question="What is your favorite city?",
-        security_answer="Mumbai",
-        db=db_session,
-    )
+    response = _create_user(db_session, _request(), "MANAGER")
 
     assert response.status_code == 303
     created = db_session.query(User).filter_by(username="new-manager").one()
