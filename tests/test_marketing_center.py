@@ -1,7 +1,7 @@
 from app.catalog_models import CatalogShare
 from app.marketing_models import MarketingCampaign, MarketingLandingVisit, MarketingLeadEvent
 from app.models import Customer, Lead, User
-from app.routers.marketing import _attribution_values, _has_active_catalog_share
+from app.routers.marketing import _attribution_values, _catalog_payload, _has_active_catalog_share
 from starlette.requests import Request
 
 
@@ -102,3 +102,16 @@ def test_attribution_prefers_query_parameters_and_falls_back_to_campaign_default
     assert fallback["medium"] == "campaign-medium"
     assert fallback["campaign"] == "campaign-name"
     assert fallback["click_id"] is None
+
+
+def test_catalog_payload_rejects_inactive_or_malformed_shares(db_session):
+    assert _catalog_payload(db_session, None) == {}
+    active = CatalogShare(token_hash="b" * 64, payload_json='{"title":"Public","internal_note":"secret"}', created_by_id=1, active=True)
+    inactive = CatalogShare(token_hash="c" * 64, payload_json='{"title":"Hidden"}', created_by_id=1, active=False)
+    malformed = CatalogShare(token_hash="d" * 64, payload_json="not-json", created_by_id=1, active=True)
+    db_session.add_all([active, inactive, malformed])
+    db_session.flush()
+    assert _catalog_payload(db_session, active.id)["title"] == "Public"
+    assert _catalog_payload(db_session, active.id)["internal_note"] == "secret"
+    assert _catalog_payload(db_session, inactive.id) == {}
+    assert _catalog_payload(db_session, malformed.id) == {}
