@@ -24,6 +24,8 @@ from app.routers.godrej_test_property_delete import router as godrej_test_proper
 from app.routers.sales_property import router as sales_property_router
 from app.routers.whatsapp import router as whatsapp_router
 from app.routers.backup_devices import router as backup_devices_router
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 app = main.app
 from app import oauth_compat  # noqa: F401,E402
@@ -51,3 +53,18 @@ app.include_router(password_recovery_router)
 app.include_router(password_reset_requests_router)
 app.include_router(whatsapp_router)
 app.include_router(backup_devices_router)
+
+# Emergency offline foundation. The service worker only provides a safe shell;
+# authenticated CRM data is deliberately not cached until encrypted offline
+# storage and conflict-aware server synchronization are implemented.
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+@app.get("/offline", response_class=HTMLResponse, include_in_schema=False)
+async def emergency_offline_page():
+    with open("app/templates/offline.html", "r", encoding="utf-8") as handle:
+        return HTMLResponse(handle.read())
+
+@app.get("/metrocrm-sw.js", include_in_schema=False)
+async def metrocrm_service_worker():
+    with open("app/static/metrocrm-sw.js", "r", encoding="utf-8") as handle:
+        return HTMLResponse(handle.read(), media_type="application/javascript")
