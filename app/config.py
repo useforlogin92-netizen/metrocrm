@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     backup_s3_access_key: str = ""
     backup_s3_secret_key: str = ""
     backup_s3_region: str = ""
+    # Optional dedicated B2 Native API credentials. These can be different from the
+    # S3-compatible credentials and prevent a bad S3 key from breaking the native path.
+    backup_b2_key_id: str = ""
+    backup_b2_application_key: str = ""
+    backup_b2_bucket_id: str = ""
     backup_google_client_id: str = ""
     backup_google_client_secret: str = ""
     backup_google_refresh_token: str = ""
