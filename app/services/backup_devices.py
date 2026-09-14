@@ -28,7 +28,7 @@ def ensure_backup_devices_table(db: Session) -> None:
 
 def register_device(db: Session, device_id: str, device_name: str, device_path: str = "") -> dict[str, object]:
     ensure_backup_devices_table(db)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     existing = db.execute(text("SELECT device_id, device_name, device_path, status FROM backup_devices WHERE device_id=:id"), {"id": device_id}).mappings().first()
     if existing:
         db.execute(text("UPDATE backup_devices SET device_name=:name, device_path=:path, last_seen_at=:now WHERE device_id=:id"), {"id": device_id, "name": device_name[:255], "path": device_path[:1000], "now": now})
@@ -49,7 +49,7 @@ def set_device_status(db: Session, device_id: str, status: str, approved_by_id: 
     status = status.upper()
     if status not in {"APPROVED", "REVOKED", "PENDING"}:
         raise ValueError("Invalid backup device status")
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     result = db.execute(text("UPDATE backup_devices SET status=:status, approved_at=CASE WHEN :status='APPROVED' THEN :now ELSE approved_at END, approved_by_id=CASE WHEN :status='APPROVED' THEN :by_id ELSE approved_by_id END, revoked_at=CASE WHEN :status='REVOKED' THEN :now ELSE NULL END WHERE device_id=:id"), {"status": status, "now": now, "by_id": approved_by_id, "id": device_id})
     db.commit()
     return result.rowcount == 1
