@@ -106,6 +106,9 @@ def test_b2_native_fallback_is_used_for_transport_failure(monkeypatch, tmp_path)
     monkeypatch.setattr(settings, "backup_s3_access_key", "key")
     monkeypatch.setattr(settings, "backup_s3_secret_key", "secret")
     monkeypatch.setattr(settings, "backup_s3_region", "us-west-002")
+    monkeypatch.setattr(settings, "backup_b2_key_id", "native-key")
+    monkeypatch.setattr(settings, "backup_b2_application_key", "native-secret")
+    monkeypatch.setattr(settings, "backup_b2_bucket_id", "bucket-id")
 
     package = tmp_path / "backup.mcrmbackup"
     package.write_bytes(b"backup")
@@ -121,8 +124,8 @@ def test_b2_native_fallback_is_used_for_transport_failure(monkeypatch, tmp_path)
 
     called = {}
 
-    def fake_native(package_arg, relative_path, bucket, access_key, secret_key):
-        called.update({"package": package_arg, "relative_path": relative_path, "bucket": bucket, "access_key": access_key, "secret_key": secret_key})
+    def fake_native(package_arg, relative_path, bucket, access_key, secret_key, bucket_id):
+        called.update({"package": package_arg, "relative_path": relative_path, "bucket": bucket, "access_key": access_key, "secret_key": secret_key, "bucket_id": bucket_id})
         return "b2://metrocrm-test/2026-09-14/backup.mcrmbackup"
 
     monkeypatch.setitem(__import__("sys").modules, "boto3", FakeBoto3)
@@ -132,5 +135,6 @@ def test_b2_native_fallback_is_used_for_transport_failure(monkeypatch, tmp_path)
     assert uri == "b2://metrocrm-test/2026-09-14/backup.mcrmbackup"
     assert called["package"] == package
     assert called["bucket"] == "metrocrm-test"
-    assert called["access_key"] == "key"
-    assert called["secret_key"] == "secret"
+    assert called["access_key"] == "native-key"
+    assert called["secret_key"] == "native-secret"
+    assert called["bucket_id"] == "bucket-id"
