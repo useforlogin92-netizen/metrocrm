@@ -14,8 +14,8 @@
     <p style="font-size:11px;color:#667085">Each SM receives a unique secure link. The buttons below open the selected sharing method with the link already included.</p>
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
-    <a href="https://wa.me/?text={{ whatsapp|urlencode }}" target="_blank" rel="noopener noreferrer" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
-      <div style="font-size:42px" aria-hidden="true">💬</div><h3 style="margin:8px 0 4px">WhatsApp</h3><div style="font-size:12px;color:#667085">Share the secure link</div>
+    <a id="whatsappShare" data-recipient-mobile="{{ submission.recipient_mobile or '' }}" href="https://wa.me/?text={{ whatsapp|urlencode }}" target="_blank" rel="noopener noreferrer" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
+      <div style="font-size:42px" aria-hidden="true">💬</div><h3 style="margin:8px 0 4px">WhatsApp</h3><div style="font-size:12px;color:#667085">Share directly with {{ submission.recipient_name }}</div>
     </a>
     <a href="mailto:{{ submission.recipient_email or '' }}?subject={{ 'MetroCRM – Property Details Submission'|urlencode }}&body={{ email|urlencode }}" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
       <div style="font-size:42px" aria-hidden="true">✉️</div><h3 style="margin:8px 0 4px">Email</h3><div style="font-size:12px;color:#667085">Open your email app</div>
@@ -24,7 +24,21 @@
       <div style="font-size:42px" aria-hidden="true">📱</div><h3 style="margin:8px 0 4px">SMS</h3><div style="font-size:12px;color:#667085">Open your SMS app</div>
     </a>
   </div>
-  <div style="margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;font-size:12px;color:#475467">Tip: if a mobile number or email was not entered while creating the link, the share action still opens the relevant app so the recipient can be selected there.</div>
+  <div style="margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;font-size:12px;color:#475467">WhatsApp uses the SM number entered while creating this link. The direct chat URL does not require the SM number to be saved in your contacts.</div>
 </div>
+<script>
+(function () {
+  const button = document.getElementById('whatsappShare');
+  if (!button) return;
+  const raw = button.dataset.recipientMobile || '';
+  const digits = raw.replace(/\D/g, '');
+  const local = digits.length >= 10 ? digits.slice(-10) : '';
+  if (local) {
+    const target = '91' + local;
+    const text = {{ whatsapp|tojson }};
+    button.href = 'https://wa.me/' + target + '?text=' + encodeURIComponent(text);
+  }
+})();
+</script>
 <style>@media(max-width:800px){div[style*='grid-template-columns:repeat(3']{grid-template-columns:1fr!important}}</style>
 {% endblock %}
