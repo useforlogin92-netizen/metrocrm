@@ -110,7 +110,9 @@ async def _generate_with_openai(properties: list[dict[str, Any]], language: str,
         "You are MetroCRM's real-estate caller speech writer. Create one ready-to-speak phone script from the supplied CRM property results. "
         "Group properties by location, mention the number of options in each location, and then describe every property in a natural order. "
         "Use only supplied CRM facts. Never invent price, availability, amenities, possession, RERA or discounts. If a field is missing, omit it. "
-        "Do not mention internal IDs, scores, JSON, CRM, AI, prompts or technical details. Keep the tone warm, confident and professional. "
+        "Do not mention internal IDs, scores, JSON, CRM, AI, prompts or technical details. Keep the tone warm, conversational, confident and professional, like an experienced Indian property consultant speaking naturally on a phone call. "
+        "Write for spoken delivery rather than reading: use short sentences, natural transitions, conversational phrases, occasional light pauses through punctuation, and avoid repetitive robotic list wording. "
+        "Do not overstuff every sentence with specifications; present details in an easy, relaxed sequence. Never claim certainty where the CRM data is missing. "
         "End with a simple question inviting the caller/customer to choose a location or property."
     )
     payload = {
@@ -181,7 +183,28 @@ async def caller_speech_tts(payload: dict[str, Any], request: Request, db: Sessi
     if len(text) > 4096:
         text = text[:4096]
     voice = _voice_config().get("male" if gender == "male" else "female")
-    instructions = "Speak naturally with a warm professional Indian real-estate caller style. Clear Indian English/Hinglish pronunciation, moderate pace, friendly and confident." if language != "hi" else "Speak naturally in Hindi with a warm professional Indian real-estate caller style, clear pronunciation and moderate pace."
+    if language == "hi":
+        instructions = (
+            "Speak in a natural Indian Hindi conversational style for a real-estate phone call. "
+            "Sound warm, relaxed, attentive and professional, not like a presenter or audiobook. "
+            "Use a comfortable medium-slow pace, short natural pauses at commas and sentence breaks, gentle variation in pitch and emphasis, and smooth sentence endings. "
+            "Avoid a fixed rhythm, monotone delivery, excessive brightness, exaggerated enthusiasm, or rushed words. Pronounce Indian place names and real-estate terms naturally."
+        )
+    elif language == "en":
+        instructions = (
+            "Speak in natural Indian English as an experienced real-estate consultant on a phone call. "
+            "Sound warm, relaxed, attentive and professional rather than like a presenter or audiobook. "
+            "Use a comfortable medium-slow pace, short natural pauses at commas and sentence breaks, subtle pitch variation, gentle emphasis on important property details, and smooth sentence endings. "
+            "Avoid a fixed rhythm, monotone delivery, exaggerated enthusiasm, or rushed words. Use natural Indian English pronunciation for place names and real-estate terms."
+        )
+    else:
+        instructions = (
+            "Speak in natural Indian Hinglish for a real-estate phone conversation. "
+            "Sound like a calm, experienced Indian property consultant talking naturally to a customer, not like a presenter, announcer, audiobook or computer voice. "
+            "Use a comfortable medium-slow conversational pace with realistic pauses between thoughts, gentle breaths implied by punctuation, subtle pitch and energy changes, and warm but restrained emphasis on location, BHK, price and possession. "
+            "Let important numbers and property names land clearly. Avoid a fixed rhythmic pattern, monotone delivery, artificial cheerfulness, exaggerated sales energy, or rushing through lists. "
+            "Keep sentence endings relaxed and conversational, with natural Indian pronunciation of Mumbai locations and real-estate terms."
+        )
     body = {"model": "gpt-4o-mini-tts", "voice": voice, "input": text, "instructions": instructions, "response_format": "mp3"}
     try:
         async with httpx.AsyncClient(timeout=45) as client:
