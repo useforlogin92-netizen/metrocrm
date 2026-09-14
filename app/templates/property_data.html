@@ -5,10 +5,11 @@
 {% block content %}
 <style>
 .pd-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.pd-card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
-.pd-actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.pd-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dbe3ef;background:#fff;color:#0f172a;text-decoration:none;border-radius:9px;padding:10px 14px;font-weight:750;font-size:12px;cursor:pointer}.pd-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb}.pd-btn.test{background:#f8fafc;color:#7c2d12;border-color:#fed7aa}.pd-btn.danger{background:#fff1f2;color:#b42318;border-color:#fecdd3}.pd-btn:hover{filter:brightness(.98)}
+.pd-actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.pd-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid #dbe3ef;background:#fff;color:#0f172a;text-decoration:none;border-radius:9px;padding:10px 14px;font-weight:750;font-size:12px;cursor:pointer}.pd-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb}.pd-btn.test{background:#f8fafc;color:#7c2d12;border-color:#fed7aa}.pd-btn.danger{background:#fff1f2;color:#b42318;border-color:#fecdd3}.pd-btn:hover{filter:brightness(.98)}.pd-btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
 .pd-note{font-size:12px;color:#64748b;line-height:1.55}.pd-alert{padding:12px 14px;border-radius:10px;margin-bottom:15px;font-size:12px}.pd-alert.ok{background:#ecfdf3;color:#166534;border:1px solid #bbf7d0}.pd-alert.err{background:#fff1f2;color:#b42318;border:1px solid #fecdd3}
 select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #dbe3ef;border-radius:9px;font:inherit;background:#fff}label{display:block;font-size:11px;font-weight:800;color:#475569;margin:10px 0 5px}.pd-table{width:100%;border-collapse:collapse;font-size:11px}.pd-table th,.pd-table td{padding:9px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}.pd-table th{font-size:10px;text-transform:uppercase;color:#64748b}.pd-table-wrap{overflow:auto;max-height:480px}.pd-form{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}.pd-form .wide{grid-column:1/-1}.pd-small{font-size:10px;color:#64748b}.pd-title{margin:0 0 5px;font-size:18px}.pd-sub{margin:0;color:#64748b;font-size:12px}
-@media(max-width:900px){.pd-grid{grid-template-columns:1fr}.pd-form{grid-template-columns:1fr}.pd-form .wide{grid-column:auto}}
+.pd-select-box{width:18px!important;height:18px!important;padding:0!important;margin:0;cursor:pointer;accent-color:#2563eb}.pd-bulkbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:11px 13px;margin:12px 0;border:1px solid #dbe3ef;border-radius:10px;background:#f8fafc}.pd-bulkbar label{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:#0f172a}.pd-bulkbar .pd-small{margin-left:auto}
+@media(max-width:900px){.pd-grid{grid-template-columns:1fr}.pd-form{grid-template-columns:1fr}.pd-form .wide{grid-column:auto}.pd-bulkbar .pd-small{margin-left:0}}
 </style>
 {% if message %}<div class="pd-alert ok">✓ {{ message }}</div>{% endif %}
 {% if error %}<div class="pd-alert err">{{ error }}</div>{% endif %}
@@ -109,14 +110,47 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
     <div><h3 style="margin:0">{{ selected }} Records</h3><div class="pd-small">Latest 100 records shown</div></div>
     <a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}">+ New Record</a>
   </div>
+  {% if role == 'SUPER_ADMIN' and selected == 'Projects' %}
+  <form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" onsubmit="return confirmSelectedPropertyDelete();">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  </form>
+  <div class="pd-bulkbar">
+    <label><input id="property-select-all" class="pd-select-box" type="checkbox" onchange="toggleAllProperties(this.checked)"> Select All</label>
+    <button id="property-delete-selected" class="pd-btn danger" type="submit" form="project-bulk-delete" disabled>🗑 Delete Selected</button>
+    <span id="property-selection-count" class="pd-small">0 selected</span>
+  </div>
+  {% endif %}
   <div class="pd-table-wrap" style="margin-top:12px">
-    <table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>
+    <table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<th>Select</th>{% endif %}<th>Action</th></tr></thead><tbody>
       {% for row in rows %}
-      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td><td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
-      {% else %}<tr><td colspan="3">No records found.</td></tr>{% endfor %}
+      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<td style="width:70px;text-align:center"><input class="pd-select-box property-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" aria-label="Select property {{ row.id }}"></td>{% endif %}<td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
+      {% else %}<tr><td colspan="{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}4{% else %}3{% endif %}">No records found.</td></tr>{% endfor %}
     </tbody></table>
   </div>
 </div>
+
+{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}
+<script>
+function propertySelectionBoxes(){return Array.from(document.querySelectorAll('.property-select'));}
+function updatePropertySelectionCount(){
+  const boxes=propertySelectionBoxes();
+  const selected=boxes.filter(function(box){return box.checked;}).length;
+  const count=document.getElementById('property-selection-count');
+  const deleteButton=document.getElementById('property-delete-selected');
+  const selectAll=document.getElementById('property-select-all');
+  if(count) count.textContent=selected+' selected';
+  if(deleteButton) deleteButton.disabled=selected===0;
+  if(selectAll){selectAll.checked=boxes.length>0 && selected===boxes.length;selectAll.indeterminate=selected>0 && selected<boxes.length;}
+}
+function toggleAllProperties(checked){propertySelectionBoxes().forEach(function(box){box.checked=checked;});updatePropertySelectionCount();}
+function confirmSelectedPropertyDelete(){
+  const selected=propertySelectionBoxes().filter(function(box){return box.checked;}).length;
+  if(!selected){return false;}
+  return confirm('Delete '+selected+' selected properties and all linked inventory/media/share records? This cannot be undone.');
+}
+document.addEventListener('DOMContentLoaded',updatePropertySelectionCount);
+</script>
+{% endif %}
 
 <div class="pd-card" style="margin-top:18px">
   <h3 style="margin-top:0">{{ 'Edit' if edit_row else 'New' }} {{ selected }} Record</h3>
