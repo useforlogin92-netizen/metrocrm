@@ -185,16 +185,18 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
             config=Config(
                 signature_version="s3v4",
                 retries={"mode": "standard", "total_max_attempts": 5},
+                s3={"addressing_style": "path"},
             ),
         )
         try:
-            # Match Backblaze's official boto3 integration pattern: the endpoint is
-            # the regional S3 hostname and the SDK handles SigV4 request signing.
+            # Keep path-style addressing to avoid the earlier virtual-host TLS failure,
+            # while leaving payload signing and other HTTP behavior at botocore defaults.
             client.put_object(
                 Bucket=bucket,
                 Key=relative_path,
                 Body=payload,
                 Metadata={"sha256": digest},
+                ContentLength=len(payload),
             )
             remote = client.head_object(Bucket=bucket, Key=relative_path)
             remote_size = int(remote.get("ContentLength", -1))
