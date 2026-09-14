@@ -157,21 +157,21 @@ def configured_cloud_providers() -> list[str]:
 
 
 def _b2_endpoint_candidates(endpoint: str, bucket: str) -> list[tuple[str, str]]:
-    """Return B2 S3 endpoint/addressing combinations, preferring virtual-hosted style.
+    """Return B2 S3 endpoint/addressing combinations.
 
-    Backblaze documents both virtual-hosted and path-style bucket URLs. Using the
-    bucket hostname first avoids intermediaries that mishandle path-style S3 traffic;
-    the original configured endpoint remains the compatibility fallback.
+    Backblaze documents both path-style and virtual-hosted bucket URLs. Keep the
+    configured path-style endpoint first for existing deployments/tests, then retry
+    with the bucket-specific hostname for gateways that behave better with virtual
+    hosting.
     """
     parsed = urllib.parse.urlsplit(endpoint)
     if parsed.scheme != "https" or not parsed.netloc:
         raise RuntimeError("BACKUP_S3_ENDPOINT must be a full HTTPS URL")
     base = f"{parsed.scheme}://{parsed.netloc}"
-    candidates: list[tuple[str, str]] = []
+    candidates: list[tuple[str, str]] = [(base + parsed.path.rstrip("/"), "path")]
     host = parsed.netloc.split(":", 1)[0]
     if bucket and not host.startswith(f"{bucket}."):
-        candidates.append((f"{base.split('://', 1)[0]}://{bucket}.{host}", "virtual"))
-    candidates.append((base + parsed.path.rstrip("/"), "path"))
+        candidates.append((f"{parsed.scheme}://{bucket}.{host}", "virtual"))
     return list(dict.fromkeys(candidates))
 
 
@@ -235,7 +235,7 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
                 continue
 
         detail = str(last_error) if last_error else "unknown S3 connection error"
-        raise RuntimeError(f"Backblaze B2 S3 upload failed after virtual-host and path-style attempts: {detail}") from last_error
+        raise RuntimeError(f"Backblaze B2 S3 upload failed after path-style and virtual-host attempts: {detail}") from last_error
     if provider in {"google_drive", "gdrive", "google"}:
         return _google_upload(package, relative_path)
     if provider in {"onedrive", "one_drive", "microsoft"}:
