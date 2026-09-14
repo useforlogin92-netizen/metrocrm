@@ -19,10 +19,7 @@
     return n;
   }
 
-  function trim(n){
-    return Number(n.toFixed(2)).toString();
-  }
-
+  function trim(n){ return Number(n.toFixed(2)).toString(); }
   function propertyValue(value){
     const n = number(value);
     if (n == null) return '';
@@ -30,7 +27,6 @@
     if (n >= LAKH) return trim(n / LAKH) + ' lakh';
     return '₹' + Math.round(n).toLocaleString('en-IN');
   }
-
   function rateValue(value){
     const n = number(value);
     return n == null ? '' : Math.round(n).toLocaleString('en-IN');
@@ -42,10 +38,18 @@
     const total = row.querySelector('input[name="bundle_prices"]');
     if (!area || !rate || !total || row.dataset.pricingBound === '1') return;
     row.dataset.pricingBound = '1';
+    const rateLabel = rate.closest('div') && rate.closest('div').querySelector('label');
+    const totalLabel = total.closest('div') && total.closest('div').querySelector('label');
+    if (rateLabel) rateLabel.innerHTML='Rate / Sq.ft (₹) <span class="required">*</span>';
+    if (totalLabel) totalLabel.innerHTML='Total Property Value / All Inclusive <span class="required">*</span>';
+    rate.placeholder='e.g. 12000';
+    total.placeholder='e.g. 80 lakh or 1.1 Cr';
+    rate.title='Enter rate per square foot. Total property value will calculate automatically.';
+    total.title='Enter total property value. Rate per square foot will calculate automatically.';
+
     const source = row.querySelector('input[name="pricing_source"]') || (()=>{
       const hidden=document.createElement('input'); hidden.type='hidden'; hidden.name='pricing_source'; hidden.value='rate'; row.appendChild(hidden); return hidden;
     })();
-
     function recalcFromRate(){
       source.value='rate';
       const a=number(area.value), r=number(rate.value);
@@ -56,28 +60,18 @@
       const a=number(area.value), t=number(total.value);
       if (a != null && a > 0 && t != null && t >= 0) rate.value=rateValue(t/a);
     }
-    function recalcFromArea(){
-      if (source.value === 'total') recalcFromTotal(); else recalcFromRate();
-    }
-
+    function recalcFromArea(){ if (source.value === 'total') recalcFromTotal(); else recalcFromRate(); }
     rate.addEventListener('input', recalcFromRate);
     total.addEventListener('input', recalcFromTotal);
     area.addEventListener('input', recalcFromArea);
     rate.addEventListener('blur', ()=>{ if(number(rate.value)!=null) rate.value=rateValue(rate.value); });
     total.addEventListener('blur', ()=>{ if(number(total.value)!=null) total.value=propertyValue(total.value); });
-
     if (number(total.value)!=null) total.value=propertyValue(total.value);
     if (number(rate.value)!=null) rate.value=rateValue(rate.value);
   }
 
-  function bindAll(){
-    document.querySelectorAll('.config-row').forEach(bindRow);
-  }
-
-  function plainForSubmit(value){
-    const n=number(value);
-    return n == null ? '' : String(n);
-  }
+  function bindAll(){ document.querySelectorAll('.config-row').forEach(bindRow); }
+  function plainForSubmit(value){ const n=number(value); return n == null ? '' : String(n); }
 
   document.addEventListener('click', function(event){
     if (event.target && event.target.id === 'add-configuration') setTimeout(bindAll,0);
