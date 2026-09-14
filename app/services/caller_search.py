@@ -11,6 +11,7 @@ BHK_OPTIONS = ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "5 BHK", "More"]
 JODI_OPTIONS = ["1+1", "1+2", "1+3", "1+4", "1+5", "2+1", "2+2", "2+3", "2+4", "2+5", "3+1", "3+2", "3+3", "3+4", "3+5", "4+1", "4+2", "4+3", "4+4", "4+5", "5+1", "5+2", "5+3", "5+4", "5+5"]
 CONSTRUCTION_OPTIONS = ["Ready to Move", "Under Construction", "Upcoming", "Sold Out"]
 SIDE_OPTIONS = ["East", "West", "Both"]
+ALL_CONSTRUCTION_STATUSES = {"ready_to_move", "under_construction", "upcoming", "sold_out"}
 
 
 def _station_range_filter(filters: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -38,28 +39,63 @@ def _station_range_filter(filters: dict[str, Any], candidates: list[dict[str, An
     return filtered
 
 
-def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dict[str, Any]]) -> list[MatchCandidate]:
-    """Apply hard caller filters, then rank the remaining properties."""
-    candidates = list(properties)
-    construction = filters.get("construction_statuses") or filters.get("construction_status")
-    if construction:
-        wanted = {str(v).strip().casefold() for v in (construction if isinstance(construction, (list, tuple, set)) else [construction])}
-        candidates = [p for p in candidates if str(p.get("construction_status") or p.get("possession") or "").strip().casefold() in wanted]
-    if filters.get("city"):
-        city = str(filters["city"]).strip().casefold()
-        candidates = [p for p in candidates if str(p.get("city") or "").strip().casefold() == city]
-    if filters.get("property_type"):
-        requested_types = filters["property_type"] if isinstance(filters["property_type"], (list, tuple, set)) else [filters["property_type"]]
-        wanted_types = {str(v).strip().casefold() for v in requested_types}
-        candidates = [p for p in candidates if str(p.get("property_type") or "").strip().casefold() in wanted_types]
-
-    candidates = _station_range_filter(filters, candidates)
-    has_location_filter = bool(
+def _location_filter_is_active(filters: dict[str, Any]) -> bool:
+    return bool(
         filters.get("preferred_locations") or filters.get("locations") or
         filters.get("locality") or filters.get("pincodes") or
         filters.get("preferred_pincodes") or filters.get("mumbai_station_from") or
         filters.get("mumbai_station_to")
     )
+
+
+def _strict_preferred_location_filter(filters: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """When the caller enters locations, keep only properties whose structured CRM location contains one of them.
+
+    This is deliberately a hard filter rather than a ranking hint so a Kandivali search
+    can never surface an unrelated Andheri property merely because it scores well on
+    budget/BHK/other fields.
+    """
+    requested = filters.get("preferred_locations") or filters.get("locations") or []
+    if isinstance(requested, str):
+        requested = [requested]
+    requested = [str(value).strip().casefold() for value in requested if str(value).strip()]
+    if not requested:
+        return candidates
+    filtered: list[dict[str, Any]] = []
+    for candidate in candidates:
+        structured = " ".join(
+            str(candidate.get(key) or "")
+            for key in ("locality", "location", "sector", "address", "city")
+        ).casefold()
+        if any(value in structured for value in requested):
+            filtered.append(candidate)
+    return filtered
+
+
+def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dict[str, Any]]) -> list[MatchCandidate]:
+    """Apply hard caller filters, then rank the remaining properties."""
+    candidates = list(properties)
+    construction = filters.get("construction_statuses") or filters.get("construction_status")
+    if construction:
+        wanted = {str(v).strip().casefold().replace(" ", "_").replace("-", "_") for v in (construction if isinstance(construction, (list, tuple, set)) else [construction])}
+        # The UI previously sent all four statuses as selected by default. Treating
+        # that as a real hard filter incorrectly discarded properties whose CRM data
+        # has a blank/variant construction status. All four means "Any".
+        if wanted != ALL_CONSTRUCTION_STATUSES:
+            candidates = [p for p in candidates if str(p.get("construction_status") or p.get("possession") or "").strip().casefold().replace(" ", "_").replace("-", "_") in wanted]
+
+    if filters.get("city"):
+        city = str(filters["city"]).strip().casefold()
+        candidates = [p for p in candidates if str(p.get("city") or "").strip().casefold() == city]
+
+    if filters.get("property_type"):
+        requested_types = filters["property_type"] if isinstance(filters["property_type"], (list, tuple, set)) else [filters["property_type"]]
+        wanted_types = {str(v).strip().casefold() for v in requested_types}
+        candidates = [p for p in candidates if str(p.get("property_type") or "").strip().casefold() in wanted_types]
+
+    candidates = _strict_preferred_location_filter(filters, candidates)
+    candidates = _station_range_filter(filters, candidates)
+    has_location_filter = _location_filter_is_active(filters)
     minimum_score = 1.0 if has_location_filter else 0.0
     return rank_properties(filters, candidates, minimum_score=minimum_score)
 
