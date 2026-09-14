@@ -55,8 +55,8 @@ def test_b2_uses_s3_compatible_configuration(monkeypatch, tmp_path):
             self.package = package
             self.uploaded = None
 
-        def upload_file(self, filename, bucket, key, ExtraArgs=None):
-            self.uploaded = (filename, bucket, key, ExtraArgs)
+        def put_object(self, **kwargs):
+            self.uploaded = kwargs
 
         def head_object(self, Bucket, Key):
             assert Bucket == "metrocrm-test"
@@ -83,10 +83,14 @@ def test_b2_uses_s3_compatible_configuration(monkeypatch, tmp_path):
             assert kwargs["endpoint_url"].startswith("https://s3.")
             assert kwargs["region_name"] == "us-west-002"
             assert "config" in kwargs
+            assert kwargs["config"].signature_version == "s3v4"
+            assert kwargs["config"].s3["addressing_style"] == "path"
             return client
 
     monkeypatch.setitem(__import__("sys").modules, "boto3", FakeBoto3)
     uri = destinations.upload_cloud(package, "2026-09-14/backup.mcrmbackup", "s3")
     assert uri == "s3://metrocrm-test/2026-09-14/backup.mcrmbackup"
-    assert client.uploaded[1:3] == ("metrocrm-test", "2026-09-14/backup.mcrmbackup")
-    assert client.uploaded[3]["Metadata"]["sha256"] == hashlib.sha256(package.read_bytes()).hexdigest()
+    assert client.uploaded["Bucket"] == "metrocrm-test"
+    assert client.uploaded["Key"] == "2026-09-14/backup.mcrmbackup"
+    assert client.uploaded["ContentLength"] == package.stat().st_size
+    assert client.uploaded["Metadata"]["sha256"] == hashlib.sha256(package.read_bytes()).hexdigest()
