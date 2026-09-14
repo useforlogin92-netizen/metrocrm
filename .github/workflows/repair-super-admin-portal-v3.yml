@@ -1,0 +1,46 @@
+name: One-time Super Admin Portal Repair V3
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Align production entrypoint with portal boundary
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main = Path('app/main.py')
+          text = main.read_text(encoding='utf-8')
+          loader = '\nimport app.portal_boundary  # noqa: F401'
+          if loader in text:
+              text = text.replace(loader, '', 1)
+              main.write_text(text, encoding='utf-8')
+
+          test = Path('tests/test_super_admin_portal_namespace.py')
+          text = test.read_text(encoding='utf-8')
+          text = text.replace('import app.main  # noqa: F401 - importing main must load the portal boundary', 'from app import main_portal')
+          text = text.replace('for middleware in app.main.app.user_middleware', 'for middleware in main_portal.app.user_middleware')
+          test.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit repair and remove one-time workflows
+        shell: bash
+        run: |
+          rm -f .github/workflows/repair-super-admin-portal.yml .github/workflows/repair-super-admin-portal-v2.yml .github/workflows/repair-super-admin-portal-v3.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/main.py tests/test_super_admin_portal_namespace.py .github/workflows/repair-super-admin-portal.yml .github/workflows/repair-super-admin-portal-v2.yml .github/workflows/repair-super-admin-portal-v3.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'Align portal boundary with production entrypoint'
+          git push
