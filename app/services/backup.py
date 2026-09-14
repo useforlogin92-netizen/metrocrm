@@ -14,6 +14,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.config import settings
+from app.services.backup_application import add_application_snapshot
 from app.services.backup_destinations import configured_cloud_providers, copy_to_external_drive, upload_cloud
 
 
@@ -156,7 +157,7 @@ def _retry_destinations(encrypted: Path, relative_path: str, state: dict[str, ob
 
 
 def create_full_backup(label: str = "manual") -> dict[str, object]:
-    """Create one encrypted master snapshot, then fan it out and persist retries."""
+    """Create an encrypted master snapshot of application, DB and uploads."""
     timestamp = _now()
     date_folder = timestamp.strftime("%Y-%m-%d")
     time_label = "start" if label.lower() == "start" else "end" if label.lower() == "end" else label.lower()
@@ -172,21 +173,27 @@ def create_full_backup(label: str = "manual") -> dict[str, object]:
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(db_snapshot, "database/database.snapshot")
             _add_tree(archive, Path(settings.uploads_path), "uploads")
-            archive.writestr("backup_metadata.txt", f"created_at={timestamp.isoformat()}\nlabel={time_label}\ndatabase={settings.database_url.split(':', 1)[0]}\n")
+            application_info = add_application_snapshot(archive)
+            archive.writestr("backup_metadata.json", json.dumps({
+                "version": 2, "created_at": timestamp.isoformat(), "label": time_label,
+                "database": settings.database_url.split(":", 1)[0],
+                "application": application_info,
+            }, indent=2, sort_keys=True))
+            archive.writestr("backup_metadata.txt", f"created_at={timestamp.isoformat()}\nlabel={time_label}\ndatabase={settings.database_url.split(':', 1)[0]}\napplication_files={application_info['files']}\n")
         encrypted = folder / filename
         _encrypted_package(zip_path, encrypted)
+    digest = hashlib.sha256(encrypted.read_bytes()).hexdigest()
     relative_path = f"{date_folder}/{filename}"
-    state: dict[str, object] = {"relative_path": relative_path, "created_at": timestamp.isoformat(), "label": time_label, "filename": filename, "destinations": {"local": {"status": "success", "path": str(encrypted), "error": None}}}
+    state: dict[str, object] = {"relative_path": relative_path, "created_at": timestamp.isoformat(), "label": time_label, "filename": filename, "sha256": digest, "destinations": {"local": {"status": "success", "path": str(encrypted), "error": None}}}
     state = _retry_destinations(encrypted, relative_path, state)
     _write_state(relative_path, state)
     destinations = state["destinations"]
     assert isinstance(destinations, dict)
     cloud_path = next((item["path"] for name, item in destinations.items() if name not in {"local", "agent_pc", "external"} and item["status"] == "success"), None)
-    return {"local_path": str(encrypted), "cloud_path": cloud_path, "date": date_folder, "label": time_label, "destinations": destinations, "status": state["status"], "failed_destinations": state["failed_destinations"]}
+    return {"local_path": str(encrypted), "cloud_path": cloud_path, "date": date_folder, "label": time_label, "sha256": digest, "destinations": destinations, "status": state["status"], "failed_destinations": state["failed_destinations"]}
 
 
 def retry_pending_backups() -> list[dict[str, object]]:
-    """Retry every queued destination for existing encrypted backups."""
     root = Path(settings.backup_local_path).expanduser()
     results: list[dict[str, object]] = []
     if not root.exists():
@@ -206,7 +213,6 @@ def retry_pending_backups() -> list[dict[str, object]]:
 
 
 def acknowledge_agent_backup(relative_path: str) -> bool:
-    """Mark a backup as delivered to the fixed desktop backup agent."""
     if not settings.backup_agent_token.strip():
         return False
     root = Path(settings.backup_local_path).expanduser().resolve()
@@ -262,21 +268,12 @@ def backup_health() -> dict[str, object]:
     external_connected = bool(external_path and external_path.is_dir())
     latest = _latest_backup_state()
     return {
-        "local_configured": bool(settings.backup_local_path),
-        "local_path_exists": local_exists,
-        "local_writable": local_writable,
-        "local_detail": local_detail,
-        "external_configured": bool(settings.backup_external_path.strip()),
-        "external_connected": external_connected,
-        "external_path": str(external_path) if external_path else "",
-        "backup_agent_configured": bool(settings.backup_agent_token.strip()),
-        "cloud_provider": ",".join(providers) if providers else "none",
-        "cloud_providers": providers,
-        "cloud_configured": bool(providers),
+        "local_configured": bool(settings.backup_local_path), "local_path_exists": local_exists,
+        "local_writable": local_writable, "local_detail": local_detail,
+        "external_configured": bool(settings.backup_external_path.strip()), "external_connected": external_connected,
+        "external_path": str(external_path) if external_path else "", "backup_agent_configured": bool(settings.backup_agent_token.strip()),
+        "cloud_provider": ",".join(providers) if providers else "none", "cloud_providers": providers, "cloud_configured": bool(providers),
         "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id),
         "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token and settings.backup_onedrive_folder_path),
-        "queued_retries": queued,
-        "timezone": settings.backup_timezone,
-        "schedule": ["11:00", "19:00"],
-        "last_backup": latest,
+        "queued_retries": queued, "timezone": settings.backup_timezone, "schedule": ["11:00", "19:00"], "last_backup": latest,
     }
