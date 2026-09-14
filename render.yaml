@@ -2,16 +2,21 @@ services:
   - type: web
     name: metrocrm-live
     runtime: python
+    plan: free
+    region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.oauth_compat:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /healthz
+    startCommand: uvicorn app.main_portal:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
     envVars:
       - key: ENVIRONMENT
         value: production
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: metrocrm-db
+          property: connectionString
       - key: BACKUP_ENABLED
         value: "true"
       - key: BACKUP_TIMEZONE
@@ -19,7 +24,7 @@ services:
       - key: BACKUP_LOCAL_PATH
         value: ./backups
       - key: BACKUP_CLOUD_PROVIDERS
-        value: onedrive
+        value: s3
       - key: BACKUP_ENCRYPTION_KEY
         generateValue: true
       - key: BACKUP_S3_ENDPOINT
@@ -60,3 +65,11 @@ services:
         sync: false
       - key: BACKUP_MISSED_CYCLE_GRACE_MINUTES
         value: "30"
+
+databases:
+  - name: metrocrm-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "18"
+    databaseName: metrocrm_db
+    user: metroadmin
