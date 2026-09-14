@@ -47,16 +47,17 @@ def _rewrite_admin_redirect(response, target: str):
 
 def _inject_project_selection(response):
     """Add selection controls to the rendered Projects table without changing the shared legacy template."""
-    if not isinstance(response, HTMLResponse) or not getattr(response, "body", None):
+    if not getattr(response, "body", None):
         return response
     html = response.body.decode("utf-8")
-    if "id=\"property-select-all\"" in html:
+    if 'id="property-select-all"' in html:
         return response
     if "<h3>Projects Records</h3>" not in html:
         return response
+    csrf = _csrf_placeholder(html)
     html = html.replace(
         '<table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>',
-        '<form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" onsubmit="return confirm(\'Delete the selected properties and all linked property inventory/media/share records? This cannot be undone.\');"><input type="hidden" name="csrf_token" value="' + _csrf_placeholder(html) + '"><div class="pd-actions" style="align-items:center;margin-bottom:10px"><label style="display:flex;align-items:center;gap:7px;margin:0"><input id="property-select-all" type="checkbox" onchange="document.querySelectorAll(\'.property-select\').forEach(x=>x.checked=this.checked);updatePropertySelectionCount()"> Select All</label><button class="pd-btn danger" type="submit">🗑 Delete Selected</button><span id="property-selection-count" class="pd-small">0 selected</span></div></form><table class="pd-table"><thead><tr><th><input type="checkbox" aria-label="Select all properties" onchange="document.getElementById(\'property-select-all\').checked=this.checked;document.getElementById(\'property-select-all\').dispatchEvent(new Event(\'change\'));" style="width:auto"></th><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>'
+        '<form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" onsubmit="return confirm(\'Delete the selected properties and all linked property inventory/media/share records? This cannot be undone.\');"><input type="hidden" name="csrf_token" value="' + csrf + '"><div class="pd-actions" style="align-items:center;margin-bottom:10px"><label style="display:flex;align-items:center;gap:7px;margin:0"><input id="property-select-all" type="checkbox" onchange="document.querySelectorAll(\'.property-select\').forEach(x=>x.checked=this.checked);updatePropertySelectionCount()"> Select All</label><button class="pd-btn danger" type="submit">🗑 Delete Selected</button><span id="property-selection-count" class="pd-small">0 selected</span></div></form><table class="pd-table"><thead><tr><th><input type="checkbox" aria-label="Select all properties" onchange="document.getElementById(\'property-select-all\').checked=this.checked;document.getElementById(\'property-select-all\').dispatchEvent(new Event(\'change\'));" style="width:auto"></th><th>ID</th><th>Primary Details</th><th>Action</th></tr></thead><tbody>'
     )
     html = re.sub(
         r'<tr><td>(\d+)</td><td>(.*?)</td><td><a class="pd-btn" href="/super-admin/property-data\?entity=Projects&amp;id=(\d+)">Edit</a></td></tr>',
@@ -78,7 +79,6 @@ function updatePropertySelectionCount(){
 
 
 def _csrf_placeholder(html: str) -> str:
-    """Extract the already-rendered CSRF value from the page's first hidden token."""
     match = re.search(r'name="csrf_token" value="([^"]+)"', html)
     return match.group(1) if match else ""
 
@@ -123,19 +123,11 @@ async def super_admin_save_property_data(request: Request, db: Session = Depends
 
 
 @router.post("/super-admin/property-data/delete-selected", dependencies=[Depends(require_csrf)])
-def super_admin_delete_selected_properties(request: Request, db: Session = Depends(get_db)):
+async def super_admin_delete_selected_properties(request: Request, db: Session = Depends(get_db)):
     actor = _require_super_admin(request, db)
     if not actor:
         return RedirectResponse("/super-admin/login", status_code=303)
-    # Use the form parser synchronously through the Starlette request object.
-    # The selected ids are deliberately limited to Projects to avoid accidental
-    # deletion of shared Developers/Towers/Units records outside a property.
-    import asyncio
-
-    async def _read_form():
-        return await request.form()
-
-    form = asyncio.run(_read_form())
+    form = await request.form()
     raw_ids = form.getlist("project_ids")
     project_ids = sorted({int(value) for value in raw_ids if str(value).isdigit()})
     if not project_ids:
@@ -148,6 +140,10 @@ def super_admin_delete_selected_properties(request: Request, db: Session = Depen
             return RedirectResponse("/super-admin/property-data?entity=Projects&error=Selected+properties+were+not+found", status_code=303)
 
         share_ids = db.scalars(select(CatalogShare.id).where(CatalogShare.project_id.in_(actual_ids))).all()
+        unit_ids = db.scalars(select(Unit.id).where(Unit.project_id.in_(actual_ids))).all()
+        if unit_ids:
+            unit_share_ids = db.scalars(select(CatalogShare.id).where(CatalogShare.unit_id.in_(unit_ids))).all()
+            share_ids = sorted(set(share_ids) | set(unit_share_ids))
         campaign_ids = db.scalars(select(MarketingCampaign.id).where(MarketingCampaign.catalog_share_id.in_(share_ids))).all() if share_ids else []
         if campaign_ids:
             db.execute(delete(MarketingLeadEvent).where(MarketingLeadEvent.campaign_id.in_(campaign_ids)))
@@ -159,12 +155,9 @@ def super_admin_delete_selected_properties(request: Request, db: Session = Depen
 
         db.execute(delete(PropertySocialProfile).where(PropertySocialProfile.project_id.in_(actual_ids)))
         db.execute(delete(PropertyMedia).where(PropertyMedia.project_id.in_(actual_ids)))
-        unit_ids = db.scalars(select(Unit.id).where(Unit.project_id.in_(actual_ids))).all()
-        if unit_ids:
-            db.execute(delete(CatalogShareVisit).where(CatalogShareVisit.share_id.in_(select(CatalogShare.id).where(CatalogShare.unit_id.in_(unit_ids)))))
-            db.execute(delete(CatalogShare).where(CatalogShare.unit_id.in_(unit_ids)))
         db.execute(delete(NearbyLocation).where(NearbyLocation.project_id.in_(actual_ids)))
-        db.execute(delete(Unit).where(Unit.project_id.in_(actual_ids)))
+        if unit_ids:
+            db.execute(delete(Unit).where(Unit.id.in_(unit_ids)))
         db.execute(delete(Tower).where(Tower.project_id.in_(actual_ids)))
         db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "Projects", AuditEvent.entity_id.in_([str(x) for x in actual_ids])))
         for project in projects:
