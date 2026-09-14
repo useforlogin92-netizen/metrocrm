@@ -1,7 +1,7 @@
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
-import app.main  # noqa: F401 - importing main must load the portal boundary
+from app import main_portal
 from app import portal_boundary
 
 
@@ -25,7 +25,7 @@ def _request(path: str, method: str = "GET") -> Request:
 def test_main_loads_dedicated_portal_boundary():
     assert any(
         getattr(middleware, "kwargs", {}).get("dispatch").__name__ == "enforce_dedicated_portal_session"
-        for middleware in app.main.app.user_middleware
+        for middleware in main_portal.app.user_middleware
         if getattr(middleware, "kwargs", {}).get("dispatch") is not None
     )
 

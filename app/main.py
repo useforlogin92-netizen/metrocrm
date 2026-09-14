@@ -414,4 +414,3 @@ def logout(request: Request, db: Session = Depends(get_db)):
     response.headers["Expires"] = "0"
     return response
 
-import app.portal_boundary  # noqa: F401
