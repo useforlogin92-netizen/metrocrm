@@ -131,9 +131,6 @@ def copy_to_external_drive(package: Path, relative_path: str) -> str:
         raise RuntimeError("External backup path is not configured")
     root_path = Path(root).expanduser()
     if not root_path.exists():
-        # A configured removable/mounted location must already exist; otherwise
-        # report the device as disconnected. Ordinary application directories
-        # may be initialized automatically for local/dev use.
         if _looks_like_unmounted_drive(root_path):
             raise RuntimeError(f"External backup device/path not found: {root_path}")
         root_path.mkdir(parents=True, exist_ok=True)
@@ -172,19 +169,33 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
             raise RuntimeError("BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be configured")
 
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        endpoint = settings.backup_s3_endpoint.strip().rstrip("/")
+        region = settings.backup_s3_region.strip() or None
         client = boto3.client(
             "s3",
-            endpoint_url=settings.backup_s3_endpoint,
+            endpoint_url=endpoint,
             aws_access_key_id=settings.backup_s3_access_key,
             aws_secret_access_key=settings.backup_s3_secret_key,
-            region_name=settings.backup_s3_region or None,
-            config=Config(retries={"mode": "standard", "total_max_attempts": 5}),
+            region_name=region,
+            config=Config(
+                signature_version="s3v4",
+                connect_timeout=15,
+                read_timeout=300,
+                retries={"mode": "standard", "total_max_attempts": 5},
+                s3={"addressing_style": "path"},
+            ),
         )
-        client.upload_file(
-            str(package),
-            settings.backup_s3_bucket,
-            relative_path,
-            ExtraArgs={"Metadata": {"sha256": digest}},
+
+        # Use a single PutObject request rather than the transfer manager's
+        # multipart/chunked path. This is more compatible with B2's S3 gateway
+        # and avoids connection-close failures seen during streamed uploads.
+        payload = package.read_bytes()
+        client.put_object(
+            Bucket=settings.backup_s3_bucket,
+            Key=relative_path,
+            Body=payload,
+            Metadata={"sha256": digest},
+            ContentLength=len(payload),
         )
 
         try:
@@ -194,8 +205,8 @@ def upload_cloud(package: Path, relative_path: str, provider: str) -> str:
 
         remote_size = int(remote.get("ContentLength", -1))
         remote_digest = str(remote.get("Metadata", {}).get("sha256", "")).lower()
-        if remote_size != package.stat().st_size:
-            raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {package.stat().st_size}")
+        if remote_size != len(payload):
+            raise RuntimeError(f"S3 upload verification failed: size {remote_size} != local {len(payload)}")
         if remote_digest != digest:
             raise RuntimeError("S3 upload verification failed: SHA-256 metadata mismatch")
         return f"s3://{settings.backup_s3_bucket}/{relative_path}"
