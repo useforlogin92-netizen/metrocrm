@@ -28,6 +28,8 @@ from app.routers.whatsapp import router as whatsapp_router
 from app.routers.backup_devices import router as backup_devices_router
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
 
 app = main.app
 from app import oauth_compat  # noqa: F401,E402
@@ -39,6 +41,20 @@ install_session_compatibility(app)
 install_logout_cookie_hardening(app)
 install_language_support(app)
 install_caller_voice_selection(app)
+
+# Some compatibility/feature modules register middleware while they are imported.
+# Starlette prepends newly added middleware, so restore SessionMiddleware as the
+# outermost layer after all production middleware has been installed.
+def _ensure_session_middleware_outermost() -> None:
+    for index, middleware in enumerate(app.user_middleware):
+        if middleware.cls is SessionMiddleware:
+            if index:
+                session_middleware = app.user_middleware.pop(index)
+                app.user_middleware.insert(0, session_middleware)
+            return
+
+_ensure_session_middleware_outermost()
+
 app.include_router(health_router)
 app.include_router(accounting_router)
 app.include_router(property_data_router)
