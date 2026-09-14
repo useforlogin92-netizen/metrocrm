@@ -23,6 +23,7 @@ from app.routers.godrej_test_admin import router as godrej_test_admin_router
 from app.routers.godrej_test_property_delete import router as godrej_test_property_delete_router
 from app.routers.sales_property import router as sales_property_router
 from app.routers.whatsapp import router as whatsapp_router
+from app.routers.backup_devices import router as backup_devices_router
 
 app = main.app
 from app import oauth_compat  # noqa: F401,E402
@@ -47,3 +48,4 @@ app.include_router(ai_caller_router)
 app.include_router(password_recovery_router)
 app.include_router(password_reset_requests_router)
 app.include_router(whatsapp_router)
+app.include_router(backup_devices_router)
