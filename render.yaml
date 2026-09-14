@@ -19,7 +19,7 @@ services:
       - key: BACKUP_LOCAL_PATH
         value: ./backups
       - key: BACKUP_CLOUD_PROVIDERS
-        value: google,onedrive
+        value: onedrive
       - key: BACKUP_ENCRYPTION_KEY
         generateValue: true
       - key: BACKUP_GOOGLE_CLIENT_ID
