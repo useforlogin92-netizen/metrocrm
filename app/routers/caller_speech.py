@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
+from app import main as app_main
 from app.database import get_db
 from app.models import User
 
@@ -190,3 +191,18 @@ async def caller_speech_tts(payload: dict[str, Any], request: Request, db: Sessi
         return Response(content=response.content, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
     except httpx.HTTPError:
         return JSONResponse({"detail": "AI voice service unavailable"}, status_code=502)
+
+
+@app_main.app.middleware("http")
+async def inject_caller_speech_widget(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path != "/caller/search" or "text/html" not in response.headers.get("content-type", ""):
+        return response
+    body = b"".join([chunk async for chunk in response.body_iterator])
+    marker = b"</body>"
+    injection = b'<script src="/static/caller-speech.js?v=1"></script>'
+    if marker in body and injection not in body:
+        body = body.replace(marker, injection + marker, 1)
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    return Response(content=body, status_code=response.status_code, headers=headers, media_type="text/html")
