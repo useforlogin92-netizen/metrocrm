@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -11,6 +11,7 @@ class MarketingCampaign(Base):
     channel: Mapped[str] = mapped_column(String(40), index=True)
     objective: Mapped[str] = mapped_column(String(80), default="LEAD_GENERATION")
     status: Mapped[str] = mapped_column(String(30), default="DRAFT", index=True)
+    landing_token: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     landing_title: Mapped[str | None] = mapped_column(String(250))
     landing_subtitle: Mapped[str | None] = mapped_column(String(500))
     catalog_share_id: Mapped[int | None] = mapped_column(ForeignKey("catalog_shares.id"), index=True)
