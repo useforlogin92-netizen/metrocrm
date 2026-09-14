@@ -71,11 +71,13 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
     """Apply hard caller filters, then rank the remaining properties."""
     candidates = list(properties)
     construction = filters.get("construction_statuses") or filters.get("construction_status")
+    any_construction_status = False
     if construction:
         wanted = {str(v).strip().casefold().replace(" ", "_").replace("-", "_") for v in (construction if isinstance(construction, (list, tuple, set)) else [construction])}
         # All four UI options selected means "Any". In that case there is no
         # construction-status filter at all, including for records with blanks.
-        if wanted != ALL_CONSTRUCTION_STATUSES:
+        any_construction_status = wanted == ALL_CONSTRUCTION_STATUSES
+        if not any_construction_status:
             candidates = [
                 p for p in candidates
                 if str(p.get("construction_status") or "").strip().casefold().replace(" ", "_").replace("-", "_") in wanted
@@ -92,7 +94,15 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
 
     candidates = _strict_preferred_location_filter(filters, candidates)
     candidates = _station_range_filter(filters, candidates)
-    return rank_properties(filters, candidates, minimum_score=0.0)
+
+    # rank_properties applies possession/status matching too. Strip the
+    # construction status keys for the UI's "Any" state so sparse records
+    # with a blank status are retained instead of being discarded there.
+    ranking_filters = dict(filters)
+    if any_construction_status:
+        ranking_filters.pop("construction_statuses", None)
+        ranking_filters.pop("construction_status", None)
+    return rank_properties(ranking_filters, candidates, minimum_score=0.0)
 
 
 def group_search_results(results: Iterable[MatchCandidate]) -> dict[str, list[MatchCandidate]]:
