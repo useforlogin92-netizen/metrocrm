@@ -43,4 +43,5 @@
   function load(src) { const script = document.createElement('script'); script.src = src; script.async = false; document.body.appendChild(script); }
   load('/static/caller-language-font.js?v=3');
   load('/static/caller-speech-core.js?v=3');
+  load('/static/caller-price-format.js?v=1');
 })();
