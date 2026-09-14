@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     backup_onedrive_client_secret: str = ""
     backup_onedrive_refresh_token: str = ""
     backup_onedrive_folder_path: str = "MetroCRM-Backups"
+    # Backup alert destinations. Provider credentials remain deployment secrets.
+    backup_alert_email_to: str = ""
+    backup_alert_whatsapp_to: str = ""
+    backup_alert_webhook_url: str = ""
+    backup_alert_webhook_token: str = ""
+    backup_missed_cycle_grace_minutes: int = 30
 
     # External lead/communication integrations. Credentials are supplied later in .env.
     lead_integrations_enabled: bool = True
