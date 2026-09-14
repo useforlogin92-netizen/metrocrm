@@ -6,7 +6,7 @@ services:
     region: oregon
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main_portal:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
+    healthCheckPath: /healthz
     autoDeployTrigger: commit
     envVars:
       - key: ENVIRONMENT
