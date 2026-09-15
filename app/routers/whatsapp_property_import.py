@@ -63,7 +63,6 @@ def _payload(row: SalesPropertySubmission) -> dict:
 
 
 def _can_access(row: SalesPropertySubmission, actor) -> bool:
-    """Super Admin can review all imports; Admin can only access their own drafts."""
     return actor.role == "SUPER_ADMIN" or row.created_by_id == actor.id
 
 
@@ -108,7 +107,7 @@ def _queue(request: Request, db: Session, actor, message: str | None = None, err
     body = ""
     if message: body += f"<div class='card'><b>{escape(message)}</b></div>"
     if error: body += f"<div class='card' style='border-color:#fecaca'><b>{escape(error)}</b></div>"
-    body += f"""<div class='card'><h2>📲 Property Data Received by WhatsApp</h2><p class='muted'>Paste the WhatsApp property message and attach any brochure/catalog PDF, images or videos. The system extracts available information but keeps every import in review until the target project is verified.</p><form method='post' action='{action}/analyze' enctype='multipart/form-data'><input type='hidden' name='csrf_token' value='{csrf}'><label>WhatsApp text</label><textarea name='source_text' placeholder='Paste the complete WhatsApp message here...'></textarea><label>Images / PDF brochures / catalogs / videos</label><input type='file' name='files' multiple accept='.jpg,.jpeg,.png,.webp,.pdf,.mp4,.mov'><button class='btn' type='submit'>🤖 Analyze & Create Review Draft</button></form></div>"""
+    body += f"""<div class='card'><h2>📲 Property Data Received by WhatsApp</h2><p class='muted'>Paste the complete WhatsApp property message in the blank box. Attach any available images, videos or PDF brochure/catalog from your computer. MetroCRM uses only information actually present in the WhatsApp text/attachments; missing facts remain blank.</p><form method='post' action='{action}/analyze' enctype='multipart/form-data'><input type='hidden' name='csrf_token' value='{csrf}'><label>WhatsApp text</label><textarea name='source_text' placeholder='Paste the complete WhatsApp message here...'></textarea><label>Images / PDF brochures / catalogs / videos</label><input type='file' name='files' multiple accept='.jpg,.jpeg,.png,.webp,.pdf,.mp4,.mov'><button class='btn' type='submit'>🤖 Analyze & Create Review Draft</button></form></div>"""
     body += "<div class='card'><h2>Review queue</h2><table><tr><th>ID</th><th>Status</th><th>Project candidates</th><th>Action</th></tr>"
     for row in rows:
         data = _payload(row)
@@ -176,15 +175,18 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
         identity_html = "<h3>Source identity check</h3><table><tr><th>Source</th><th>Project(s)</th><th>Developer(s)</th></tr>" + "".join(f"<tr><td>{escape(str(x.get('filename')))}</td><td>{escape(', '.join(x.get('projects', [])))}</td><td>{escape(', '.join(x.get('developers', [])))}</td></tr>" for x in identities) + "</table>"
     unattributed = data.get("unattributed_sources") or []
     if unattributed:
-        identity_html += "<p style='color:#b91c1c'><b>Manual attribution required:</b> " + escape(", ".join(map(str, unattributed))) + "</p>"
+        identity_html += "<p style='color:#b45309'><b>Attachment note:</b> " + escape(", ".join(map(str, unattributed))) + " could not independently identify a project from OCR. The pasted WhatsApp message remains the primary source; review the attachment before committing.</p>"
+    match = data.get("project_match") or {}
+    safe_matches = [x for x in match.get("matches", []) if x.get("safe")]
+    suggested_id = safe_matches[0].get("project_id") if len(safe_matches) == 1 else ""
     body = f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected project(s): <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{identity_html}</div>"
     body += "<div class='card'><h2>Extracted data</h2><pre>" + escape(json.dumps({k: v for k, v in data.items() if k not in {'raw_text', 'attachments'}}, ensure_ascii=False, indent=2)) + "</pre>"
     if data.get("attachments"):
         body += "<h3>Attachments</h3><ul>" + "".join(f"<li>{escape(str(x.get('filename')))} · {escape(str(x.get('mime_type')))} · {x.get('extracted_text_chars', 0)} extracted characters</li>" for x in data["attachments"]) + "</ul>"
     body += "</div>"
-    blocked = bool(data.get("identity_conflict") or data.get("unattributed_sources"))
-    note = "Different project identities or unattributed source data require separation/attribution before commit." if blocked else "Only an exact detected project identity may be committed; the selected Project ID cannot override the identity check."
-    body += f"""<div class='card'><h2>Verify target project</h2><p class='muted'><b>Safety rule:</b> {escape(note)}</p><form method='post' action='{action}/{row.id}/commit' onsubmit="return confirm('Commit this verified property import into the selected CRM project?');"><input type='hidden' name='csrf_token' value='{csrf}'><label>Exact target Project ID</label><input name='project_id' type='number' min='1' required><button class='btn green' type='submit'>✅ Verify & Reflect in CRM</button></form>"""
+    blocked = bool(data.get("identity_conflict"))
+    note = "Different project identities were detected; separate the sources before commit." if blocked else "MetroCRM will use only source-stated values. Missing WhatsApp facts stay blank; an attachment without OCR identity can still be attached to the verified text project after review."
+    body += f"""<div class='card'><h2>Verify target project</h2><p class='muted'><b>Safety rule:</b> {escape(note)}</p><form method='post' action='{action}/{row.id}/commit' onsubmit="return confirm('Commit this verified property import into the selected CRM project?');"><input type='hidden' name='csrf_token' value='{csrf}'><label>Exact target Project ID</label><input name='project_id' type='number' min='1' required value='{escape(str(suggested_id))}'><button class='btn green' type='submit'>✅ Verify & Reflect in CRM</button></form>"""
     if actor.role == "SUPER_ADMIN":
         body += f"<form method='post' action='{action}/{row.id}/reject' style='margin-top:10px'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn red' type='submit'>Reject Import</button></form>"
     body += "</div>"
@@ -223,8 +225,6 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     data = _payload(row)
     if data.get("identity_conflict"):
         return RedirectResponse(f"{_index(role)}/{row.id}?error=Multiple+project+identities+were+detected.+Separate+the+sources+before+importing.", status_code=303)
-    if data.get("unattributed_sources"):
-        return RedirectResponse(f"{_index(role)}/{row.id}?error=Some+attachments+contain+data+without+a+verified+project+identity.+Attribute+them+before+importing.", status_code=303)
     candidates = data.get("project_candidates") or []
     project = db.get(Project, project_id)
     if not project: return RedirectResponse(f"{_index(role)}/{row.id}?error=Target+project+not+found", status_code=303)
@@ -238,41 +238,52 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     try:
         if data.get("city") and not project.city: project.city = data["city"]
         if data.get("locality") and not project.locality: project.locality = data["locality"]
+        if data.get("address") and not project.address: project.address = data["address"]
         if data.get("rera") and not project.rera: project.rera = data["rera"]
         if data.get("possession_text") and not project.description: project.description = data["possession_text"]
+        description_parts = []
+        if data.get("highlights"): description_parts.append("WhatsApp source highlights:\n- " + "\n- ".join(data["highlights"]))
+        if data.get("map_url"): description_parts.append("WhatsApp source map: " + str(data["map_url"]))
+        if description_parts and project.description:
+            existing_description = str(project.description)
+            additions = "\n\n".join(description_parts)
+            if additions not in existing_description: project.description = existing_description + "\n\n" + additions
+        elif description_parts and not project.description:
+            project.description = "\n\n".join(description_parts)
         if data.get("amenities"):
             try: existing = json.loads(project.amenities_json or "[]")
             except (TypeError, ValueError): existing = []
             if not isinstance(existing, list): existing = []
             project.amenities_json = json.dumps(sorted({str(x) for x in existing + data["amenities"] if x}), ensure_ascii=False)
+        developer = db.get(__import__('app.models', fromlist=['Developer']).Developer, project.developer_id)
+        if developer and data.get("contact_phone") and not developer.contact:
+            developer.contact = data["contact_phone"]
         for config in data.get("unit_configurations") or []:
             key = f"CONFIG-{normalize_name(config.get('bhk'))}-{config.get('carpet_area')}"
             unit = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == key))
             if not unit: unit = Unit(project_id=project.id, unit_number=key)
             unit.bhk = config.get("bhk"); unit.carpet_area = config.get("carpet_area"); unit.price = config.get("price")
             unit.status = "CONFIGURATION"; unit.availability = "SOURCE_STATED"
-            unit.other_details = json.dumps({"source": "WHATSAPP_IMPORT", "source_line": config.get("source_line")}, ensure_ascii=False)
+            if data.get("total_building_floors") and not unit.total_building_floors: unit.total_building_floors = data["total_building_floors"]
+            if data.get("possession_text") and not unit.possession: unit.possession = data["possession_text"]
+            unit.other_details = json.dumps({"source": "WHATSAPP_IMPORT", "source_line": config.get("source_line"), "wing": config.get("wing")}, ensure_ascii=False)
             db.add(unit)
         for attachment in data.get("attachments") or []:
             staged = Path(str(attachment.get("staged_path", ""))).resolve()
-            if not staged.is_file() or staging_root not in staged.parents:
-                continue
+            if not staged.is_file() or staging_root not in staged.parents: continue
             filename = f"{secrets.token_urlsafe(18)}{staged.suffix.lower()}"
             destination = _root("property-media") / filename
-            # Copy first; the staging copy remains available until the DB transaction succeeds.
-            shutil.copy2(str(staged), str(destination))
-            created_destinations.append(destination)
+            shutil.copy2(str(staged), str(destination)); created_destinations.append(destination)
             mime = str(attachment.get("mime_type") or "application/octet-stream")
             media_type = "PROPERTY_IMAGE" if mime.startswith("image/") else "PROPERTY_VIDEO" if mime.startswith("video/") else "PROPERTY_CATALOG"
             db.add(PropertyMedia(project_id=project.id, media_type=media_type, title=str(attachment.get("filename") or "Imported attachment")[:255], file_url=f"/media/property/{filename}", storage_key=f"property-media/{filename}", mime_type=mime, file_size=attachment.get("size"), sort_order=0, is_shareable=True, uploaded_by_id=actor.id))
         row.status = "APPROVED"; row.record_id = project.id; row.reviewed_by_id = actor.id; row.review_note = "Verified WhatsApp property import"; row.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_COMMITTED", entity_type="Projects", entity_id=str(project.id), details=json.dumps({"submission_id": row.id, "units": len(data.get("unit_configurations") or []), "attachments": len(data.get("attachments") or [])})))
+        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_COMMITTED", entity_type="Projects", entity_id=str(project.id), details=json.dumps({"submission_id": row.id, "units": len(data.get("unit_configurations") or []), "attachments": len(data.get("attachments") or []), "source_only": True})))
         db.commit()
         token = str(data.get("staging_token") or "")
         if token:
             token_root = (_root("property-import-staging") / Path(token).name).resolve()
-            if staging_root in token_root.parents:
-                shutil.rmtree(token_root, ignore_errors=True)
+            if staging_root in token_root.parents: shutil.rmtree(token_root, ignore_errors=True)
     except Exception as exc:
         db.rollback()
         for destination in created_destinations:
@@ -292,8 +303,6 @@ def reject_import(submission_id: int, request: Request, db: Session = Depends(ge
     db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_REJECTED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details="{}")); db.commit()
     token = str(_payload(row).get("staging_token") or "")
     if token:
-        staging_root = _root("property-import-staging").resolve()
-        token_root = (_root("property-import-staging") / Path(token).name).resolve()
-        if staging_root in token_root.parents:
-            shutil.rmtree(token_root, ignore_errors=True)
+        staging_root = _root("property-import-staging").resolve(); token_root = (_root("property-import-staging") / Path(token).name).resolve()
+        if staging_root in token_root.parents: shutil.rmtree(token_root, ignore_errors=True)
     return RedirectResponse("/super-admin/property-data/whatsapp-import?message=Import+draft+rejected", status_code=303)
