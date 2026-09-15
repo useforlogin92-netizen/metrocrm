@@ -43,8 +43,14 @@ def _first(patterns: tuple[str, ...], text: str, flags: int = re.I) -> str | Non
     for pattern in patterns:
         match = re.search(pattern, text, flags)
         if match:
-            return match.group(1).strip(" \t:-|")
+            return match.group(1).strip(" \t:-|_")
     return None
+
+
+def _clean_line(line: str) -> str:
+    line = re.sub(r"[\*_]+", "", line)
+    line = re.sub(r"[￼]+", " ", line)
+    return re.sub(r"\s+", " ", line).strip(" •\t")
 
 
 def _extract_identities(text: str) -> dict[str, list[str]]:
@@ -60,7 +66,7 @@ def _extract_identities(text: str) -> dict[str, list[str]]:
             if normalize_name(title) not in {normalize_name(x) for x in projects}:
                 projects.append(title)
     for line in text.splitlines():
-        clean = re.sub(r"[^A-Za-z0-9&'(). -]", " ", line).strip()
+        clean = _clean_line(line)
         if re.search(r"(?i)\bproject(?: name)?\b\s*[:\-]", clean):
             candidate = re.split(r"[:\-]", clean, maxsplit=1)[-1].strip()
             if 3 <= len(candidate) <= 100 and normalize_name(candidate) not in {normalize_name(x) for x in projects}:
@@ -81,7 +87,12 @@ def _extract_configurations(text: str) -> list[dict[str, Any]]:
         re.compile(r"(?i)\b(\d+\s*(?:BHK|BED))\b[^\n]{0,80}?(?:carpet|area)[^0-9]{0,12}([0-9,]+(?:\.[0-9]+)?)\s*(?:sq\.?\s*ft|sqft|sft)?[^\n]{0,40}?(?:₹|rs\.?|price)[^0-9]{0,8}([0-9,.]+\s*(?:cr(?:ore)?|crore|l(?:akh)?|lac)?\+?)"),
     )
     seen: set[tuple[str, float | None, float | None]] = set()
-    for line in text.splitlines():
+    current_wing: str | None = None
+    for raw_line in text.splitlines():
+        line = _clean_line(raw_line)
+        wing_match = re.search(r"(?i)\b([A-Z](?:-?\s*WING))\b(?:\s*[-–—:]\s*(.*))?", line)
+        if wing_match and not re.search(r"\b\d+\s*(?:BHK|BED)\b", line, re.I):
+            current_wing = wing_match.group(1).replace(" ", "-").upper()
         for pattern in patterns:
             m = pattern.search(line)
             if not m:
@@ -93,9 +104,21 @@ def _extract_configurations(text: str) -> list[dict[str, Any]]:
             if key in seen:
                 continue
             seen.add(key)
-            configs.append({"bhk": bhk, "carpet_area": area, "price": price, "source_line": line[:500]})
+            configs.append({"bhk": bhk, "carpet_area": area, "price": price, "wing": current_wing, "source_line": line[:500]})
             break
     return configs
+
+
+def _extract_highlights(text: str) -> list[str]:
+    highlights: list[str] = []
+    for raw in text.splitlines():
+        line = _clean_line(raw)
+        if not line or len(line) > 180:
+            continue
+        if re.search(r"(?i)\b(?:min walk|storey|world-class amenities|infinity rooftop|w\.e\.?\s*highway|metro|railway station)\b", line):
+            if line.lower() not in {x.lower() for x in highlights}:
+                highlights.append(line)
+    return highlights
 
 
 def parse_property_text(text: str) -> dict[str, Any]:
@@ -103,8 +126,8 @@ def parse_property_text(text: str) -> dict[str, Any]:
     identities = _extract_identities(text)
     upper = text.upper()
     city = _first((r"\b(?:city)\s*[:\-]\s*([^\n,|]+)",), text)
-    if not city and "KANDIVALI" in upper:
-        city = "Kandivali"
+    if not city and "MUMBAI" in upper and "KANDIVALI" in upper:
+        city = "Mumbai"
     locality = _first((r"\b(?:locality|area)\s*[:\-]\s*([^\n|]+)",), text)
     if not locality and ("KANDIVALI EAST" in upper or "KANDIVALI (E)" in upper):
         locality = "Kandivali East"
@@ -113,20 +136,39 @@ def parse_property_text(text: str) -> dict[str, Any]:
     website = next(iter(re.findall(r"https?://(?!goo\.gl/maps|maps\.app\.goo\.gl|maps\.google\.com)[^\s]+", text)), None)
     phone = next(iter(re.findall(r"(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)", text)), None)
     email = next(iter(re.findall(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)), None)
+    location_lines: list[str] = []
+    for raw in text.splitlines():
+        line = _clean_line(raw)
+        if re.search(r"(?i)\b(?:LOCATION|SITE ADDRESS|PROJECT ADDRESS)\s*:", line):
+            location_lines.append(re.split(r":", line, maxsplit=1)[-1].strip())
+        elif re.search(r"(?i)\bON\s+(?:W\.?E\.?\s*HIGHWAY|WESTERN EXPRESS HIGHWAY)\b", line):
+            location_lines.append(line)
+        elif re.search(r"(?i)\bNEXT TO\b", line):
+            location_lines.append(line)
     address = _first((r"\b(?:address|site address|project address)\s*[:\-]\s*([^\n]+)",), text)
+    if not address and location_lines:
+        address = ", ".join(dict.fromkeys(location_lines))
     possession = _first((r"\b(?:possession|possession by|nearing possession|handover)\s*[:\-]?\s*([^\n]+)",), text)
+    if not possession:
+        possession_match = re.search(r"(?i)([A-Z]-?\s*WING[^\n]{0,80}?NEARING POSSESSION[^\n]*)", text)
+        if possession_match:
+            possession = _clean_line(possession_match.group(1))
     developer = identities["developers"][0] if len(identities["developers"]) == 1 else _first((r"\b(?:developer|builder|promoter)\s*[:\-]\s*([^\n]+)",), text)
     project = identities["projects"][0] if len(identities["projects"]) == 1 else _first((r"\b(?:project|project name)\s*[:\-]\s*([^\n]+)",), text)
     amenities: list[str] = []
     for line in text.splitlines():
-        clean = line.strip(" •*-\t")
+        clean = _clean_line(line)
         if re.search(r"(?i)amenit", clean):
             value = re.sub(r"(?i).*?amenit(?:y|ies)?\s*[:\-]?\s*", "", clean).strip()
             if value and value.lower() not in {x.lower() for x in amenities}:
                 amenities.append(value)
-    configs = _extract_configurations(text)
-    parking = _first((r"\bparking\s*[:\-]\s*([^\n]+)", r"\b(\d+\s*(?:car|car park|parking)(?:s)?\b)"), text)
+    for line in _extract_highlights(text):
+        if re.search(r"(?i)world-class amenities|infinity rooftop swimming pool", line):
+            if line.lower() not in {x.lower() for x in amenities}:
+                amenities.append(line)
+    floors = _first((r"\b(\d+)\s*[- ]?storey(?:\s+iconic\s+tower)?\b",), text)
     total_units = _first((r"\b(?:total units|no\. of units|number of units)\s*[:\-]\s*([^\n]+)",), text)
+    parking = _first((r"\bparking\s*[:\-]\s*([^\n]+)", r"\b(\d+\s*(?:car|car park|parking)(?:s)?\b)"), text)
     return {
         "developer": developer,
         "project": project,
@@ -140,9 +182,11 @@ def parse_property_text(text: str) -> dict[str, Any]:
         "contact_phone": phone,
         "contact_email": email,
         "amenities": amenities,
+        "highlights": _extract_highlights(text),
+        "total_building_floors": int(floors) if floors and floors.isdigit() else None,
         "parking": parking,
         "total_units": total_units,
-        "unit_configurations": configs,
+        "unit_configurations": _extract_configurations(text),
         "possession_text": possession,
         "raw_text": text,
     }
@@ -151,7 +195,6 @@ def parse_property_text(text: str) -> dict[str, Any]:
 def extract_pdf_text(data: bytes) -> str:
     try:
         from pypdf import PdfReader
-
         reader = PdfReader(io.BytesIO(data))
         chunks = [page.extract_text() or "" for page in reader.pages[:30]]
         text = "\n".join(chunks)[:MAX_TEXT_CHARS]
@@ -163,7 +206,6 @@ def extract_pdf_text(data: bytes) -> str:
         import fitz
         import pytesseract
         from PIL import Image
-
         doc = fitz.open(stream=data, filetype="pdf")
         chunks = []
         for page in doc[:15]:
@@ -180,7 +222,6 @@ def ocr_image(data: bytes) -> str:
     try:
         from PIL import Image
         import pytesseract
-
         with Image.open(io.BytesIO(data)) as image:
             return pytesseract.image_to_string(image)[:MAX_TEXT_CHARS]
     except Exception:
@@ -188,20 +229,16 @@ def ocr_image(data: bytes) -> str:
 
 
 def extract_video_text(data: bytes, suffix: str = ".mp4") -> str:
-    """OCR a small, evenly spaced sample of video frames; never trust OCR as project identity by itself."""
     try:
         import cv2
         import pytesseract
         import tempfile
-
         suffix = suffix.lower() if suffix.lower() in {".mp4", ".mov", ".m4v"} else ".mp4"
         with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
-            tmp.write(data)
-            tmp.flush()
+            tmp.write(data); tmp.flush()
             capture = cv2.VideoCapture(tmp.name)
             if not capture.isOpened():
-                capture.release()
-                return ""
+                capture.release(); return ""
             total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
             positions = [0.08, 0.25, 0.45, 0.65, 0.82, 0.95]
             chunks: list[str] = []
@@ -209,11 +246,9 @@ def extract_video_text(data: bytes, suffix: str = ".mp4") -> str:
                 target = int(max(0, min(total - 1, ratio * total))) if total else 0
                 capture.set(cv2.CAP_PROP_POS_FRAMES, target)
                 ok, frame = capture.read()
-                if not ok:
-                    continue
+                if not ok: continue
                 text = pytesseract.image_to_string(frame)
-                if text.strip():
-                    chunks.append(text)
+                if text.strip(): chunks.append(text)
             capture.release()
             return "\n".join(chunks)[:MAX_TEXT_CHARS]
     except Exception:
@@ -233,13 +268,7 @@ def attachment_text(filename: str, mime_type: str, data: bytes) -> str:
 
 def attachment_record(filename: str, mime_type: str, data: bytes) -> dict[str, Any]:
     extracted = attachment_text(filename, mime_type, data)
-    return {
-        "filename": Path(filename).name[:255],
-        "mime_type": mime_type[:120],
-        "size": len(data),
-        "sha256": hashlib.sha256(data).hexdigest(),
-        "extracted_text_chars": len(extracted),
-    }
+    return {"filename": Path(filename).name[:255], "mime_type": mime_type[:120], "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "extracted_text_chars": len(extracted)}
 
 
 def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, Any]:
@@ -248,8 +277,7 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     unattributed_sources = []
     for item in attachments:
         extracted = item.get("extracted_text", "")
-        if extracted:
-            combined.append(extracted[:MAX_TEXT_CHARS])
+        if extracted: combined.append(extracted[:MAX_TEXT_CHARS])
         identities = _extract_identities(extracted)
         if identities["projects"] or identities["developers"]:
             source_identities.append({"filename": item.get("filename"), **identities})
@@ -273,11 +301,7 @@ def find_safe_project_matches(db: Session, parsed: dict[str, Any]) -> dict[str, 
         exact = db.scalars(select(Project).where(func.lower(Project.name) == normalize_name(project_name))).all()
         for project in exact:
             developer = db.get(Developer, project.developer_id)
-            checks = {
-                "developer": not parsed.get("developer") or normalize_name(developer.name if developer else "") == normalize_name(parsed["developer"]),
-                "city": not parsed.get("city") or normalize_name(project.city) == normalize_name(parsed["city"]),
-                "rera": not parsed.get("rera") or normalize_name(project.rera) == normalize_name(parsed["rera"]),
-            }
+            checks = {"developer": not parsed.get("developer") or normalize_name(developer.name if developer else "") == normalize_name(parsed["developer"]), "city": not parsed.get("city") or normalize_name(project.city) == normalize_name(parsed["city"]), "rera": not parsed.get("rera") or normalize_name(project.rera) == normalize_name(parsed["rera"])}
             result.append({"project_id": project.id, "name": project.name, "developer": developer.name if developer else None, "checks": checks, "safe": all(checks.values())})
     return {"matches": result, "ambiguous": len(result) != 1 or not result[0]["safe"]}
 
@@ -285,9 +309,7 @@ def find_safe_project_matches(db: Session, parsed: dict[str, Any]) -> dict[str, 
 def build_draft(text: str, attachments: list[dict[str, Any]], db: Session) -> dict[str, Any]:
     parsed = analyze_sources(text, attachments)
     parsed["project_match"] = find_safe_project_matches(db, parsed)
-    parsed["requires_manual_project_selection"] = bool(
-        parsed["identity_conflict"] or parsed["project_match"]["ambiguous"] or parsed["unattributed_sources"]
-    )
+    parsed["requires_manual_project_selection"] = bool(parsed["identity_conflict"] or parsed["project_match"]["ambiguous"])
     parsed["safe_to_commit"] = not parsed["requires_manual_project_selection"]
     return parsed
 
