@@ -102,10 +102,10 @@ def parse_property_text(text: str) -> dict[str, Any]:
     text = text[:MAX_TEXT_CHARS]
     identities = _extract_identities(text)
     upper = text.upper()
-    city = _first((r"\b(?:city|location)\s*[:\-]\s*([^\n,|]+)",))
+    city = _first((r"\b(?:city)\s*[:\-]\s*([^\n,|]+)",), text)
     if not city and "KANDIVALI" in upper:
         city = "Kandivali"
-    locality = _first((r"\b(?:locality|area|location)\s*[:\-]\s*([^\n|]+)",))
+    locality = _first((r"\b(?:locality|area)\s*[:\-]\s*([^\n|]+)",), text)
     if not locality and ("KANDIVALI EAST" in upper or "KANDIVALI (E)" in upper):
         locality = "Kandivali East"
     rera = next(iter(re.findall(r"\bP\d{8,15}\b", upper)), None)
@@ -113,10 +113,10 @@ def parse_property_text(text: str) -> dict[str, Any]:
     website = next(iter(re.findall(r"https?://(?!goo\.gl/maps|maps\.app\.goo\.gl|maps\.google\.com)[^\s]+", text)), None)
     phone = next(iter(re.findall(r"(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)", text)), None)
     email = next(iter(re.findall(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)), None)
-    address = _first((r"\b(?:address|site address|project address)\s*[:\-]\s*([^\n]+)",))
-    possession = _first((r"\b(?:possession|possession by|nearing possession|handover)\s*[:\-]?\s*([^\n]+)",))
-    developer = identities["developers"][0] if len(identities["developers"]) == 1 else _first((r"\b(?:developer|builder|promoter)\s*[:\-]\s*([^\n]+)",))
-    project = identities["projects"][0] if len(identities["projects"]) == 1 else _first((r"\b(?:project|project name)\s*[:\-]\s*([^\n]+)",))
+    address = _first((r"\b(?:address|site address|project address)\s*[:\-]\s*([^\n]+)",), text)
+    possession = _first((r"\b(?:possession|possession by|nearing possession|handover)\s*[:\-]?\s*([^\n]+)",), text)
+    developer = identities["developers"][0] if len(identities["developers"]) == 1 else _first((r"\b(?:developer|builder|promoter)\s*[:\-]\s*([^\n]+)",), text)
+    project = identities["projects"][0] if len(identities["projects"]) == 1 else _first((r"\b(?:project|project name)\s*[:\-]\s*([^\n]+)",), text)
     amenities: list[str] = []
     for line in text.splitlines():
         clean = line.strip(" •*-\t")
@@ -125,8 +125,8 @@ def parse_property_text(text: str) -> dict[str, Any]:
             if value and value.lower() not in {x.lower() for x in amenities}:
                 amenities.append(value)
     configs = _extract_configurations(text)
-    parking = _first((r"\bparking\s*[:\-]\s*([^\n]+)", r"\b(\d+\s*(?:car|car park|parking)(?:s)?\b)"))
-    total_units = _first((r"\b(?:total units|no\. of units|number of units)\s*[:\-]\s*([^\n]+)",))
+    parking = _first((r"\bparking\s*[:\-]\s*([^\n]+)", r"\b(\d+\s*(?:car|car park|parking)(?:s)?\b)"), text)
+    total_units = _first((r"\b(?:total units|no\. of units|number of units)\s*[:\-]\s*([^\n]+)",), text)
     return {
         "developer": developer,
         "project": project,
@@ -254,7 +254,6 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
         if identities["projects"] or identities["developers"]:
             source_identities.append({"filename": item.get("filename"), **identities})
         elif extracted.strip():
-            # OCR/catalog facts without an independently detected project identity must be manually attributed.
             unattributed_sources.append(item.get("filename"))
     parsed = parse_property_text("\n\n".join(x for x in combined if x))
     unique_projects = {normalize_name(x): x for x in parsed["project_candidates"]}
