@@ -7,6 +7,7 @@ from app.language_support import install_language_support
 from app.session_compat import install_session_compatibility
 from app.logout_cookie_hardening import install_logout_cookie_hardening
 from app.property_management_ui import install_property_management_ui
+from app.whatsapp_property_import_ui import install_whatsapp_property_import_ui
 from app.marketing_security import install_marketing_share_expiry_guard
 from app.routers import recovery_login_link  # noqa: F401,E402
 from app.routers.accounting import router as accounting_router
@@ -39,6 +40,7 @@ from app.routers import user_management_compat  # noqa: F401,E402
 from app.routers import system_storage  # noqa: F401,E402
 
 install_property_management_ui(app)
+install_whatsapp_property_import_ui(app)
 install_session_compatibility(app)
 install_logout_cookie_hardening(app)
 install_language_support(app)
