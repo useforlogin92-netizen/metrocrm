@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from app.services.whatsapp_property_import import analyze_sources, normalize_name, parse_property_text
 
 
