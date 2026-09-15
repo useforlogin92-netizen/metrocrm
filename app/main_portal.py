@@ -1,5 +1,6 @@
 """Production entrypoint that loads the core app and the separated login portals."""
 from app import main
+from app import setup_security  # noqa: F401,E402
 from app import portal  # noqa: F401,E402
 from app import portal_boundary  # noqa: F401,E402
 from app.language_support import install_language_support
