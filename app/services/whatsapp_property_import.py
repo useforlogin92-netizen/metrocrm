@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -26,36 +25,51 @@ def normalize_name(value: str | None) -> str:
 def _money(raw: str) -> float | None:
     text = raw.lower().replace(",", "").strip()
     m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(cr(?:ore)?|crore|l(?:akh)?|lac)?", text)
-    if not m: return None
-    try: value = Decimal(m.group(1))
-    except InvalidOperation: return None
+    if not m:
+        return None
+    try:
+        value = Decimal(m.group(1))
+    except InvalidOperation:
+        return None
     unit = m.group(2) or ""
-    if unit.startswith("cr"): value *= Decimal("10000000")
-    elif unit.startswith("l"): value *= Decimal("100000")
+    if unit.startswith("cr"):
+        value *= Decimal("10000000")
+    elif unit.startswith("l"):
+        value *= Decimal("100000")
     return float(value)
 
 
 def _extract_identities(text: str) -> dict[str, list[str]]:
-    upper = text.upper(); projects: list[str] = []
-    for pattern in (r"\b(PASSCODE\s+HIGHWAY\s+BONANZA)\b", r"\b(SETHIA\s+PRIDE)\b", r"\b(PRIDE\s+KANDIVALI\s*\(E\))\b"):
+    upper = text.upper()
+    projects: list[str] = []
+    for pattern in (
+        r"\b(PASSCODE\s+HIGHWAY\s+BONANZA)\b",
+        r"\b(SETHIA\s+PRIDE)\b",
+        r"\b(PRIDE\s+KANDIVALI\s*\(E\))\b",
+    ):
         for match in re.findall(pattern, upper):
             title = match.title()
-            if normalize_name(title) not in {normalize_name(x) for x in projects}: projects.append(title)
+            if normalize_name(title) not in {normalize_name(x) for x in projects}:
+                projects.append(title)
     for line in text.splitlines():
         clean = re.sub(r"[^A-Za-z0-9&'(). -]", " ", line).strip()
         if re.search(r"(?i)\bproject(?: name)?\b\s*[:\-]", clean):
             candidate = re.split(r"[:\-]", clean, maxsplit=1)[-1].strip()
-            if 3 <= len(candidate) <= 100 and normalize_name(candidate) not in {normalize_name(x) for x in projects}: projects.append(candidate)
+            if 3 <= len(candidate) <= 100 and normalize_name(candidate) not in {normalize_name(x) for x in projects}:
+                projects.append(candidate)
     developers: list[str] = []
     for pattern in (r"\b(SETHIA\s+INFRASTRUCTURE)\b", r"\b(SETHIA\s+INFRA)\b"):
         for match in re.findall(pattern, upper):
             title = match.title()
-            if normalize_name(title) not in {normalize_name(x) for x in developers}: developers.append(title)
+            if normalize_name(title) not in {normalize_name(x) for x in developers}:
+                developers.append(title)
     return {"developers": developers, "projects": projects}
 
 
 def parse_property_text(text: str) -> dict[str, Any]:
-    text = text[:MAX_TEXT_CHARS]; identities = _extract_identities(text); upper = text.upper()
+    text = text[:MAX_TEXT_CHARS]
+    identities = _extract_identities(text)
+    upper = text.upper()
     city = "Kandivali" if "KANDIVALI" in upper else None
     locality = "Kandivali East" if "KANDIVALI EAST" in upper or "KANDIVALI (E)" in upper else None
     rera = next(iter(re.findall(r"\bP\d{8,15}\b", upper)), None)
@@ -65,36 +79,66 @@ def parse_property_text(text: str) -> dict[str, Any]:
         clean = line.strip(" •*-\t")
         if re.search(r"(?i)amenit", clean):
             value = re.sub(r"(?i).*?amenit(?:y|ies)?\s*[:\-]?\s*", "", clean).strip()
-            if value and value.lower() not in {x.lower() for x in amenities}: amenities.append(value)
+            if value and value.lower() not in {x.lower() for x in amenities}:
+                amenities.append(value)
     configs: list[dict[str, Any]] = []
-    line_pattern = re.compile(r"(?i)\b(\d+\s*BHK|\d+\s*BED)\b\s*(?:WITH\s+DECK\s*)?(?:-|–|—|:)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:SQ\.?\s*FT|SQFT|SFT)?\s*(?:-|–|—|:)\s*(₹?\s*[0-9,.]+\s*(?:CR(?:ORE)?|CRORE|L(?:AKH)?|LAC)?\+*)")
+    line_pattern = re.compile(
+        r"(?i)\b(\d+\s*BHK|\d+\s*BED)\b\s*(?:WITH\s+DECK\s*)?(?:-|–|—|:)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:SQ\.?\s*FT|SQFT|SFT)?\s*(?:-|–|—|:)\s*(₹?\s*[0-9,.]+\s*(?:CR(?:ORE)?|CRORE|L(?:AKH)?|LAC)?\+*)"
+    )
     for line in text.splitlines():
         m = line_pattern.search(line)
-        if not m: continue
-        configs.append({"bhk": re.sub(r"(?i)\s*BED\b", " BHK", m.group(1)).upper().replace("  ", " "), "carpet_area": float(m.group(2).replace(",", "")), "price": _money(m.group(3)), "source_line": line[:500]})
+        if not m:
+            continue
+        configs.append(
+            {
+                "bhk": re.sub(r"(?i)\s*BED\b", " BHK", m.group(1)).upper().replace("  ", " "),
+                "carpet_area": float(m.group(2).replace(",", "")),
+                "price": _money(m.group(3)),
+                "source_line": line[:500],
+            }
+        )
     possession = None
     m = re.search(r"(?i)(?:possession|nearing possession)[^\n]{0,80}", text)
-    if m: possession = m.group(0).strip()
-    return {"developer": identities["developers"][0] if len(identities["developers"]) == 1 else None, "project_candidates": identities["projects"], "city": city, "locality": locality, "rera": rera, "map_url": map_url, "amenities": amenities, "unit_configurations": configs, "possession_text": possession, "raw_text": text}
+    if m:
+        possession = m.group(0).strip()
+    return {
+        "developer": identities["developers"][0] if len(identities["developers"]) == 1 else None,
+        "project_candidates": identities["projects"],
+        "city": city,
+        "locality": locality,
+        "rera": rera,
+        "map_url": map_url,
+        "amenities": amenities,
+        "unit_configurations": configs,
+        "possession_text": possession,
+        "raw_text": text,
+    }
 
 
 def extract_pdf_text(data: bytes) -> str:
     try:
         from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data)); chunks = [page.extract_text() or "" for page in reader.pages[:30]]
+
+        reader = PdfReader(io.BytesIO(data))
+        chunks = [page.extract_text() or "" for page in reader.pages[:30]]
         text = "\n".join(chunks)[:MAX_TEXT_CHARS]
-        if text.strip(): return text
-    except Exception: pass
+        if text.strip():
+            return text
+    except Exception:
+        pass
     try:
         import fitz
         import pytesseract
         from PIL import Image
-        doc = fitz.open(stream=data, filetype="pdf"); chunks = []
+
+        doc = fitz.open(stream=data, filetype="pdf")
+        chunks = []
         for page in doc[:15]:
             pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
             image = Image.open(io.BytesIO(pix.tobytes("png")))
             chunks.append(pytesseract.image_to_string(image))
-        doc.close(); return "\n".join(chunks)[:MAX_TEXT_CHARS]
+        doc.close()
+        return "\n".join(chunks)[:MAX_TEXT_CHARS]
     except Exception:
         return ""
 
@@ -103,35 +147,40 @@ def ocr_image(data: bytes) -> str:
     try:
         from PIL import Image
         import pytesseract
-        with Image.open(io.BytesIO(data)) as image: return pytesseract.image_to_string(image)[:MAX_TEXT_CHARS]
-    except Exception: return ""
+
+        with Image.open(io.BytesIO(data)) as image:
+            return pytesseract.image_to_string(image)[:MAX_TEXT_CHARS]
+    except Exception:
+        return ""
 
 
-def extract_video_text(data: bytes) -> str:
-    """OCR a small, evenly spaced sample of video frames; never trust it as project identity by itself."""
+def extract_video_text(data: bytes, suffix: str = ".mp4") -> str:
+    """OCR a small, evenly spaced sample of video frames; never trust OCR as project identity by itself."""
     try:
         import cv2
         import pytesseract
-        capture = cv2.VideoCapture(io.BytesIO(data)) if False else cv2.VideoCapture()
-        # OpenCV cannot consume BytesIO portably, so use a temporary file and remove it immediately.
         import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
-            tmp.write(data); tmp.flush()
-            capture.open(tmp.name)
+
+        suffix = suffix.lower() if suffix.lower() in {".mp4", ".mov", ".m4v"} else ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            capture = cv2.VideoCapture(tmp.name)
             if not capture.isOpened():
-                capture.release(); return ""
+                capture.release()
+                return ""
             total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-            fps = float(capture.get(cv2.CAP_PROP_FPS) or 0)
-            duration = total / fps if total > 0 and fps > 0 else 0
             positions = [0.08, 0.25, 0.45, 0.65, 0.82, 0.95]
             chunks: list[str] = []
             for ratio in positions[:MAX_VIDEO_FRAMES]:
-                target = int(max(0, min(total - 1, ratio * total))) if total else int(ratio * max(duration, 1) * fps)
+                target = int(max(0, min(total - 1, ratio * total))) if total else 0
                 capture.set(cv2.CAP_PROP_POS_FRAMES, target)
                 ok, frame = capture.read()
-                if not ok: continue
+                if not ok:
+                    continue
                 text = pytesseract.image_to_string(frame)
-                if text.strip(): chunks.append(text)
+                if text.strip():
+                    chunks.append(text)
             capture.release()
             return "\n".join(chunks)[:MAX_TEXT_CHARS]
     except Exception:
@@ -140,29 +189,48 @@ def extract_video_text(data: bytes) -> str:
 
 def attachment_text(filename: str, mime_type: str, data: bytes) -> str:
     lower = filename.lower()
-    if mime_type == "application/pdf" or lower.endswith(".pdf"): return extract_pdf_text(data)
-    if mime_type.startswith("image/"): return ocr_image(data)
-    if mime_type.startswith("video/"): return extract_video_text(data)
+    if mime_type == "application/pdf" or lower.endswith(".pdf"):
+        return extract_pdf_text(data)
+    if mime_type.startswith("image/"):
+        return ocr_image(data)
+    if mime_type.startswith("video/"):
+        return extract_video_text(data, Path(filename).suffix)
     return ""
 
 
 def attachment_record(filename: str, mime_type: str, data: bytes) -> dict[str, Any]:
     extracted = attachment_text(filename, mime_type, data)
-    return {"filename": Path(filename).name[:255], "mime_type": mime_type[:120], "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "extracted_text_chars": len(extracted)}
+    return {
+        "filename": Path(filename).name[:255],
+        "mime_type": mime_type[:120],
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "extracted_text_chars": len(extracted),
+    }
 
 
 def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, Any]:
-    combined = [text[:MAX_TEXT_CHARS]]; source_identities = []
+    combined = [text[:MAX_TEXT_CHARS]]
+    source_identities = []
+    unattributed_sources = []
     for item in attachments:
         extracted = item.get("extracted_text", "")
-        if extracted: combined.append(extracted[:MAX_TEXT_CHARS])
+        if extracted:
+            combined.append(extracted[:MAX_TEXT_CHARS])
         identities = _extract_identities(extracted)
-        if identities["projects"] or identities["developers"]: source_identities.append({"filename": item.get("filename"), **identities})
+        if identities["projects"] or identities["developers"]:
+            source_identities.append({"filename": item.get("filename"), **identities})
+        elif extracted.strip():
+            # OCR/catalog facts without an independently detected project identity must be manually attributed.
+            unattributed_sources.append(item.get("filename"))
     parsed = parse_property_text("\n\n".join(x for x in combined if x))
     unique_projects = {normalize_name(x): x for x in parsed["project_candidates"]}
     for item in source_identities:
-        for project in item["projects"]: unique_projects.setdefault(normalize_name(project), project)
-    parsed["project_candidates"] = list(unique_projects.values()); parsed["source_identities"] = source_identities
+        for project in item["projects"]:
+            unique_projects.setdefault(normalize_name(project), project)
+    parsed["project_candidates"] = list(unique_projects.values())
+    parsed["source_identities"] = source_identities
+    parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
     parsed["identity_conflict"] = len(unique_projects) > 1 or len(_extract_identities("\n".join(combined))["developers"]) > 1
     return parsed
 
@@ -173,14 +241,22 @@ def find_safe_project_matches(db: Session, parsed: dict[str, Any]) -> dict[str, 
         exact = db.scalars(select(Project).where(func.lower(Project.name) == normalize_name(project_name))).all()
         for project in exact:
             developer = db.get(Developer, project.developer_id)
-            checks = {"developer": not parsed.get("developer") or normalize_name(developer.name if developer else "") == normalize_name(parsed["developer"]), "city": not parsed.get("city") or normalize_name(project.city) == normalize_name(parsed["city"]), "rera": not parsed.get("rera") or normalize_name(project.rera) == normalize_name(parsed["rera"])}
+            checks = {
+                "developer": not parsed.get("developer") or normalize_name(developer.name if developer else "") == normalize_name(parsed["developer"]),
+                "city": not parsed.get("city") or normalize_name(project.city) == normalize_name(parsed["city"]),
+                "rera": not parsed.get("rera") or normalize_name(project.rera) == normalize_name(parsed["rera"]),
+            }
             result.append({"project_id": project.id, "name": project.name, "developer": developer.name if developer else None, "checks": checks, "safe": all(checks.values())})
     return {"matches": result, "ambiguous": len(result) != 1 or not result[0]["safe"]}
 
 
 def build_draft(text: str, attachments: list[dict[str, Any]], db: Session) -> dict[str, Any]:
-    parsed = analyze_sources(text, attachments); parsed["project_match"] = find_safe_project_matches(db, parsed)
-    parsed["requires_manual_project_selection"] = bool(parsed["identity_conflict"] or parsed["project_match"]["ambiguous"]); parsed["safe_to_commit"] = not parsed["requires_manual_project_selection"]
+    parsed = analyze_sources(text, attachments)
+    parsed["project_match"] = find_safe_project_matches(db, parsed)
+    parsed["requires_manual_project_selection"] = bool(
+        parsed["identity_conflict"] or parsed["project_match"]["ambiguous"] or parsed["unattributed_sources"]
+    )
+    parsed["safe_to_commit"] = not parsed["requires_manual_project_selection"]
     return parsed
 
 
@@ -188,5 +264,6 @@ def detect_field_conflicts(project: Project, parsed: dict[str, Any]) -> list[dic
     conflicts = []
     for field in ("city", "locality", "rera"):
         incoming, existing = parsed.get(field), getattr(project, field, None)
-        if incoming and existing and normalize_name(str(incoming)) != normalize_name(str(existing)): conflicts.append({"field": field, "existing": str(existing), "incoming": str(incoming)})
+        if incoming and existing and normalize_name(str(incoming)) != normalize_name(str(existing)):
+            conflicts.append({"field": field, "existing": str(existing), "incoming": str(incoming)})
     return conflicts
