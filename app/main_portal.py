@@ -27,6 +27,7 @@ from app.routers.godrej_test_admin import router as godrej_test_admin_router
 from app.routers.godrej_test_property_delete import router as godrej_test_property_delete_router
 from app.routers.sales_property import router as sales_property_router
 from app.routers.whatsapp import router as whatsapp_router
+from app.routers.whatsapp_property_import import router as whatsapp_property_import_router
 from app.routers.backup_devices import router as backup_devices_router
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,6 +59,7 @@ def _ensure_session_middleware_outermost() -> None:
 _ensure_session_middleware_outermost()
 
 app.include_router(health_router)
+app.include_router(whatsapp_property_import_router)
 app.include_router(accounting_router)
 app.include_router(property_data_router)
 app.include_router(property_data_notifications_router)
