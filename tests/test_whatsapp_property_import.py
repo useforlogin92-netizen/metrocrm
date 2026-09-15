@@ -1,4 +1,5 @@
-from app.services.whatsapp_property_import import analyze_sources, normalize_name, parse_property_text
+from app.services import whatsapp_property_import as importer
+from app.services.whatsapp_property_import import analyze_sources, attachment_record, normalize_name, parse_property_text
 
 
 def test_whatsapp_parser_extracts_project_and_configurations():
@@ -38,3 +39,10 @@ def test_source_identity_is_kept_per_attachment():
     )
     assert parsed["source_identities"][0]["filename"] == "brochure.pdf"
     assert "Sethia Pride" in parsed["source_identities"][0]["projects"]
+
+
+def test_video_attachment_uses_video_extractor(monkeypatch):
+    monkeypatch.setattr(importer, "extract_video_text", lambda data: "SETHIA PRIDE KANDIVALI (E)")
+    record = attachment_record("tour.mp4", "video/mp4", b"video")
+    assert record["extracted_text_chars"] > 0
+    assert record["mime_type"] == "video/mp4"
