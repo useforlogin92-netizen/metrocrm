@@ -62,6 +62,11 @@ def _payload(row: SalesPropertySubmission) -> dict:
         return {}
 
 
+def _can_access(row: SalesPropertySubmission, actor) -> bool:
+    """Super Admin can review all imports; Admin can only access their own drafts."""
+    return actor.role == "SUPER_ADMIN" or row.created_by_id == actor.id
+
+
 def _shell(actor, title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | {escape(title)}</title><style>body{{font-family:Inter,Arial,sans-serif;background:#f5f7fb;color:#10213f;margin:0;padding:24px}}.wrap{{max-width:1150px;margin:auto}}.card{{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 5px 18px #0000000a}}h1{{margin:0 0 6px}}h2{{font-size:18px}}.muted{{color:#64748b;font-size:13px}}textarea{{width:100%;min-height:260px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:12px}}input,button{{font:inherit}}input[type=file]{{display:block;margin:8px 0}}.btn{{border:0;border-radius:9px;padding:10px 15px;font-weight:800;cursor:pointer;background:#2563eb;color:#fff;text-decoration:none;display:inline-block}}.green{{background:#15803d}}.red{{background:#b91c1c}}.pill{{display:inline-block;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;background:#eff6ff;color:#1d4ed8}}pre{{white-space:pre-wrap;background:#f8fafc;border-radius:10px;padding:12px;overflow:auto}}table{{width:100%;border-collapse:collapse}}th,td{{padding:8px;border-bottom:1px solid #eef2f7;text-align:left;font-size:13px}}@media(max-width:700px){{body{{padding:12px}}}}</style></head><body><div class='wrap'><div class='card'><h1>{escape(title)}</h1><div class='muted'>Signed in as {escape(actor.username)} · {escape(actor.role)}</div></div>{body}</div></body></html>""")
 
@@ -96,7 +101,10 @@ async def _stage(files: list[UploadFile], token: str) -> list[dict]:
 def _queue(request: Request, db: Session, actor, message: str | None = None, error: str | None = None) -> HTMLResponse:
     action = _index(actor.role)
     csrf = csrf_token(request)
-    rows = db.scalars(select(SalesPropertySubmission).where(SalesPropertySubmission.status.in_(["DRAFT", "CONFLICT"])).order_by(SalesPropertySubmission.id.desc()).limit(30)).all()
+    stmt = select(SalesPropertySubmission).where(SalesPropertySubmission.status.in_(["DRAFT", "CONFLICT"]))
+    if actor.role != "SUPER_ADMIN":
+        stmt = stmt.where(SalesPropertySubmission.created_by_id == actor.id)
+    rows = db.scalars(stmt.order_by(SalesPropertySubmission.id.desc()).limit(30)).all()
     body = ""
     if message: body += f"<div class='card'><b>{escape(message)}</b></div>"
     if error: body += f"<div class='card' style='border-color:#fecaca'><b>{escape(error)}</b></div>"
@@ -138,7 +146,7 @@ async def _analyze(request: Request, source_text: str, files: list[UploadFile], 
         status = "CONFLICT" if not parsed.get("safe_to_commit") else "DRAFT"
         row = SalesPropertySubmission(token_hash=hashlib.sha256(token.encode()).hexdigest(), property_type="Projects", data_json=json.dumps(parsed, ensure_ascii=False), status=status, created_by_id=actor.id)
         db.add(row); db.flush()
-        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_DRAFT_CREATED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details=json.dumps({"project_candidates": parsed.get("project_candidates", []), "identity_conflict": parsed.get("identity_conflict", False), "attachments": [x["filename"] for x in attachments]})))
+        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_DRAFT_CREATED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details=json.dumps({"project_candidates": parsed.get("project_candidates", []), "identity_conflict": parsed.get("identity_conflict", False), "unattributed_sources": parsed.get("unattributed_sources", []), "attachments": [x["filename"] for x in attachments]})))
         db.commit()
     except Exception as exc:
         db.rollback(); shutil.rmtree(_root("property-import-staging") / token, ignore_errors=True)
@@ -158,7 +166,7 @@ async def super_admin_analyze(request: Request, source_text: str = Form(""), fil
 
 def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLResponse:
     row = db.get(SalesPropertySubmission, submission_id)
-    if not row: return RedirectResponse(_index(actor.role) + "?error=Draft+not+found", status_code=303)
+    if not row or not _can_access(row, actor): return RedirectResponse(_index(actor.role) + "?error=Draft+not+found", status_code=303)
     data = _payload(row)
     action = _index(actor.role)
     csrf = csrf_token(request)
@@ -166,12 +174,17 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
     identity_html = ""
     if identities:
         identity_html = "<h3>Source identity check</h3><table><tr><th>Source</th><th>Project(s)</th><th>Developer(s)</th></tr>" + "".join(f"<tr><td>{escape(str(x.get('filename')))}</td><td>{escape(', '.join(x.get('projects', [])))}</td><td>{escape(', '.join(x.get('developers', [])))}</td></tr>" for x in identities) + "</table>"
+    unattributed = data.get("unattributed_sources") or []
+    if unattributed:
+        identity_html += "<p style='color:#b91c1c'><b>Manual attribution required:</b> " + escape(", ".join(map(str, unattributed))) + "</p>"
     body = f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected project(s): <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{identity_html}</div>"
     body += "<div class='card'><h2>Extracted data</h2><pre>" + escape(json.dumps({k: v for k, v in data.items() if k not in {'raw_text', 'attachments'}}, ensure_ascii=False, indent=2)) + "</pre>"
     if data.get("attachments"):
         body += "<h3>Attachments</h3><ul>" + "".join(f"<li>{escape(str(x.get('filename')))} · {escape(str(x.get('mime_type')))} · {x.get('extracted_text_chars', 0)} extracted characters</li>" for x in data["attachments"]) + "</ul>"
     body += "</div>"
-    body += f"""<div class='card'><h2>Verify target project</h2><p class='muted'><b>Safety rule:</b> different projects found in the supplied sources are never merged. A manual target cannot override an identity conflict.</p><form method='post' action='{action}/{row.id}/commit' onsubmit="return confirm('Commit this verified property import into the selected CRM project?');"><input type='hidden' name='csrf_token' value='{csrf}'><label>Exact target Project ID</label><input name='project_id' type='number' min='1' required><button class='btn green' type='submit'>✅ Verify & Reflect in CRM</button></form>"""
+    blocked = bool(data.get("identity_conflict") or data.get("unattributed_sources"))
+    note = "Different project identities or unattributed source data require separation/attribution before commit." if blocked else "Only an exact detected project identity may be committed; the selected Project ID cannot override the identity check."
+    body += f"""<div class='card'><h2>Verify target project</h2><p class='muted'><b>Safety rule:</b> {escape(note)}</p><form method='post' action='{action}/{row.id}/commit' onsubmit="return confirm('Commit this verified property import into the selected CRM project?');"><input type='hidden' name='csrf_token' value='{csrf}'><label>Exact target Project ID</label><input name='project_id' type='number' min='1' required><button class='btn green' type='submit'>✅ Verify & Reflect in CRM</button></form>"""
     if actor.role == "SUPER_ADMIN":
         body += f"<form method='post' action='{action}/{row.id}/reject' style='margin-top:10px'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn red' type='submit'>Reject Import</button></form>"
     body += "</div>"
@@ -206,10 +219,12 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     actor = _guard(request, db)
     if not actor or actor.role != role: return RedirectResponse(_index(role), status_code=303)
     row = db.get(SalesPropertySubmission, submission_id)
-    if not row or row.status not in {"DRAFT", "CONFLICT"}: return RedirectResponse(_index(role) + "?error=Draft+is+not+available", status_code=303)
+    if not row or row.status not in {"DRAFT", "CONFLICT"} or not _can_access(row, actor): return RedirectResponse(_index(role) + "?error=Draft+is+not+available", status_code=303)
     data = _payload(row)
     if data.get("identity_conflict"):
         return RedirectResponse(f"{_index(role)}/{row.id}?error=Multiple+project+identities+were+detected.+Separate+the+sources+before+importing.", status_code=303)
+    if data.get("unattributed_sources"):
+        return RedirectResponse(f"{_index(role)}/{row.id}?error=Some+attachments+contain+data+without+a+verified+project+identity.+Attribute+them+before+importing.", status_code=303)
     candidates = data.get("project_candidates") or []
     project = db.get(Project, project_id)
     if not project: return RedirectResponse(f"{_index(role)}/{row.id}?error=Target+project+not+found", status_code=303)
@@ -218,6 +233,8 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     conflicts = detect_field_conflicts(project, data)
     if conflicts:
         return RedirectResponse(f"{_index(role)}/{row.id}?error=Existing+project+data+conflicts+with+the+imported+data.+Manual+field+verification+is+required", status_code=303)
+    created_destinations: list[Path] = []
+    staging_root = _root("property-import-staging").resolve()
     try:
         if data.get("city") and not project.city: project.city = data["city"]
         if data.get("locality") and not project.locality: project.locality = data["locality"]
@@ -226,6 +243,7 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
         if data.get("amenities"):
             try: existing = json.loads(project.amenities_json or "[]")
             except (TypeError, ValueError): existing = []
+            if not isinstance(existing, list): existing = []
             project.amenities_json = json.dumps(sorted({str(x) for x in existing + data["amenities"] if x}), ensure_ascii=False)
         for config in data.get("unit_configurations") or []:
             key = f"CONFIG-{normalize_name(config.get('bhk'))}-{config.get('carpet_area')}"
@@ -237,19 +255,29 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
             db.add(unit)
         for attachment in data.get("attachments") or []:
             staged = Path(str(attachment.get("staged_path", ""))).resolve()
-            staging_root = _root("property-import-staging").resolve()
-            if not staged.is_file() or staging_root not in staged.parents: continue
+            if not staged.is_file() or staging_root not in staged.parents:
+                continue
             filename = f"{secrets.token_urlsafe(18)}{staged.suffix.lower()}"
             destination = _root("property-media") / filename
-            shutil.move(str(staged), str(destination))
+            # Copy first; the staging copy remains available until the DB transaction succeeds.
+            shutil.copy2(str(staged), str(destination))
+            created_destinations.append(destination)
             mime = str(attachment.get("mime_type") or "application/octet-stream")
             media_type = "PROPERTY_IMAGE" if mime.startswith("image/") else "PROPERTY_VIDEO" if mime.startswith("video/") else "PROPERTY_CATALOG"
             db.add(PropertyMedia(project_id=project.id, media_type=media_type, title=str(attachment.get("filename") or "Imported attachment")[:255], file_url=f"/media/property/{filename}", storage_key=f"property-media/{filename}", mime_type=mime, file_size=attachment.get("size"), sort_order=0, is_shareable=True, uploaded_by_id=actor.id))
         row.status = "APPROVED"; row.record_id = project.id; row.reviewed_by_id = actor.id; row.review_note = "Verified WhatsApp property import"; row.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_COMMITTED", entity_type="Projects", entity_id=str(project.id), details=json.dumps({"submission_id": row.id, "units": len(data.get("unit_configurations") or []), "attachments": len(data.get("attachments") or [])})))
         db.commit()
+        token = str(data.get("staging_token") or "")
+        if token:
+            token_root = (_root("property-import-staging") / Path(token).name).resolve()
+            if staging_root in token_root.parents:
+                shutil.rmtree(token_root, ignore_errors=True)
     except Exception as exc:
         db.rollback()
+        for destination in created_destinations:
+            try: destination.unlink(missing_ok=True)
+            except OSError: pass
         return RedirectResponse(f"{_index(role)}/{row.id}?error=Commit+failed%3A+{escape(str(exc))[:250]}", status_code=303)
     return RedirectResponse(_index(role) + "?message=Verified+property+data+reflected+in+CRM", status_code=303)
 
@@ -262,4 +290,10 @@ def reject_import(submission_id: int, request: Request, db: Session = Depends(ge
     if not row: return RedirectResponse("/super-admin/property-data/whatsapp-import?error=Draft+not+found", status_code=303)
     row.status = "REJECTED"; row.reviewed_by_id = actor.id; row.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_REJECTED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details="{}")); db.commit()
+    token = str(_payload(row).get("staging_token") or "")
+    if token:
+        staging_root = _root("property-import-staging").resolve()
+        token_root = (_root("property-import-staging") / Path(token).name).resolve()
+        if staging_root in token_root.parents:
+            shutil.rmtree(token_root, ignore_errors=True)
     return RedirectResponse("/super-admin/property-data/whatsapp-import?message=Import+draft+rejected", status_code=303)
