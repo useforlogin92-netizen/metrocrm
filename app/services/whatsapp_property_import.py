@@ -16,6 +16,7 @@ from app.models import Developer, Project
 
 MAX_TEXT_CHARS = 120_000
 MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024
+MAX_VIDEO_FRAMES = 6
 
 
 def normalize_name(value: str | None) -> str:
@@ -106,15 +107,48 @@ def ocr_image(data: bytes) -> str:
     except Exception: return ""
 
 
+def extract_video_text(data: bytes) -> str:
+    """OCR a small, evenly spaced sample of video frames; never trust it as project identity by itself."""
+    try:
+        import cv2
+        import pytesseract
+        capture = cv2.VideoCapture(io.BytesIO(data)) if False else cv2.VideoCapture()
+        # OpenCV cannot consume BytesIO portably, so use a temporary file and remove it immediately.
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
+            tmp.write(data); tmp.flush()
+            capture.open(tmp.name)
+            if not capture.isOpened():
+                capture.release(); return ""
+            total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            fps = float(capture.get(cv2.CAP_PROP_FPS) or 0)
+            duration = total / fps if total > 0 and fps > 0 else 0
+            positions = [0.08, 0.25, 0.45, 0.65, 0.82, 0.95]
+            chunks: list[str] = []
+            for ratio in positions[:MAX_VIDEO_FRAMES]:
+                target = int(max(0, min(total - 1, ratio * total))) if total else int(ratio * max(duration, 1) * fps)
+                capture.set(cv2.CAP_PROP_POS_FRAMES, target)
+                ok, frame = capture.read()
+                if not ok: continue
+                text = pytesseract.image_to_string(frame)
+                if text.strip(): chunks.append(text)
+            capture.release()
+            return "\n".join(chunks)[:MAX_TEXT_CHARS]
+    except Exception:
+        return ""
+
+
 def attachment_text(filename: str, mime_type: str, data: bytes) -> str:
     lower = filename.lower()
     if mime_type == "application/pdf" or lower.endswith(".pdf"): return extract_pdf_text(data)
     if mime_type.startswith("image/"): return ocr_image(data)
+    if mime_type.startswith("video/"): return extract_video_text(data)
     return ""
 
 
 def attachment_record(filename: str, mime_type: str, data: bytes) -> dict[str, Any]:
-    return {"filename": Path(filename).name[:255], "mime_type": mime_type[:120], "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "extracted_text_chars": len(attachment_text(filename, mime_type, data))}
+    extracted = attachment_text(filename, mime_type, data)
+    return {"filename": Path(filename).name[:255], "mime_type": mime_type[:120], "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "extracted_text_chars": len(extracted)}
 
 
 def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, Any]:
