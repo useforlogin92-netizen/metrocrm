@@ -80,6 +80,8 @@ def ai_caller_context(lead_id: int, request: Request, db: Session = Depends(get_
 def provider_context(lead_id: int, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     if not _provider_ok(x_ai_caller_token):
         return JSONResponse({"detail": "Invalid AI caller credential"}, status_code=401)
+    if db.get(Lead, lead_id) is None:
+        return JSONResponse({"detail": "Lead not found"}, status_code=404)
     try:
         return _context_payload(db, lead_id)
     except ValueError as exc:
@@ -90,6 +92,8 @@ def provider_context(lead_id: int, x_ai_caller_token: str | None = Header(defaul
 def provider_tool(lead_id: int, payload: dict, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     if not _provider_ok(x_ai_caller_token):
         return JSONResponse({"detail": "Invalid AI caller credential"}, status_code=401)
+    if db.get(Lead, lead_id) is None:
+        return JSONResponse({"detail": "Lead not found"}, status_code=404)
     tool = str(payload.get("tool") or "").strip()
     arguments = payload.get("arguments") or {}
     if not isinstance(arguments, dict) or not tool:
@@ -104,6 +108,8 @@ def provider_tool(lead_id: int, payload: dict, x_ai_caller_token: str | None = H
 def provider_event(lead_id: int, payload: dict, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     if not _provider_ok(x_ai_caller_token):
         return JSONResponse({"detail": "Invalid AI caller credential"}, status_code=401)
+    if db.get(Lead, lead_id) is None:
+        return JSONResponse({"detail": "Lead not found"}, status_code=404)
     # Deliberately store only bounded metadata by default; full transcripts remain with the voice provider unless enabled.
     from app.models import AuditEvent
     event = AuditEvent(actor_user_id=None, action="AI_CALL_EVENT", entity_type="Lead", entity_id=str(lead_id), details=json.dumps({"event": str(payload.get("event") or "UNKNOWN")[:80], "call_id": str(payload.get("call_id") or "")[:160], "summary": str(payload.get("summary") or "")[:4000], "store_transcript": bool(settings.ai_caller_store_transcript and payload.get("transcript"))}, ensure_ascii=False))
