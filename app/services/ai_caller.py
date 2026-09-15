@@ -48,7 +48,13 @@ def _negotiable(unit: Unit) -> str | None:
 
 
 def _property_rows(db: Session) -> list[dict[str, Any]]:
-    stmt = select(Unit, Project, Tower).join(Project, Unit.project_id == Project.id).outerjoin(Tower, Unit.tower_id == Tower.id)
+    # CONFIGURATION rows are source-derived BHK/area/price summaries, not actual inventory units.
+    stmt = (
+        select(Unit, Project, Tower)
+        .join(Project, Unit.project_id == Project.id)
+        .outerjoin(Tower, Unit.tower_id == Tower.id)
+        .where(Unit.status != "CONFIGURATION")
+    )
     rows: list[dict[str, Any]] = []
     for unit, project, tower in db.execute(stmt).all():
         rows.append({
@@ -147,7 +153,7 @@ def execute_tool(db: Session, lead_id: int, tool: str, arguments: dict[str, Any]
         return {"properties": [{**by_id[int(r.property_id)], "score": round(r.score), "reasons": r.reasons} for r in ranked[:10]]}
     if tool == "get_property":
         unit = db.get(Unit, int(arguments["unit_id"]))
-        if not unit:
+        if not unit or unit.status == "CONFIGURATION":
             return {"error": "Property not found"}
         return {"property": next((p for p in _property_rows(db) if p["id"] == unit.id), None)}
     if tool == "record_call_outcome":
