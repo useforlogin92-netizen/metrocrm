@@ -7,6 +7,7 @@ from app.language_support import install_language_support
 from app.session_compat import install_session_compatibility
 from app.logout_cookie_hardening import install_logout_cookie_hardening
 from app.property_management_ui import install_property_management_ui
+from app.marketing_security import install_marketing_share_expiry_guard
 from app.routers import recovery_login_link  # noqa: F401,E402
 from app.routers.accounting import router as accounting_router
 from app.routers.ai_caller import router as ai_caller_router
@@ -29,7 +30,6 @@ from app.routers.whatsapp import router as whatsapp_router
 from app.routers.backup_devices import router as backup_devices_router
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 
 app = main.app
@@ -42,6 +42,7 @@ install_session_compatibility(app)
 install_logout_cookie_hardening(app)
 install_language_support(app)
 install_caller_voice_selection(app)
+install_marketing_share_expiry_guard(app)
 
 # Some compatibility/feature modules register middleware while they are imported.
 # Starlette prepends newly added middleware, so restore SessionMiddleware as the
