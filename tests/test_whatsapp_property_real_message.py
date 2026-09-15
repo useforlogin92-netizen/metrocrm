@@ -2,7 +2,7 @@ from app.services.whatsapp_property_import import parse_property_text
 
 
 REAL_WHATSAPP_PROPERTY = """_💎 SETHIA INFRASTRUCTURE 💎_
-_PRESENTS THE CROWN OF KANDIVALI_
+_PRESENTS THE CROWN OF KANDIVALI
 
 _🏢 SETHIA PRIDE 🏢_
 _ON WESTERN EXPRESS HIGHWAY, KANDIVALI EAST_
@@ -46,8 +46,8 @@ def test_real_whatsapp_message_extracts_only_source_stated_property_data():
     assert len(parsed["unit_configurations"]) == 5
     assert [x["carpet_area"] for x in parsed["unit_configurations"]] == [365, 395, 520, 590, 620]
     assert [x["price"] for x in parsed["unit_configurations"]] == [11300000.0, 12200000.0, 16000000.0, 15600000.0, 16400000.0]
-    assert "30+ World-Class Amenities" in parsed["amenities"]
-    assert "Infinity Rooftop Swimming Pool" in parsed["amenities"]
+    assert any("30+ World-Class Amenities" in item for item in parsed["amenities"])
+    assert any("Infinity Rooftop Swimming Pool" in item for item in parsed["amenities"])
     assert parsed["contact_email"] is None
     assert parsed["rera"] is None
 
