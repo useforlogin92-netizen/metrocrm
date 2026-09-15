@@ -39,6 +39,14 @@ def _money(raw: str) -> float | None:
     return float(value)
 
 
+def _first(patterns: tuple[str, ...], text: str, flags: int = re.I) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags)
+        if match:
+            return match.group(1).strip(" \t:-|")
+    return None
+
+
 def _extract_identities(text: str) -> dict[str, list[str]]:
     upper = text.upper()
     projects: list[str] = []
@@ -66,14 +74,49 @@ def _extract_identities(text: str) -> dict[str, list[str]]:
     return {"developers": developers, "projects": projects}
 
 
+def _extract_configurations(text: str) -> list[dict[str, Any]]:
+    configs: list[dict[str, Any]] = []
+    patterns = (
+        re.compile(r"(?i)\b(\d+\s*(?:BHK|BED))\b\s*(?:WITH\s+DECK\s*)?(?:-|–|—|:|\|)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:SQ\.?\s*FT|SQFT|SFT)?\s*(?:-|–|—|:|\|)\s*(₹?\s*[0-9,.]+\s*(?:CR(?:ORE)?|CRORE|L(?:AKH)?|LAC)?\+*)"),
+        re.compile(r"(?i)\b(\d+\s*(?:BHK|BED))\b[^\n]{0,80}?(?:carpet|area)[^0-9]{0,12}([0-9,]+(?:\.[0-9]+)?)\s*(?:sq\.?\s*ft|sqft|sft)?[^\n]{0,40}?(?:₹|rs\.?|price)[^0-9]{0,8}([0-9,.]+\s*(?:cr(?:ore)?|crore|l(?:akh)?|lac)?\+?)"),
+    )
+    seen: set[tuple[str, float | None, float | None]] = set()
+    for line in text.splitlines():
+        for pattern in patterns:
+            m = pattern.search(line)
+            if not m:
+                continue
+            bhk = re.sub(r"(?i)\s*BED\b", " BHK", m.group(1)).upper().replace("  ", " ")
+            area = float(m.group(2).replace(",", ""))
+            price = _money(m.group(3))
+            key = (bhk, area, price)
+            if key in seen:
+                continue
+            seen.add(key)
+            configs.append({"bhk": bhk, "carpet_area": area, "price": price, "source_line": line[:500]})
+            break
+    return configs
+
+
 def parse_property_text(text: str) -> dict[str, Any]:
     text = text[:MAX_TEXT_CHARS]
     identities = _extract_identities(text)
     upper = text.upper()
-    city = "Kandivali" if "KANDIVALI" in upper else None
-    locality = "Kandivali East" if "KANDIVALI EAST" in upper or "KANDIVALI (E)" in upper else None
+    city = _first((r"\b(?:city|location)\s*[:\-]\s*([^\n,|]+)",))
+    if not city and "KANDIVALI" in upper:
+        city = "Kandivali"
+    locality = _first((r"\b(?:locality|area|location)\s*[:\-]\s*([^\n|]+)",))
+    if not locality and ("KANDIVALI EAST" in upper or "KANDIVALI (E)" in upper):
+        locality = "Kandivali East"
     rera = next(iter(re.findall(r"\bP\d{8,15}\b", upper)), None)
-    map_url = next(iter(re.findall(r"https?://(?:goo\.gl/maps|maps\.app\.goo\.gl)/[^\s]+", text)), None)
+    map_url = next(iter(re.findall(r"https?://(?:goo\.gl/maps|maps\.app\.goo\.gl|maps\.google\.com)/[^\s]+", text)), None)
+    website = next(iter(re.findall(r"https?://(?!goo\.gl/maps|maps\.app\.goo\.gl|maps\.google\.com)[^\s]+", text)), None)
+    phone = next(iter(re.findall(r"(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)", text)), None)
+    email = next(iter(re.findall(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)), None)
+    address = _first((r"\b(?:address|site address|project address)\s*[:\-]\s*([^\n]+)",))
+    possession = _first((r"\b(?:possession|possession by|nearing possession|handover)\s*[:\-]?\s*([^\n]+)",))
+    developer = identities["developers"][0] if len(identities["developers"]) == 1 else _first((r"\b(?:developer|builder|promoter)\s*[:\-]\s*([^\n]+)",))
+    project = identities["projects"][0] if len(identities["projects"]) == 1 else _first((r"\b(?:project|project name)\s*[:\-]\s*([^\n]+)",))
     amenities: list[str] = []
     for line in text.splitlines():
         clean = line.strip(" •*-\t")
@@ -81,34 +124,24 @@ def parse_property_text(text: str) -> dict[str, Any]:
             value = re.sub(r"(?i).*?amenit(?:y|ies)?\s*[:\-]?\s*", "", clean).strip()
             if value and value.lower() not in {x.lower() for x in amenities}:
                 amenities.append(value)
-    configs: list[dict[str, Any]] = []
-    line_pattern = re.compile(
-        r"(?i)\b(\d+\s*BHK|\d+\s*BED)\b\s*(?:WITH\s+DECK\s*)?(?:-|–|—|:)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:SQ\.?\s*FT|SQFT|SFT)?\s*(?:-|–|—|:)\s*(₹?\s*[0-9,.]+\s*(?:CR(?:ORE)?|CRORE|L(?:AKH)?|LAC)?\+*)"
-    )
-    for line in text.splitlines():
-        m = line_pattern.search(line)
-        if not m:
-            continue
-        configs.append(
-            {
-                "bhk": re.sub(r"(?i)\s*BED\b", " BHK", m.group(1)).upper().replace("  ", " "),
-                "carpet_area": float(m.group(2).replace(",", "")),
-                "price": _money(m.group(3)),
-                "source_line": line[:500],
-            }
-        )
-    possession = None
-    m = re.search(r"(?i)(?:possession|nearing possession)[^\n]{0,80}", text)
-    if m:
-        possession = m.group(0).strip()
+    configs = _extract_configurations(text)
+    parking = _first((r"\bparking\s*[:\-]\s*([^\n]+)", r"\b(\d+\s*(?:car|car park|parking)(?:s)?\b)"))
+    total_units = _first((r"\b(?:total units|no\. of units|number of units)\s*[:\-]\s*([^\n]+)",))
     return {
-        "developer": identities["developers"][0] if len(identities["developers"]) == 1 else None,
+        "developer": developer,
+        "project": project,
         "project_candidates": identities["projects"],
         "city": city,
         "locality": locality,
+        "address": address,
         "rera": rera,
         "map_url": map_url,
+        "website": website,
+        "contact_phone": phone,
+        "contact_email": email,
         "amenities": amenities,
+        "parking": parking,
+        "total_units": total_units,
         "unit_configurations": configs,
         "possession_text": possession,
         "raw_text": text,
