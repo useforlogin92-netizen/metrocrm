@@ -28,6 +28,26 @@ def test_multiple_project_sources_are_never_silently_merged():
     assert len(parsed["project_candidates"]) == 2
 
 
+def test_same_developer_different_projects_still_conflict():
+    parsed = analyze_sources(
+        "Developer: Sethia Infrastructure",
+        [
+            {"filename": "a.pdf", "extracted_text": "SETHIA PRIDE KANDIVALI (E) SETHIA INFRASTRUCTURE"},
+            {"filename": "b.pdf", "extracted_text": "PASSCODE HIGHWAY BONANZA SETHIA INFRASTRUCTURE"},
+        ],
+    )
+    assert parsed["identity_conflict"] is True
+    assert set(parsed["project_candidates"]) == {"Sethia Pride", "Passcode Highway Bonanza"}
+
+
+def test_unattributed_attachment_requires_manual_review():
+    parsed = analyze_sources(
+        "Sethia Pride Kandivali East",
+        [{"filename": "catalog.pdf", "extracted_text": "2 BHK 900 Sq.ft ₹2.10 CRORE"}],
+    )
+    assert parsed["unattributed_sources"] == ["catalog.pdf"]
+
+
 def test_project_name_normalization_is_stable():
     assert normalize_name("Sethia Pride (Kandivali E)") == "sethia pride kandivali e"
 
@@ -42,7 +62,7 @@ def test_source_identity_is_kept_per_attachment():
 
 
 def test_video_attachment_uses_video_extractor(monkeypatch):
-    monkeypatch.setattr(importer, "extract_video_text", lambda data: "SETHIA PRIDE KANDIVALI (E)")
-    record = attachment_record("tour.mp4", "video/mp4", b"video")
+    monkeypatch.setattr(importer, "extract_video_text", lambda data, suffix=".mp4": "SETHIA PRIDE KANDIVALI (E)")
+    record = attachment_record("tour.mov", "video/quicktime", b"video")
     assert record["extracted_text_chars"] > 0
-    assert record["mime_type"] == "video/mp4"
+    assert record["mime_type"] == "video/quicktime"
