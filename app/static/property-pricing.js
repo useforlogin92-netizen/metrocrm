@@ -20,10 +20,11 @@
   }
 
   function trim(n){ return Number(n.toFixed(2)).toString(); }
+  function croreValue(n){ return (Math.round((n / CRORE) * 100) / 100).toFixed(2) + ' Cr'; }
   function propertyValue(value){
     const n = number(value);
     if (n == null) return '';
-    if (n >= CRORE) return trim(n / CRORE) + ' Cr';
+    if (n >= CRORE) return croreValue(n);
     if (n >= LAKH) return trim(n / LAKH) + ' lakh';
     return '₹' + Math.round(n).toLocaleString('en-IN');
   }
@@ -43,7 +44,7 @@
     if (rateLabel) rateLabel.innerHTML='Rate / Sq.ft (₹) <span class="required">*</span>';
     if (totalLabel) totalLabel.innerHTML='Total Property Value / All Inclusive <span class="required">*</span>';
     rate.placeholder='e.g. 12000';
-    total.placeholder='e.g. 80 lakh or 1.1 Cr';
+    total.placeholder='e.g. 80 lakh or 1.10 Cr';
     rate.title='Enter rate per square foot. Total property value will calculate automatically.';
     total.title='Enter total property value. Rate per square foot will calculate automatically.';
 
