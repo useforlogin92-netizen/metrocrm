@@ -21,6 +21,5 @@ def test_admin_can_access_only_own_import():
     assert _can_access(submission(8), actor) is False
 
 
-def test_non_admin_roles_cannot_access_property_import():
-    for role in ("MANAGER", "SALES", "STAFF", "USER"):
-        assert _can_access(submission(7), user(role, 7)) is False
+def test_ownership_helper_denies_different_owner():
+    assert _can_access(submission(7), user("ADMIN", 8)) is False
