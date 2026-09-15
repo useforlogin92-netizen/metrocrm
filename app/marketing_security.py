@@ -10,7 +10,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.catalog_models import CatalogShare
 from app.database import SessionLocal
-from app.crm_plus_models import MarketingCampaign
+from app.marketing_models import MarketingCampaign
 
 _MARKETING_PATH = re.compile(r"^/m/([^/]+)(?:/lead)?$")
 
