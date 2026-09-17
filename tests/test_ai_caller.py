@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from app.routers.ai_caller import _lead_in_scope
+from app.routers.ai_caller import _lead_in_scope, _provider_claims, _provider_token
 from app.services.ai_caller import system_prompt, tool_definitions
 
 
@@ -31,6 +31,22 @@ def test_ai_caller_payload_does_not_require_provider_credentials_in_source():
     from app.config import settings
     assert isinstance(settings.ai_caller_provider_secret, str)
     assert "api_key" not in json.dumps(tool_definitions()).lower()
+
+
+def test_ai_caller_provider_token_is_bound_to_one_lead(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "ai_caller_provider_secret", "test-secret")
+    token = _provider_token(123, now=1_000)
+    assert _provider_claims(token, 123, now=1_005)["lead_id"] == 123
+    assert _provider_claims(token, 124, now=1_005) is None
+
+
+def test_ai_caller_provider_token_rejects_static_secret_and_expired_token(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "ai_caller_provider_secret", "test-secret")
+    assert _provider_claims("test-secret", 123, now=1_005) is None
+    token = _provider_token(123, now=1_000)
+    assert _provider_claims(token, 123, now=1_600) is None
 
 
 class _ScopeDB:
