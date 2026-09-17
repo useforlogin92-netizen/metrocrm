@@ -1,9 +1,11 @@
 """Secure adapter endpoints for external AI/auto-caller providers."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
+import time
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -17,6 +19,7 @@ from app.services.ai_caller import build_context, execute_tool, provider_configu
 
 router = APIRouter(prefix="/api/ai-caller", tags=["ai-caller"])
 _ALLOWED = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+_PROVIDER_TOKEN_TTL = 10 * 60
 
 
 def _user(request: Request, db: Session) -> User | None:
@@ -24,9 +27,45 @@ def _user(request: Request, db: Session) -> User | None:
     return _current_user(request, db)
 
 
-def _provider_ok(token: str | None) -> bool:
+def _b64_json(value: dict) -> str:
+    raw = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _provider_token(lead_id: int, now: int | None = None) -> str:
+    """Mint a short-lived, lead-bound provider credential."""
     secret = settings.ai_caller_provider_secret
-    return bool(secret and token and hmac.compare_digest(token, secret))
+    if not secret:
+        raise ValueError("AI caller provider credential is not configured")
+    issued = int(time.time() if now is None else now)
+    payload = {"v": 1, "lead_id": int(lead_id), "iat": issued, "exp": issued + _PROVIDER_TOKEN_TTL}
+    encoded = _b64_json(payload)
+    signature = hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    return f"v1.{encoded}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode('ascii')}"
+
+
+def _provider_claims(token: str | None, lead_id: int, now: int | None = None) -> dict | None:
+    """Validate a short-lived provider credential and its lead binding."""
+    secret = settings.ai_caller_provider_secret
+    if not secret or not token:
+        return None
+    try:
+        version, encoded, supplied_signature = token.split(".", 2)
+        if version != "v1":
+            return None
+        expected = hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+        supplied = base64.urlsafe_b64decode(supplied_signature + "=" * (-len(supplied_signature) % 4))
+        if not hmac.compare_digest(supplied, expected):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        current = int(time.time() if now is None else now)
+        if int(payload.get("v", 0)) != 1 or int(payload.get("lead_id", -1)) != int(lead_id):
+            return None
+        if int(payload.get("exp", 0)) < current or int(payload.get("iat", 0)) > current + 30:
+            return None
+        return payload
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
 
 
 def _lead_in_scope(user: User, lead: Lead, db: Session) -> bool:
@@ -62,6 +101,21 @@ def ai_caller_config(request: Request, db: Session = Depends(get_db)):
     return {"provider": settings.ai_caller_provider or "none", "configured": provider_configured(), "languages": ["hi-IN", "en-IN", "hinglish"], "male_voice": settings.ai_caller_male_voice or None, "female_voice": settings.ai_caller_female_voice or None}
 
 
+@router.post("/provider-token/{lead_id}")
+def issue_provider_token(lead_id: int, request: Request, db: Session = Depends(get_db)):
+    """Issue a short-lived credential for exactly one lead after CRM RBAC checks."""
+    user = _user(request, db)
+    if not user or user.role not in _ALLOWED:
+        return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(user, lead, db):
+        return JSONResponse({"detail": "Lead not found"}, status_code=404)
+    try:
+        return {"token": _provider_token(lead_id), "expires_in": _PROVIDER_TOKEN_TTL, "lead_id": lead_id}
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=503)
+
+
 @router.get("/leads/{lead_id}/context")
 def ai_caller_context(lead_id: int, request: Request, db: Session = Depends(get_db)):
     user = _user(request, db)
@@ -78,8 +132,8 @@ def ai_caller_context(lead_id: int, request: Request, db: Session = Depends(get_
 
 @router.get("/provider/leads/{lead_id}/context")
 def provider_context(lead_id: int, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    if not _provider_ok(x_ai_caller_token):
-        return JSONResponse({"detail": "Invalid AI caller credential"}, status_code=401)
+    if _provider_claims(x_ai_caller_token, lead_id) is None:
+        return JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
     if db.get(Lead, lead_id) is None:
         return JSONResponse({"detail": "Lead not found"}, status_code=404)
     try:
@@ -90,8 +144,8 @@ def provider_context(lead_id: int, x_ai_caller_token: str | None = Header(defaul
 
 @router.post("/provider/leads/{lead_id}/tool")
 def provider_tool(lead_id: int, payload: dict, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    if not _provider_ok(x_ai_caller_token):
-        return JSONResponse({"detail": "Invalid AI caller credential"}, status_code=401)
+    if _provider_claims(x_ai_caller_token, lead_id) is None:
+        return JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
     if db.get(Lead, lead_id) is None:
         return JSONResponse({"detail": "Lead not found"}, status_code=404)
     tool = str(payload.get("tool") or "").strip()
@@ -106,8 +160,8 @@ def provider_tool(lead_id: int, payload: dict, x_ai_caller_token: str | None = H
 
 @router.post("/provider/leads/{lead_id}/event")
 def provider_event(lead_id: int, payload: dict, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    if not _provider_ok(x_ai_caller_token):
-        return JSONResponse({"detail": "Invalid AI caller credential"}, status_code=401)
+    if _provider_claims(x_ai_caller_token, lead_id) is None:
+        return JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
     if db.get(Lead, lead_id) is None:
         return JSONResponse({"detail": "Lead not found"}, status_code=404)
     # Deliberately store only bounded metadata by default; full transcripts remain with the voice provider unless enabled.
