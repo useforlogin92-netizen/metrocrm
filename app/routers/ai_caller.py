@@ -61,7 +61,7 @@ def _provider_claims(token: str | None, lead_id: int, now: int | None = None) ->
         current = int(time.time() if now is None else now)
         if int(payload.get("v", 0)) != 1 or int(payload.get("lead_id", -1)) != int(lead_id):
             return None
-        if int(payload.get("exp", 0)) < current or int(payload.get("iat", 0)) > current + 30:
+        if int(payload.get("exp", 0)) <= current or int(payload.get("iat", 0)) > current + 30:
             return None
         return payload
     except (ValueError, TypeError, KeyError, json.JSONDecodeError, UnicodeDecodeError):
@@ -116,6 +116,16 @@ def issue_provider_token(lead_id: int, request: Request, db: Session = Depends(g
         return JSONResponse({"detail": str(exc)}, status_code=503)
 
 
+def _provider_lead(lead_id: int, token: str | None, db: Session) -> tuple[Lead | None, JSONResponse | None]:
+    """Validate credential and lead existence without exposing existence to unauthenticated callers."""
+    if _provider_claims(token, lead_id) is None:
+        return None, JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
+    lead = db.get(Lead, lead_id)
+    if lead is None:
+        return None, JSONResponse({"detail": "Lead not found"}, status_code=404)
+    return lead, None
+
+
 @router.get("/leads/{lead_id}/context")
 def ai_caller_context(lead_id: int, request: Request, db: Session = Depends(get_db)):
     user = _user(request, db)
@@ -132,41 +142,38 @@ def ai_caller_context(lead_id: int, request: Request, db: Session = Depends(get_
 
 @router.get("/provider/leads/{lead_id}/context")
 def provider_context(lead_id: int, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    if _provider_claims(x_ai_caller_token, lead_id) is None:
-        return JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
-    if db.get(Lead, lead_id) is None:
-        return JSONResponse({"detail": "Lead not found"}, status_code=404)
+    lead, error = _provider_lead(lead_id, x_ai_caller_token, db)
+    if error:
+        return error
     try:
-        return _context_payload(db, lead_id)
+        return _context_payload(db, lead.id)
     except ValueError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=404)
 
 
 @router.post("/provider/leads/{lead_id}/tool")
 def provider_tool(lead_id: int, payload: dict, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    if _provider_claims(x_ai_caller_token, lead_id) is None:
-        return JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
-    if db.get(Lead, lead_id) is None:
-        return JSONResponse({"detail": "Lead not found"}, status_code=404)
+    lead, error = _provider_lead(lead_id, x_ai_caller_token, db)
+    if error:
+        return error
     tool = str(payload.get("tool") or "").strip()
     arguments = payload.get("arguments") or {}
     if not isinstance(arguments, dict) or not tool:
         return JSONResponse({"detail": "Invalid tool request"}, status_code=400)
     try:
-        return execute_tool(db, lead_id, tool, arguments)
+        return execute_tool(db, lead.id, tool, arguments)
     except (ValueError, TypeError, KeyError) as exc:
         return JSONResponse({"detail": str(exc)}, status_code=400)
 
 
 @router.post("/provider/leads/{lead_id}/event")
 def provider_event(lead_id: int, payload: dict, x_ai_caller_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    if _provider_claims(x_ai_caller_token, lead_id) is None:
-        return JSONResponse({"detail": "Invalid or unscoped AI caller credential"}, status_code=401)
-    if db.get(Lead, lead_id) is None:
-        return JSONResponse({"detail": "Lead not found"}, status_code=404)
+    lead, error = _provider_lead(lead_id, x_ai_caller_token, db)
+    if error:
+        return error
     # Deliberately store only bounded metadata by default; full transcripts remain with the voice provider unless enabled.
     from app.models import AuditEvent
-    event = AuditEvent(actor_user_id=None, action="AI_CALL_EVENT", entity_type="Lead", entity_id=str(lead_id), details=json.dumps({"event": str(payload.get("event") or "UNKNOWN")[:80], "call_id": str(payload.get("call_id") or "")[:160], "summary": str(payload.get("summary") or "")[:4000], "store_transcript": bool(settings.ai_caller_store_transcript and payload.get("transcript"))}, ensure_ascii=False))
+    event = AuditEvent(actor_user_id=None, action="AI_CALL_EVENT", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"event": str(payload.get("event") or "UNKNOWN")[:80], "call_id": str(payload.get("call_id") or "")[:160], "summary": str(payload.get("summary") or "")[:4000], "store_transcript": bool(settings.ai_caller_store_transcript and payload.get("transcript"))}, ensure_ascii=False))
     db.add(event)
     db.commit()
     return {"ok": True}
