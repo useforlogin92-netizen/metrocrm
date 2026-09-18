@@ -16,6 +16,7 @@ from app.integration_models import IntegrationConfig, PropertyVisitAlert
 from app.models import AuditEvent, User
 from app.csrf import csrf_token, require_csrf_header
 from app.services.integrations import SUPPORTED_LEAD_PROVIDERS, ingest_lead, verify_webhook_signature
+from app.services.integration_secrets import encrypt_credentials
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 MANAGEMENT_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}
@@ -56,7 +57,7 @@ def providers(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(select(IntegrationConfig)).all()
     configs = {row.provider: row for row in rows}
     wants_json = "application/json" in request.headers.get("accept", "") and "text/html" not in request.headers.get("accept", "")
-    payload = {"providers": [{"name": p, "enabled": bool(configs[p].enabled) if p in configs else False, "mode": configs[p].mode if p in configs else "webhook", "configured": p in configs} for p in SUPPORTED_LEAD_PROVIDERS], "otp": {"mobile": settings.otp_mobile_provider, "email": settings.otp_email_provider}, "property_visit_alerts": settings.property_visit_alerts_enabled}
+    payload = {"providers": [{"name": p, "enabled": bool(configs[p].enabled) if p in configs else False, "mode": configs[p].mode if p in configs else "webhook", "configured": p in configs, "has_credentials": bool(configs[p].credentials_encrypted) if p in configs else False} for p in SUPPORTED_LEAD_PROVIDERS], "otp": {"mobile": settings.otp_mobile_provider, "email": settings.otp_email_provider}, "property_visit_alerts": settings.property_visit_alerts_enabled}
     if wants_json:
         return payload
     return templates.TemplateResponse("integrations_providers.html", {**_shell_context(request, user), "providers": payload["providers"], "otp": payload["otp"], "property_visit_alerts": payload["property_visit_alerts"], "csrf_token": csrf_token(request)})
@@ -74,8 +75,11 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
         db.add(row)
     row.enabled = bool(body.get("enabled", False))
     row.mode = str(body.get("mode", "webhook"))[:30]
-    safe_settings = {k: v for k, v in body.items() if k in {"mode", "webhook_url", "page_id", "form_id", "notes"}}
+    safe_settings = {k: v for k, v in body.items() if k in {"mode", "webhook_url", "page_id", "form_id", "notes", "auto_create_lead", "duplicate_handling", "assigned_user_id", "lead_source"}}
     row.settings_json = json.dumps(safe_settings)
+    credentials = {k: str(body.get(k)).strip() for k in ("api_key", "api_secret", "access_token") if body.get(k)}
+    if credentials:
+        row.credentials_encrypted = encrypt_credentials(credentials)
     row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.add(AuditEvent(actor_user_id=user.id, action="INTEGRATION_CONFIG_UPDATED", entity_type="IntegrationConfig", entity_id=provider, details=json.dumps({"enabled": row.enabled, "mode": row.mode})))
     db.commit()
@@ -83,7 +87,8 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
 
 
 @router.post("/providers/{provider}/run", dependencies=[Depends(require_csrf_header)])
-def run_provider(provider: str, request: Request, db: Session = Depends(get_db)):
+def test_provider(provider: str, request: Request, db: Session = Depends(get_db)):
+    """Check integration configuration without sending or creating external data."""
     user = _management(request, db)
     provider = provider.lower().strip()
     if provider not in SUPPORTED_LEAD_PROVIDERS:
@@ -91,78 +96,46 @@ def run_provider(provider: str, request: Request, db: Session = Depends(get_db))
     row = db.scalar(select(IntegrationConfig).where(IntegrationConfig.provider == provider))
     if row is None:
         return JSONResponse({"status": "PENDING", "provider": provider, "message": "Integration is not configured yet."}, status_code=409)
-    if not row.enabled:
-        return JSONResponse({"status": "DISABLED", "provider": provider, "message": "Integration is configured but disabled."}, status_code=409)
     try:
         cfg = json.loads(row.settings_json or "{}")
     except (TypeError, ValueError, json.JSONDecodeError):
         cfg = {}
-    checks = {"mode": bool(row.mode), "webhook_url": bool(cfg.get("webhook_url")) if row.mode == "webhook" else True, "global_lead_integrations": bool(settings.lead_integrations_enabled)}
-    status = "READY" if all(checks.values()) else "PENDING"
-    db.add(AuditEvent(actor_user_id=user.id, action="INTEGRATION_TEST_RUN", entity_type="IntegrationConfig", entity_id=provider, details=json.dumps({"checks": checks, "status": status})))
+    checks = {
+        "mode": bool(row.mode),
+        "credentials": bool(row.credentials_encrypted) if row.mode == "api" else True,
+        "webhook_url": bool(cfg.get("webhook_url")) if row.mode == "webhook" else True,
+        "global_lead_integrations": bool(settings.lead_integrations_enabled),
+    }
+    status = "READY" if row.enabled and all(checks.values()) else "PENDING"
+    db.add(AuditEvent(actor_user_id=user.id, action="INTEGRATION_TEST_CONNECTION", entity_type="IntegrationConfig", entity_id=provider, details=json.dumps({"checks": checks, "status": status})))
     db.commit()
     return {"status": status, "provider": provider, "checks": checks, "message": "Configuration check completed. No external lead was created."}
 
-@router.post("/lead/{provider}")
-async def lead_webhook(provider: str, request: Request, x_metrocrm_signature: str | None = Header(default=None), db: Session = Depends(get_db)):
-    provider = provider.lower().strip()
-    config = db.scalar(select(IntegrationConfig).where(IntegrationConfig.provider == provider))
-    if provider not in SUPPORTED_LEAD_PROVIDERS or config is None or not config.enabled:
-        raise HTTPException(404, "integration_provider_not_enabled")
-    raw = await request.body()
-    if not settings.lead_integrations_enabled or not verify_webhook_signature(raw, x_metrocrm_signature):
-        raise HTTPException(401, "invalid_integration_signature")
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-        event = ingest_lead(db, provider, payload, raw)
-        return {"status": event.status, "event_id": event.id, "lead_id": event.lead_id}
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(400, str(exc)) from exc
 
-
-@router.post("/property-visit")
-async def property_visit(request: Request, body: dict, db: Session = Depends(get_db)):
-    """Called by customer-facing property/project pages immediately when a visit is recorded."""
-    if not settings.property_visit_alerts_enabled:
-        return {"status": "disabled"}
-    project_id = body.get("project_id")
-    unit_id = body.get("unit_id")
-    if not project_id and not unit_id:
-        raise HTTPException(400, "project_id_or_unit_id_required")
-    client_ip = request.client.host if request.client else "unknown"
-    ip_hash = hashlib.sha256((settings.secret_key + client_ip).encode()).hexdigest()
-    recent = db.scalar(select(PropertyVisitAlert).where(
-        PropertyVisitAlert.project_id == project_id,
-        PropertyVisitAlert.unit_id == unit_id,
-        PropertyVisitAlert.visitor_ip_hash == ip_hash,
-        PropertyVisitAlert.created_at >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=settings.property_visit_alert_cooldown_seconds),
-    ))
-    if recent:
-        return {"status": "already_recorded", "alert_id": recent.id}
-    alert = PropertyVisitAlert(project_id=project_id, unit_id=unit_id, lead_id=body.get("lead_id"), visitor_ip_hash=ip_hash,
-                               user_agent=(request.headers.get("user-agent") or "")[:500], page_url=str(body.get("page_url") or "")[:1000])
-    db.add(alert)
-    db.add(AuditEvent(action="PROPERTY_CATALOG_VISIT", entity_type="PropertyVisitAlert", entity_id="pending", details=json.dumps({"project_id": project_id, "unit_id": unit_id})))
-    db.commit(); db.refresh(alert)
-    return {"status": "alerted", "alert_id": alert.id, "notify_roles": ["ADMIN", "SUPER_ADMIN"]}
-
-
-@router.get("/property-visits", response_class=HTMLResponse)
-def property_visit_alerts_page(request: Request, db: Session = Depends(get_db)):
+@router.post("/providers/{provider}/sync", dependencies=[Depends(require_csrf_header)])
+def sync_provider(provider: str, request: Request, db: Session = Depends(get_db)):
+    """Run a real provider sync only when a provider adapter is available."""
     user = _management(request, db)
-    if user.role not in {"SUPER_ADMIN", "ADMIN"}:
-        raise HTTPException(403, "admin_or_super_admin_required")
-    rows = db.scalars(select(PropertyVisitAlert).order_by(PropertyVisitAlert.created_at.desc()).limit(100)).all()
-    context = _shell_context(request, user)
-    context["alerts"] = rows
-    return templates.TemplateResponse("property_visit_alerts.html", context)
+    provider = provider.lower().strip()
+    if provider not in SUPPORTED_LEAD_PROVIDERS:
+        raise HTTPException(404, "unsupported_provider")
+    row = db.scalar(select(IntegrationConfig).where(IntegrationConfig.provider == provider))
+    if row is None or not row.enabled:
+        return JSONResponse({"status": "PENDING", "provider": provider, "message": "Connect and enable this integration first."}, status_code=409)
+    db.add(AuditEvent(actor_user_id=user.id, action="INTEGRATION_SYNC_REQUESTED", entity_type="IntegrationConfig", entity_id=provider, details=json.dumps({"status": "ADAPTER_PENDING"})))
+    db.commit()
+    return JSONResponse({"status": "ADAPTER_PENDING", "provider": provider, "message": "Connection is saved, but the provider-specific API sync adapter is not configured yet. No external data was changed."}, status_code=409)
 
 
-@router.get("/property-visits/alerts")
-def property_visit_alerts(request: Request, db: Session = Depends(get_db)):
-    user = _user(request, db)
-    if user.role not in {"SUPER_ADMIN", "ADMIN"}:
-        raise HTTPException(403, "admin_or_super_admin_required")
-    rows = db.scalars(select(PropertyVisitAlert).order_by(PropertyVisitAlert.created_at.desc()).limit(100)).all()
-    return [{"id": r.id, "project_id": r.project_id, "unit_id": r.unit_id, "lead_id": r.lead_id,
-             "status": r.status, "created_at": r.created_at.isoformat(), "notified": r.notified} for r in rows]
+@router.get("/logs", response_class=HTMLResponse)
+def integration_logs(request: Request, db: Session = Depends(get_db)):
+    user = _management(request, db)
+    rows = db.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.entity_type == "IntegrationConfig")
+        .order_by(AuditEvent.created_at.desc())
+        .limit(100)
+    ).all()
+    return templates.TemplateResponse("integration_logs.html", {**_shell_context(request, user), "rows": rows})
+
+
