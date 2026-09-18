@@ -149,6 +149,11 @@ async def enforce_dedicated_portal_session(request: Request, call_next):
     if required and not _is_portal_login(original_path, required):
         current_user_id = request.session.get("user_id")
         if current_user_id and current_portal != required and not legacy_super_admin_post:
+            # A Super Admin must never be sent to the Admin login portal.
+            # If an old/unmapped Admin URL is reached from a Super Admin
+            # session, keep the browser inside the privileged namespace.
+            if current_portal == "super_admin" and required == "admin":
+                return RedirectResponse("/super-admin", status_code=303)
             login_path = "/admin/login" if required == "admin" else "/super-admin/login"
             return RedirectResponse(login_path, status_code=303)
 
