@@ -362,9 +362,9 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     primary_projects = list(dict.fromkeys(brochure_projects)) or list(dict.fromkeys(whatsapp.get("project_candidates") or []))
     primary_developers = list(dict.fromkeys(brochure_developers)) or ([whatsapp["developer"]] if whatsapp.get("developer") else [])
 
-    # Primary identity comes from the brochure when available. WhatsApp/media
-    # differences are retained as warnings for Ready-to-Check rather than
-    # preventing the brochure-backed project from being selected.
+    # Brochure/PDF remains the primary structured source, but disagreement
+    # between distinct project identities is a hard conflict and must require
+    # manual project selection before commit.
     parsed["project_candidates"] = primary_projects
     parsed["additional_project_candidates"] = [x for x in all_projects.values() if normalize_name(x) not in {normalize_name(y) for y in primary_projects}]
     parsed["source_identities"] = source_identities
@@ -372,7 +372,7 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     parsed["field_conflicts"] = field_conflicts
     parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
     parsed["source_identity_warning"] = len(all_projects) > 1 or len(all_developers) > 1
-    parsed["identity_conflict"] = len(primary_projects) != 1 or len(primary_developers) > 1
+    parsed["identity_conflict"] = len(all_projects) > 1 or len(all_developers) > 1 or len(primary_projects) != 1
     parsed["source_documents"] = {
         "brochures": [x.get("filename") for x in attachments if str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf")],
         "supporting_media": [x.get("filename") for x in attachments if not (str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf"))],
