@@ -1,17 +1,19 @@
-"""Compatibility guard for authenticated sessions created before idle timestamps existed."""
+"""Compatibility guard for authenticated sessions created before idle timestamps or portal identity existed."""
 from __future__ import annotations
 
 import time
 
+from app.database import SessionLocal
+from app.models import User
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 class SessionActivityCompatibilityMiddleware:
-    """Preserve valid signed sessions that predate the ``last_activity`` field.
+    """Preserve valid signed sessions created before newer session fields existed.
 
     SessionMiddleware must be outside this middleware so ``scope['session']`` is
-    already available. A signed session with a valid user id is trusted here;
-    normal authentication/session-version checks still run in the application.
+    already available. Normal authentication/session-version checks still run
+    in the application.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -20,8 +22,30 @@ class SessionActivityCompatibilityMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope.get("type") == "http":
             session = scope.get("session")
-            if session is not None and session.get("user_id") and not session.get("last_activity"):
-                session["last_activity"] = time.time()
+            if session is not None and session.get("user_id"):
+                if not session.get("last_activity"):
+                    session["last_activity"] = time.time()
+
+                # Sessions created before the dedicated Admin/Super Admin
+                # portals existed may not contain ``login_portal``. Recover
+                # the portal from the authenticated user role so a valid
+                # Super Admin session is never mistaken for an Admin session
+                # (and vice versa) when opening a protected navigation link.
+                if not session.get("login_portal"):
+                    db = SessionLocal()
+                    try:
+                        user = db.get(User, session.get("user_id"))
+                        if user and user.is_active:
+                            role = str(user.role or "").upper()
+                            session["login_portal"] = (
+                                "super_admin"
+                                if role == "SUPER_ADMIN"
+                                else "admin"
+                                if role == "ADMIN"
+                                else "staff"
+                            )
+                    finally:
+                        db.close()
         await self.app(scope, receive, send)
 
 
