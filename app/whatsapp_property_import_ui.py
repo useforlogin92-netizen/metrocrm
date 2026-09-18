@@ -38,6 +38,23 @@ class WhatsAppPropertyImportUIMiddleware:
                     await send(message)
                     return
                 html = body.decode("utf-8", errors="replace")
+                # Normalize any older/legacy trigger that may already be present in the page.
+                # The primary action must open the capture modal, not jump directly to the review queue.
+                legacy_trigger = re.compile(
+                    r'<button\\b(?=[^>]*id=["\\\']metrocrm-whatsapp-property-import["\\\'])[^>]*>.*?</button>',
+                    flags=re.I | re.S,
+                )
+                normalized_trigger = '<button id="metrocrm-whatsapp-property-import" class="pd-btn primary" type="button">📲 Property Data Received by WhatsApp</button>'
+                html, legacy_replaced = legacy_trigger.subn(normalized_trigger, html, count=1)
+                if legacy_replaced == 0:
+                    # Also replace an older review-queue anchor used as the capture entry point.
+                    legacy_queue = re.compile(
+                        r'<a\\b[^>]*href=["\\\'][^"\\\']*/whatsapp-import["\\\'][^>]*>\\s*(?:📲\\s*)?WhatsApp Review Queue\\s*</a>',
+                        flags=re.I | re.S,
+                    )
+                    html, legacy_queue_replaced = legacy_queue.subn(normalized_trigger, html, count=1)
+                else:
+                    legacy_queue_replaced = 0
                 if "metrocrm-whatsapp-modal" not in html:
                     csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', html)
                     page_csrf = csrf_match.group(1) if csrf_match else ""
