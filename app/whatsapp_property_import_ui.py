@@ -59,7 +59,7 @@ class WhatsAppPropertyImportUIMiddleware:
     <h2 id="metrocrm-whatsapp-title">📲 Property Data Received by WhatsApp</h2>
     <p class="metrocrm-wa-muted">Paste the complete WhatsApp property message below. You can also attach the brochure, PDF, images or videos you received. MetroCRM will extract only information actually present in these sources; anything not present stays blank for later SM verification.</p>
     <form id="metrocrm-whatsapp-form" method="post" action="{analyze}" enctype="multipart/form-data">
-      <input type="hidden" name="csrf_token" id="metrocrm-whatsapp-csrf">
+      <input type="hidden" name="csrf_token" id="metrocrm-whatsapp-csrf" value="{csrf_token}">
       <label for="metrocrm-whatsapp-text"><b>WhatsApp message</b></label>
       <textarea id="metrocrm-whatsapp-text" name="source_text" placeholder="Paste WhatsApp text here..." required></textarea>
       <label for="metrocrm-whatsapp-files" style="display:block;margin-top:12px"><b>Attachments</b></label>
