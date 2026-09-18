@@ -194,7 +194,34 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
         body += "<h3>Attachments</h3><ul>" + "".join(f"<li>{escape(str(x.get('filename')))} · {escape(str(x.get('mime_type')))} · {x.get('extracted_text_chars', 0)} extracted characters</li>" for x in data["attachments"]) + "</ul>"
     body += "</div>"
     blocked = bool(data.get("identity_conflict"))
-    note = "Different project identities were detected; separate the sources before commit." if blocked else "MetroCRM will use only source-stated values. Missing WhatsApp facts stay blank; an attachment without OCR identity can still be attached to the verified text project after review."
+    note = "Different project identities were detected; separate the sources before commit." if blocked else "MetroCRM will use only source-stated values. Missing WhatsApp facts stay blank; review before commit."
+
+    editable = {
+        "city": data.get("city", ""),
+        "locality": data.get("locality", ""),
+        "address": data.get("address", ""),
+        "rera": data.get("rera", ""),
+        "possession_text": data.get("possession_text", ""),
+        "contact_phone": data.get("contact_phone", ""),
+        "amenities": data.get("amenities") or [],
+        "highlights": data.get("highlights") or [],
+        "unit_configurations": data.get("unit_configurations") or [],
+    }
+    body += f"""<div class='card'><h2>✏️ Update Extracted Property Data</h2><p class='muted'>Correct extracted values here. These changes are saved to the review draft only; the live Property Data record changes only after verification.</p>
+<form method='post' action='{action}/{row.id}/update' onsubmit="return confirm('Save these corrections to the review draft?');">
+<input type='hidden' name='csrf_token' value='{csrf}'>
+<label>City<input name='city' value='{escape(str(editable["city"]))}'></label>
+<label>Locality<input name='locality' value='{escape(str(editable["locality"]))}'></label>
+<label>Address<input name='address' value='{escape(str(editable["address"]))}'></label>
+<label>RERA<input name='rera' value='{escape(str(editable["rera"]))}'></label>
+<label>Possession<input name='possession_text' value='{escape(str(editable["possession_text"]))}'></label>
+<label>Contact Phone<input name='contact_phone' value='{escape(str(editable["contact_phone"]))}'></label>
+<label>Amenities<input name='amenities' value='{escape(", ".join(map(str, editable["amenities"])))}'></label>
+<label>Highlights<textarea name='highlights' style='min-height:110px'>{escape("\\n".join(map(str, editable["highlights"])))}</textarea></label>
+<label>BHK / Area / Price configurations (JSON)<textarea name='unit_configurations' style='min-height:150px'>{escape(json.dumps(editable["unit_configurations"], ensure_ascii=False, indent=2))}</textarea></label>
+<button class='btn' type='submit' style='margin-top:12px'>💾 Save Draft Changes</button>
+</form></div>"""
+
     body += f"""<div class='card'><h2>Verify target project</h2><p class='muted'><b>Safety rule:</b> {escape(note)}</p><form method='post' action='{action}/{row.id}/commit' onsubmit="return confirm('Commit this verified property import into the selected CRM project?');"><input type='hidden' name='csrf_token' value='{csrf}'><label>Exact target Project ID</label><input name='project_id' type='number' min='1' required value='{escape(str(suggested_id))}'><button class='btn green' type='submit'>✅ Verify & Reflect in CRM</button></form>"""
     if actor.role == "SUPER_ADMIN":
         body += f"<form method='post' action='{action}/{row.id}/reject' style='margin-top:10px'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn red' type='submit'>Reject Import</button></form>"
