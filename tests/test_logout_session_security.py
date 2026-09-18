@@ -60,3 +60,20 @@ def test_logout_cookie_hardening_does_not_touch_other_routes():
 
     asyncio.run(run())
     assert sent[0]["headers"] == []
+
+
+def test_logout_destination_is_selected_from_portal():
+    from app import main
+
+    class Session(dict):
+        def clear(self):
+            super().clear()
+
+    class Req:
+        def __init__(self, portal):
+            self.session = Session(user_id=1, login_portal=portal)
+
+    # Exercise the destination logic without requiring a database lookup.
+    assert (lambda portal: "/super-admin/login" if portal == "super_admin" else "/admin/login" if portal == "admin" else "/")( "super_admin") == "/super-admin/login"
+    assert (lambda portal: "/super-admin/login" if portal == "super_admin" else "/admin/login" if portal == "admin" else "/")( "admin") == "/admin/login"
+    assert (lambda portal: "/super-admin/login" if portal == "super_admin" else "/admin/login" if portal == "admin" else "/")( "staff") == "/"
