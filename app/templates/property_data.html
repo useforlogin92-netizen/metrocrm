@@ -144,7 +144,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   </form>
   <div class="pd-bulkbar">
     <label><input id="property-select-all" class="pd-select-box" type="checkbox" onchange="toggleAllProperties(this.checked)"> Select All</label>
-    <button id="property-delete-selected" class="pd-btn danger" type="submit" form="project-bulk-delete" disabled>🗑 Delete Selected</button>
+    <button id="property-delete-selected" class="pd-btn danger" type="submit" form="project-bulk-delete">🗑 Delete Selected</button>
     <span id="property-selection-count" class="pd-small">0 selected</span>
   </div>
   {% endif %}
@@ -185,7 +185,7 @@ function confirmSelectedPropertyDelete(){
   if(!selected){return false;}
   return confirm('Delete '+selected+' selected properties and all linked inventory/media/share records? This cannot be undone.');
 }
-document.addEventListener('DOMContentLoaded',updatePropertySelectionCount);
+document.addEventListener('DOMContentLoaded',function(){updatePropertySelectionCount();document.addEventListener('change',function(event){if(event.target.classList.contains('property-select'))updatePropertySelectionCount();});});
 </script>
 {% endif %}
 
