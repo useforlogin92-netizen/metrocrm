@@ -49,12 +49,16 @@ class WhatsAppPropertyImportUIMiddleware:
                 if legacy_replaced == 0:
                     # Also replace an older review-queue anchor used as the capture entry point.
                     legacy_queue = re.compile(
-                        r'<a\b[^>]*href=["\\\'][^"\\\']*/whatsapp-import["\\\'][^>]*>\\s*(?:📲\\s*)?WhatsApp Review Queue\\s*</a>',
+                        r'<a\b[^>]*href="[^"]*/whatsapp-import"[^>]*>\s*(?:📲\s*)?WhatsApp Review Queue\s*</a>',
                         flags=re.I | re.S,
                     )
                     html, legacy_queue_replaced = legacy_queue.subn(normalized_trigger, html, count=1)
-                else:
-                    legacy_queue_replaced = 0
+                    if legacy_queue_replaced == 0:
+                        legacy_queue_single = re.compile(
+                            r"<a\b[^>]*href='[^']*/whatsapp-import'[^>]*>\s*(?:📲\s*)?WhatsApp Review Queue\s*</a>",
+                            flags=re.I | re.S,
+                        )
+                        html, legacy_queue_replaced = legacy_queue_single.subn(normalized_trigger, html, count=1)
                 if "metrocrm-whatsapp-modal" not in html:
                     csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', html)
                     page_csrf = csrf_match.group(1) if csrf_match else ""
