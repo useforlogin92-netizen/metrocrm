@@ -16,16 +16,17 @@
 {% endif %}
 <div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px">
 {% for row in rows %}
-  <div class="sm-submission-row" data-payload="{{ row.payload_json|e }}" style="padding:15px 0;border-bottom:1px solid #eef2f7">
+  <div class="sm-submission-row" data-payload="{{ row.payload_json|e }}" data-created-at="{{ row.created_at }}" data-updated-at="{{ row.updated_at }}" data-listing-at="{{ listing_dates.get(row.id) or '' }}" style="padding:15px 0;border-bottom:1px solid #eef2f7">
     <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <div style="min-width:280px;flex:1">
         <strong>#{{ row.id }} · {{ row.recipient_name }}</strong>
-        <div style="font-size:11px;color:#667085">Status: {{ row.status }} · Expires: {{ row.expires_at }}</div>
+        <div style="font-size:11px;color:#667085">Status: {{ row.status }} · <strong>SM Link Expires:</strong> {{ row.expires_at }}</div>
         <div class="submission-sm" style="font-size:12px;margin-top:7px"></div>
         <div class="submission-property" style="font-size:13px;margin-top:5px"></div>
         <div class="submission-address" style="font-size:12px;color:#475467;margin-top:3px"></div>
         <div class="submission-map" style="margin-top:7px"></div>
         <div class="submission-card" style="margin-top:7px"></div>
+        <div class="submission-timeline" style="font-size:12px;margin-top:9px;color:#344054"></div>
         {% if row.status == 'SUBMITTED' %}<div style="font-size:12px;margin-top:7px"><strong>🔔 Submission received.</strong> Review and process this submission.</div>{% endif %}
         {% if row.status == 'CORRECTION_REQUESTED' %}<div style="font-size:12px;margin-top:7px"><strong>Correction requested.</strong> The same SM link is editable again with the previous data preserved.</div>{% endif %}
         {% if row.status == 'IMPORTED' or row.revoked %}<div style="font-size:12px;margin-top:7px"><strong>SM link permanently locked/expired.</strong> No further SM edits are allowed.</div>{% endif %}
@@ -56,6 +57,7 @@
       var address = row.querySelector('.submission-address');
       var map = row.querySelector('.submission-map');
       var card = row.querySelector('.submission-card');
+      var timeline = row.querySelector('.submission-timeline');
       if (data.sm_name || data.sm_contact) {
         sm.innerHTML = '<strong>👤 Verified SM:</strong> ' + escapeHtml(data.sm_name || '') + (data.sm_contact ? ' · ' + escapeHtml(data.sm_contact) : '');
       }
@@ -72,6 +74,28 @@
         a.style.cssText = 'font-size:12px;font-weight:800';
         map.appendChild(a);
       }
+      var timelineParts = [];
+      if (row.getAttribute('data-created-at')) timelineParts.push('<strong>Link created:</strong> ' + escapeHtml(formatDate(row.getAttribute('data-created-at'))));
+      if (data.first_submitted_at) timelineParts.push('<strong>First details submitted:</strong> ' + escapeHtml(formatDate(data.first_submitted_at)));
+      if (row.getAttribute('data-listing-at')) timelineParts.push('<strong>Property listed/imported:</strong> ' + escapeHtml(formatDate(row.getAttribute('data-listing-at'))));
+      if (data.last_submitted_at) timelineParts.push('<strong>Last update:</strong> ' + escapeHtml(formatDate(data.last_submitted_at)));
+      if (timelineParts.length) timeline.innerHTML = timelineParts.join(' · ');
+      if ((data.update_history || []).length > 1) {
+        var history = document.createElement('details');
+        var summary = document.createElement('summary');
+        summary.textContent = 'View update history (' + data.update_history.length + ')';
+        summary.style.cursor = 'pointer';
+        var list = document.createElement('div');
+        list.style.cssText = 'margin-top:5px;color:#667085';
+        data.update_history.forEach(function (item, index) {
+          var line = document.createElement('div');
+          line.textContent = (index + 1) + '. ' + (item.type === 'FIRST_SUBMISSION' ? 'First details entered' : 'Details updated after correction') + ' · ' + formatDate(item.updated_at) + (item.configuration_count ? ' · Configurations: ' + item.configuration_count : '');
+          list.appendChild(line);
+        });
+        history.appendChild(summary);
+        history.appendChild(list);
+        timeline.appendChild(history);
+      }
       if (data.sm_visiting_card) {
         var c = document.createElement('a');
         c.href = data.sm_visiting_card;
@@ -83,6 +107,12 @@
       }
     } catch (e) {}
   });
+  function formatDate(value) {
+    if (!value) return '';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    return d.toLocaleString('en-IN', {timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true});
+  }
   function escapeHtml(value) {
     return String(value).replace(/[&<>\"']/g, function (ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]; });
   }
