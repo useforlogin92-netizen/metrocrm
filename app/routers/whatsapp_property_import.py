@@ -229,7 +229,6 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
 <label>Property Type<input name='property_type' value='{escape(str(editable["property_type"]))}'></label>
 <label>Construction Status<input name='construction_status' value='{escape(str(editable["construction_status"]))}'></label>
 <label>Address<input name='address' value='{escape(str(editable["address"]))}'></label>
-<label>RERA<input name='rera' value='{escape(str(editable["rera"]))}'></label>
 <label>Possession<input name='possession_text' value='{escape(str(editable["possession_text"]))}'></label>
 <label>Parking<input name='parking' value='{escape(str(editable["parking"]))}'></label>
 <label>Total Units<input name='total_units' value='{escape(str(editable["total_units"]))}'></label>
@@ -238,7 +237,6 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
 <label>Google Maps URL<input name='map_url' value='{escape(str(editable["map_url"]))}'></label>
 <label>RERA<input name='rera' value='{escape(str(editable["rera"]))}'></label>
 <label>Possession<input name='possession_text' value='{escape(str(editable["possession_text"]))}'></label>
-<label>Contact Phone<input name='contact_phone' value='{escape(str(editable["contact_phone"]))}'></label>
 <label>Amenities<input name='amenities' value='{escape(", ".join(map(str, editable["amenities"])))}'></label>
 <label>Highlights<textarea name='highlights' style='min-height:110px'>{escape("\\n".join(map(str, editable["highlights"])))}</textarea></label>
 <label>BHK / Area / Price configurations (JSON)<textarea name='unit_configurations' style='min-height:150px'>{escape(json.dumps(editable["unit_configurations"], ensure_ascii=False, indent=2))}</textarea></label>
@@ -283,8 +281,11 @@ async def admin_update_draft(
 @router.post("/super-admin/property-data/whatsapp-import/{submission_id}/update", dependencies=[Depends(require_csrf)])
 async def super_admin_update_draft(
     submission_id: int, request: Request,
+    state: str = Form(""), district: str = Form(""), pincode: str = Form(""),
     city: str = Form(""), locality: str = Form(""), address: str = Form(""),
     rera: str = Form(""), possession_text: str = Form(""), contact_phone: str = Form(""),
+    construction_status: str = Form(""), property_type: str = Form(""), parking: str = Form(""),
+    total_units: str = Form(""), website: str = Form(""), map_url: str = Form(""),
     amenities: str = Form(""), highlights: str = Form(""), unit_configurations: str = Form("[]"),
     db: Session = Depends(get_db),
 ):
@@ -332,7 +333,7 @@ def _update_draft(
         data["manual_review_updated_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         data["manual_review_updated_by"] = actor.id
         row.data_json = json.dumps(data, ensure_ascii=False)
-        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_DRAFT_UPDATED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details=json.dumps({"fields": ["city", "locality", "address", "rera", "possession_text", "contact_phone", "amenities", "highlights", "unit_configurations"]})))
+        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_DRAFT_UPDATED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details=json.dumps({"fields": ["state", "district", "pincode", "city", "locality", "address", "rera", "possession_text", "contact_phone", "construction_status", "property_type", "parking", "total_units", "website", "map_url", "amenities", "highlights", "unit_configurations"]})))
         db.commit()
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         db.rollback()
