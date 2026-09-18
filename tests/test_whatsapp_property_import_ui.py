@@ -59,7 +59,7 @@ async def test_legacy_whatsapp_review_queue_is_normalized_to_capture_button():
             "type": "http.response.body",
             "body": (
                 b'<html><body>'
-                b'<a class="pd-btn primary" href="/super-admin/property-data/whatsapp-import">📋 WhatsApp Review Queue</a>'
+                '<a class="pd-btn primary" href="/super-admin/property-data/whatsapp-import">📋 WhatsApp Review Queue</a>'.encode("utf-8")
                 b'</body></html>'
             ),
         })
