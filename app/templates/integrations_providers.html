@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Integrations{% endblock %}
+{% block header_title %}Integrations{% endblock %}
+{% block breadcrumb %}Integrations{% endblock %}
+{% block content %}
+<div class="toolbar"><div><h1 style="margin:0">Integrations</h1><p style="color:var(--muted);font-size:12px;margin:5px 0 0">All external integrations in one place. Configure, check and run safely.</p></div><button type="button" class="ib primary" onclick="openFirstPending()">＋ Add Integration</button></div>
+<div class="summary"><div><b id="total">0</b><span>Total integrations</span></div><div><b id="pending">0</b><span>Integrations Pending</span></div><div><b id="ready">0</b><span>Ready</span></div><div><b id="enabled">0</b><span>Enabled</span></div></div>
+<div class="notice">▶ <b>Run</b> performs a configuration/readiness check only. It does not create a lead or send test data to any external provider.</div>
+<div class="ilist">
+{% for p in providers %}
+<article class="icard" data-provider="{{p.name}}" data-configured="{{'1' if p.configured else '0'}}" data-enabled="{{'1' if p.enabled else '0'}}">
+<div class="iicon">⚙</div><div class="ibody"><div class="ititle">{{p.name|replace('_',' ')|title}}</div><div class="meta">{{p.mode|title}} · Lead Source</div><span class="status {{'on' if p.enabled else ('cfg' if p.configured else 'wait')}}">{{'Enabled' if p.enabled else ('Configured · Disabled' if p.configured else 'Integrations Pending')}}</span></div>
+<div class="iactions"><button class="ib" onclick="editIntegration('{{p.name}}')">{{'Edit' if p.configured else 'Add Integration'}}</button><button class="ib run" onclick="runIntegration('{{p.name}}')">▶ Run</button></div>
+</article>
+{% endfor %}
+<article class="icard service"><div class="iicon">🔔</div><div class="ibody"><div class="ititle">Property Visit Alerts</div><div class="meta">Customer-facing property visit notifications</div><span class="status {{'on' if property_visit_alerts else 'wait'}}">{{'Enabled' if property_visit_alerts else 'Integrations Pending'}}</span></div><div class="iactions"><span class="meta">System service</span></div></article>
+<article class="icard service"><div class="iicon">🔐</div><div class="ibody"><div class="ititle">OTP Services</div><div class="meta">Mobile: {{otp.mobile}} · Email: {{otp.email}}</div><span class="status cfg">Configured</span></div><div class="iactions"><span class="meta">Environment settings</span></div></article>
+</div>
+<div id="modal" class="modal" hidden><div class="modalbox"><div class="mhead"><div><h2 id="mtitle">Add Integration</h2><p>Provider connection settings</p></div><button onclick="closeModal()">×</button></div>
+<input type="hidden" id="provider"><label>Mode<select id="mode"><option value="webhook">Webhook</option><option value="api">API</option><option value="manual">Manual</option></select></label>
+<label>Webhook URL<input id="webhook" type="url" placeholder="https://provider.example/webhook"></label>
+<label>Page ID / Form ID<input id="pageform" placeholder="Optional"></label><label>Notes<textarea id="notes" rows="3" placeholder="Connection notes"></textarea></label>
+<label class="check"><input id="enabledBox" type="checkbox"> Enable integration</label><div id="msg"></div><div class="ma"><button class="ib" onclick="closeModal()">Cancel</button><button class="ib primary" onclick="saveIntegration()">Save Integration</button></div></div></div>
+<style>
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}.summary>div{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px}.summary b{display:block;font-size:22px}.summary span,.meta{font-size:11px;color:var(--muted)}.notice{background:#fffbeb;border:1px solid #fde68a;border-radius:11px;padding:11px 14px;font-size:12px;margin-bottom:14px}.ilist{display:grid;gap:10px}.icard{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px}.service{background:#f8fafc}.iicon{width:42px;height:42px;border-radius:11px;background:#eff6ff;display:grid;place-items:center}.ibody{flex:1}.ititle{font-weight:850;font-size:14px;margin-bottom:3px}.status{display:inline-block;margin-top:7px;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800}.status.on{background:#ecfdf3;color:#027a48}.status.cfg{background:#eff6ff;color:#175cd3}.status.wait{background:#fff7ed;color:#b54708}.iactions{display:flex;gap:7px;align-items:center}.ib{border:1px solid #cbd5e1;background:#fff;border-radius:9px;padding:8px 11px;font-weight:750;font-size:11px;cursor:pointer}.ib.primary{background:#2563eb;color:#fff;border-color:#2563eb}.ib.run{color:#175cd3}.modal{position:fixed;inset:0;background:#0007;z-index:100;display:grid;place-items:center;padding:20px}.modal[hidden]{display:none}.modalbox{background:#fff;width:min(520px,100%);border-radius:16px;padding:20px}.mhead{display:flex;justify-content:space-between}.mhead h2{margin:0}.mhead p{font-size:11px;color:var(--muted)}.mhead button{border:0;background:none;font-size:24px}.modalbox label{display:block;font-size:11px;font-weight:800;margin-top:12px}.modalbox input,.modalbox select,.modalbox textarea{width:100%;margin-top:5px;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;font-size:12px}.check{display:flex!important;align-items:center;gap:8px}.check input{width:auto}.ma{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}#msg{font-size:11px;color:#b42318;margin-top:10px}@media(max-width:760px){.summary{grid-template-columns:repeat(2,1fr)}.icard{flex-wrap:wrap}.iactions{width:100%;margin-left:56px}}
+</style>
+<script>
+const csrf={{csrf_token|tojson}};
+function cards(){return [...document.querySelectorAll('.icard[data-provider]')]}
+function refresh(){let c=cards();total.textContent=c.length;pending.textContent=c.filter(x=>x.dataset.configured!=='1').length;ready.textContent=c.filter(x=>x.dataset.enabled==='1').length;enabled.textContent=c.filter(x=>x.dataset.enabled==='1').length}
+function openFirstPending(){let c=cards().find(x=>x.dataset.configured!=='1');if(c)editIntegration(c.dataset.provider);else alert('All listed lead integrations are already configured.')}
+function editIntegration(p){provider.value=p;mtitle.textContent='Configure '+p.replaceAll('_',' ');enabledBox.checked=false;webhook.value='';pageform.value='';notes.value='';msg.textContent='';modal.hidden=false}
+function closeModal(){modal.hidden=true}
+async function saveIntegration(){let p=provider.value;let body={enabled:enabledBox.checked,mode:mode.value,webhook_url:webhook.value,page_id:pageform.value,form_id:pageform.value,notes:notes.value};let r=await fetch('/integrations/providers/'+encodeURIComponent(p),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)});let d=await r.json();if(!r.ok){msg.textContent=d.detail||'Unable to save integration';return}closeModal();location.reload()}
+async function runIntegration(p){let r=await fetch('/integrations/providers/'+encodeURIComponent(p)+'/run',{method:'POST',headers:{'X-CSRF-Token':csrf}});let d=await r.json();alert('Integration: '+p+'\nStatus: '+(d.status||'UNKNOWN')+'\n'+(d.message||''));if(r.ok)location.reload()}
+refresh();
+</script>
+{% endblock %}
