@@ -6,7 +6,7 @@ from html import escape
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.catalog_models import CatalogShare, CatalogShareVisit, PropertyMedia, PropertySocialProfile
