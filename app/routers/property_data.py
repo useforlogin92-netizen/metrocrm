@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, DataRequest, Developer, Project, Unit, User
+from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, SiteVisit, Token, Tower, Unit, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
 from tools.seed_godrej_nest_test import seed_godrej_nest_test
 
@@ -203,6 +203,87 @@ async def bulk_modify_property_data(request: Request, db: Session = Depends(get_
         db.rollback()
         return RedirectResponse("/admin/property-data?entity=Projects&error=" + str(exc).replace(" ", "+")[:350], status_code=303)
     return RedirectResponse("/admin/property-data?entity=Projects&message=Updated+" + str(len(rows)) + "+properties+successfully", status_code=303)
+
+
+@router.post("/super-admin/property-data/delete-selected", dependencies=[Depends(require_csrf)])
+async def delete_selected_property_data(request: Request, db: Session = Depends(get_db)):
+    """Delete selected Projects and their property-only inventory records."""
+    actor = _guard(request, db)
+    if not actor or actor.role != "SUPER_ADMIN":
+        return RedirectResponse("/dashboard", status_code=303)
+    form = await request.form()
+    raw_ids = form.getlist("project_ids")
+    project_ids = []
+    for raw_id in raw_ids:
+        try:
+            project_ids.append(int(str(raw_id)))
+        except (TypeError, ValueError):
+            continue
+    project_ids = list(dict.fromkeys(project_ids))
+    if not project_ids:
+        return RedirectResponse("/super-admin/property-data?entity=Projects&error=Select+at+least+one+property", status_code=303)
+    try:
+        projects = db.scalars(select(Project).where(Project.id.in_(project_ids))).all()
+        found = {row.id for row in projects}
+        missing = [str(pid) for pid in project_ids if pid not in found]
+        if missing:
+            raise ValueError("Property ID not found: " + ", ".join(missing[:10]))
+        blocked = []
+        for pid in project_ids:
+            if db.scalar(select(Booking.id).where(Booking.project_id == pid).limit(1)) or db.scalar(select(Commission.id).where(Commission.project_id == pid).limit(1)) or db.scalar(select(SiteVisit.id).where(SiteVisit.project_id == pid).limit(1)) or db.scalar(select(Token.id).where(Token.project_id == pid).limit(1)):
+                blocked.append(str(pid))
+        if blocked:
+            raise ValueError("Cannot delete property with linked booking, commission, site visit or token records: " + ", ".join(blocked[:10]))
+        unit_ids = [x for x in db.scalars(select(Unit.id).where(Unit.project_id.in_(project_ids))).all()]
+        if unit_ids:
+            db.query(Token).filter(Token.unit_id.in_(unit_ids)).update({Token.unit_id: None}, synchronize_session=False)
+            db.query(Booking).filter(Booking.unit_id.in_(unit_ids)).update({Booking.unit_id: None}, synchronize_session=False)
+        db.query(NearbyLocation).filter(NearbyLocation.project_id.in_(project_ids)).delete(synchronize_session=False)
+        db.query(Unit).filter(Unit.project_id.in_(project_ids)).delete(synchronize_session=False)
+        db.query(Tower).filter(Tower.project_id.in_(project_ids)).delete(synchronize_session=False)
+        db.query(Project).filter(Project.id.in_(project_ids)).delete(synchronize_session=False)
+        db.add(AuditEvent(
+            actor_user_id=actor.id,
+            action="PROPERTY_RECORD_BULK_DELETED",
+            entity_type="Projects",
+            entity_id=",".join(map(str, project_ids)),
+            details=json.dumps({"project_ids": project_ids, "count": len(project_ids), "property_only_records": True}),
+        ))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return RedirectResponse("/super-admin/property-data?entity=Projects&error=" + str(exc).replace(" ", "+")[:350], status_code=303)
+    return RedirectResponse("/super-admin/property-data?entity=Projects&message=Deleted+" + str(len(project_ids)) + "+selected+properties+successfully", status_code=303)
+
+
+@router.post("/super-admin/property-data/projects/{project_id}/delete", dependencies=[Depends(require_csrf)])
+def delete_single_property_data(project_id: int, request: Request, db: Session = Depends(get_db)):
+    actor = _guard(request, db)
+    if not actor or actor.role != "SUPER_ADMIN":
+        return RedirectResponse("/dashboard", status_code=303)
+    if not db.get(Project, project_id):
+        return RedirectResponse("/super-admin/property-data?entity=Projects&error=Property+not+found", status_code=303)
+    return _delete_single_property_data(project_id, actor, db)
+
+
+def _delete_single_property_data(project_id: int, actor: User, db: Session):
+    try:
+        if db.scalar(select(Booking.id).where(Booking.project_id == project_id).limit(1)) or db.scalar(select(Commission.id).where(Commission.project_id == project_id).limit(1)) or db.scalar(select(SiteVisit.id).where(SiteVisit.project_id == project_id).limit(1)) or db.scalar(select(Token.id).where(Token.project_id == project_id).limit(1)):
+            raise ValueError("Cannot delete property with linked booking, commission, site visit or token records")
+        unit_ids = db.scalars(select(Unit.id).where(Unit.project_id == project_id)).all()
+        db.query(NearbyLocation).filter(NearbyLocation.project_id == project_id).delete(synchronize_session=False)
+        if unit_ids:
+            db.query(Token).filter(Token.unit_id.in_(unit_ids)).update({Token.unit_id: None}, synchronize_session=False)
+            db.query(Booking).filter(Booking.unit_id.in_(unit_ids)).update({Booking.unit_id: None}, synchronize_session=False)
+        db.query(Unit).filter(Unit.project_id == project_id).delete(synchronize_session=False)
+        db.query(Tower).filter(Tower.project_id == project_id).delete(synchronize_session=False)
+        db.query(Project).filter(Project.id == project_id).delete(synchronize_session=False)
+        db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_RECORD_DELETED", entity_type="Projects", entity_id=str(project_id), details=json.dumps({"property_only_records": True})))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return RedirectResponse("/super-admin/property-data?entity=Projects&error=" + str(exc).replace(" ", "+")[:350], status_code=303)
+    return RedirectResponse("/super-admin/property-data?entity=Projects&message=Property+" + str(project_id) + "+deleted+successfully", status_code=303)
 
 
 @router.post("/admin/property-data/save", dependencies=[Depends(require_csrf)])
