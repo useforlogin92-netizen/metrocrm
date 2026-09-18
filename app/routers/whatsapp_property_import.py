@@ -334,10 +334,16 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     created_destinations: list[Path] = []
     staging_root = _root("property-import-staging").resolve()
     try:
+        if data.get("state") and not project.state: project.state = data["state"]
+        if data.get("district") and not project.district: project.district = data["district"]
+        if data.get("pincode") and not project.pincode: project.pincode = data["pincode"]
         if data.get("city") and not project.city: project.city = data["city"]
         if data.get("locality") and not project.locality: project.locality = data["locality"]
         if data.get("address") and not project.address: project.address = data["address"]
         if data.get("rera") and not project.rera: project.rera = data["rera"]
+        if data.get("construction_status") and not project.construction_status: project.construction_status = data["construction_status"]
+        if data.get("website") and not project.photos_json:
+            project.photos_json = json.dumps([data["website"]], ensure_ascii=False)
         if data.get("possession_text") and not project.description: project.description = data["possession_text"]
         description_parts = []
         if data.get("highlights"): description_parts.append("WhatsApp source highlights:\n- " + "\n- ".join(data["highlights"]))
@@ -376,6 +382,8 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
             mime = str(attachment.get("mime_type") or "application/octet-stream")
             media_type = "PROPERTY_IMAGE" if mime.startswith("image/") else "PROPERTY_VIDEO" if mime.startswith("video/") else "PROPERTY_CATALOG"
             db.add(PropertyMedia(project_id=project.id, media_type=media_type, title=str(attachment.get("filename") or "Imported attachment")[:255], file_url=f"/media/property/{filename}", storage_key=f"property-media/{filename}", mime_type=mime, file_size=attachment.get("size"), sort_order=0, is_shareable=True, uploaded_by_id=actor.id))
+            if mime == "application/pdf" and not project.brochure:
+                project.brochure = f"/media/property/{filename}"
         row.status = "APPROVED"; row.record_id = project.id; row.reviewed_by_id = actor.id; row.review_note = "Verified WhatsApp property import"; row.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_COMMITTED", entity_type="Projects", entity_id=str(project.id), details=json.dumps({"submission_id": row.id, "units": len(data.get("unit_configurations") or []), "attachments": len(data.get("attachments") or []), "source_only": True})))
         db.commit()
