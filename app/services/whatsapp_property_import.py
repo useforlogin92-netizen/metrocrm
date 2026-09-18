@@ -285,29 +285,85 @@ def attachment_record(filename: str, mime_type: str, data: bytes) -> dict[str, A
     return {"filename": Path(filename).name[:255], "mime_type": mime_type[:120], "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "extracted_text_chars": len(extracted)}
 
 
+def _merge_source_values(whatsapp: dict[str, Any], brochure: list[dict[str, Any]], supporting: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Merge sources using explicit priority: brochure > WhatsApp > media OCR."""
+    merged = dict(whatsapp)
+    conflicts: list[dict[str, Any]] = []
+
+    def apply(source: dict[str, Any], source_name: str, priority: str, overwrite: bool):
+        for field, value in source.items():
+            if field in {"raw_text", "project_candidates", "source_identities", "unattributed_sources", "unit_configurations", "filename"}:
+                continue
+            if value in (None, "", [], {}):
+                continue
+            existing = merged.get(field)
+            if existing not in (None, "", [], {}) and normalize_name(str(existing)) != normalize_name(str(value)):
+                conflicts.append({"field": field, "existing": existing, "incoming": value, "source": source_name, "priority": priority})
+            if overwrite or existing in (None, "", [], {}):
+                merged[field] = value
+
+    # Supporting image/video OCR can fill gaps, but never override WhatsApp text.
+    for item in supporting:
+        apply(item, str(item.get("filename") or "image/video"), "supporting", False)
+    # The WhatsApp message is the base source.
+    apply(whatsapp, "WhatsApp", "secondary", True)
+    # A brochure/PDF is the primary structured source and overrides conflicting fields.
+    for item in brochure:
+        apply(item, str(item.get("filename") or "brochure"), "primary", True)
+
+    configs: list[dict[str, Any]] = []
+    seen_configs: set[tuple[Any, Any, Any, Any]] = set()
+    for source in supporting + [whatsapp] + brochure:
+        for cfg in source.get("unit_configurations") or []:
+            key = (cfg.get("wing"), cfg.get("bhk"), cfg.get("carpet_area"), cfg.get("price"))
+            if key not in seen_configs:
+                seen_configs.add(key)
+                configs.append(cfg)
+    merged["unit_configurations"] = configs
+    return merged, conflicts
+
+
 def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, Any]:
-    combined = [text[:MAX_TEXT_CHARS]]
+    whatsapp = parse_property_text(text[:MAX_TEXT_CHARS])
+    brochure_sources: list[dict[str, Any]] = []
+    supporting_sources: list[dict[str, Any]] = []
     source_identities = []
     unattributed_sources = []
-    for item in attachments:
-        extracted = item.get("extracted_text", "")
-        if extracted: combined.append(extracted[:MAX_TEXT_CHARS])
-        identities = _extract_identities(extracted)
-        if identities["projects"] or identities["developers"]:
-            source_identities.append({"filename": item.get("filename"), **identities})
-        elif extracted.strip():
-            unattributed_sources.append(item.get("filename"))
-    parsed = parse_property_text("\n\n".join(x for x in combined if x))
-    unique_projects = {normalize_name(x): x for x in parsed["project_candidates"]}
-    for item in source_identities:
-        for project in item["projects"]:
-            unique_projects.setdefault(normalize_name(project), project)
-    parsed["project_candidates"] = list(unique_projects.values())
-    parsed["source_identities"] = source_identities
-    parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
-    parsed["identity_conflict"] = len(unique_projects) > 1 or len(_extract_identities("\n".join(combined))["developers"]) > 1
-    return parsed
 
+    for item in attachments:
+        extracted = item.get("extracted_text", "") or ""
+        parsed = parse_property_text(extracted) if extracted.strip() else {}
+        parsed["filename"] = item.get("filename")
+        if extracted.strip():
+            identities = _extract_identities(extracted)
+            if identities["projects"] or identities["developers"]:
+                source_identities.append({"filename": item.get("filename"), **identities})
+            else:
+                unattributed_sources.append(item.get("filename"))
+        is_brochure = str(item.get("mime_type", "")).lower() == "application/pdf" or str(item.get("filename", "")).lower().endswith(".pdf")
+        (brochure_sources if is_brochure else supporting_sources).append(parsed)
+
+    parsed, field_conflicts = _merge_source_values(whatsapp, brochure_sources, supporting_sources)
+
+    all_projects: dict[str, str] = {}
+    all_developers: dict[str, str] = {}
+    for source in [whatsapp] + supporting_sources + brochure_sources:
+        for project in source.get("project_candidates") or []:
+            all_projects.setdefault(normalize_name(project), project)
+        if source.get("developer"):
+            all_developers.setdefault(normalize_name(str(source["developer"])), str(source["developer"]))
+
+    parsed["project_candidates"] = list(all_projects.values())
+    parsed["source_identities"] = source_identities
+    parsed["source_priority"] = "BROCHURE/PDF > WHATSAPP > IMAGE/VIDEO"
+    parsed["field_conflicts"] = field_conflicts
+    parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
+    parsed["identity_conflict"] = len(all_projects) > 1 or len(all_developers) > 1
+    parsed["source_documents"] = {
+        "brochures": [x.get("filename") for x in attachments if str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf")],
+        "supporting_media": [x.get("filename") for x in attachments if not (str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf"))],
+    }
+    return parsed
 
 def find_safe_project_matches(db: Session, parsed: dict[str, Any]) -> dict[str, Any]:
     result: list[dict[str, Any]] = []
