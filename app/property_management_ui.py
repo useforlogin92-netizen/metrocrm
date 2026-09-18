@@ -97,6 +97,7 @@ class PropertyManagementUIMiddleware:
     const csrf=document.querySelector('input[name="csrf_token"]');
     if(!table || !csrf) return;
     const base=location.pathname.startsWith('/super-admin/')?'/super-admin/property-data':'/admin/property-data';
+    if(role!=='SUPER_ADMIN') return;
     table.querySelectorAll('tr').forEach(function(row){
       const cells=row.querySelectorAll('td');
       if(cells.length<3) return;
