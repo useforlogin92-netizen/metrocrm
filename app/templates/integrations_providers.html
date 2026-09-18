@@ -88,7 +88,7 @@ function editIntegration(p){byId('provider').value=p;byId('mtitle').textContent=
 function closeModal(){byId('modal').hidden=true}
 async function saveIntegration(){
  const p=byId('provider').value;
- const body={enabled:byId('enabledBox').value==='true',mode:byId('mode').value,lead_source:byId('leadsource').value,webhook_url:byId('webhook').value,page_id:byId('pageform').value,form_id:byId('pageform').value,notes:byId('notes').value,duplicate_handling:byId('duplicate').value,auto_create_lead:byId('autolead').value==='true',api_key:byId('apikey').value,api_secret:byId('apisecret').value,access_token:byId('accesstoken').value};
+ const body={enabled:byId('enabledBox').value==='true',mode:byId('mode').value,integration_name:byId('iname').value,api_permission:byId('permission').value,lead_source:byId('leadsource').value,webhook_url:byId('webhook').value,page_id:byId('pageform').value,form_id:byId('pageform').value,notes:byId('notes').value,duplicate_handling:byId('duplicate').value,auto_create_lead:byId('autolead').value==='true',api_key:byId('apikey').value,api_secret:byId('apisecret').value,access_token:byId('accesstoken').value};
  const r=await fetch('/integrations/providers/'+encodeURIComponent(p),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){byId('msg').textContent=d.detail||'Unable to save integration';return}closeModal();location.reload()
 }
 async function testIntegration(p){const r=await fetch('/integrations/providers/'+encodeURIComponent(p)+'/run',{method:'POST',headers:{'X-CSRF-Token':csrf}});const d=await r.json();alert(p+'\nTest Connection: '+(d.status||'UNKNOWN')+'\n'+(d.message||''))}
