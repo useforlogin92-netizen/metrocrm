@@ -30,6 +30,7 @@ def test_super_admin_legacy_navigation_is_redirected_to_dedicated_urls():
         ("/admin/users/pending", "/super-admin/users/pending"),
         ("/admin/property-data", "/super-admin/property-data"),
         ("/admin/property-data/social", "/super-admin/property-data/social"),
+        ("/admin/property-submissions", "/super-admin/property-submissions"),
         ("/admin/leads/offline-import", "/super-admin/leads/offline-import"),
         ("/admin/data-tools", "/super-admin/data-tools"),
         ("/admin/backups/status", "/super-admin/backups/status"),
@@ -135,3 +136,16 @@ def test_unauthenticated_portal_request_passes_through_to_route_guard():
         return "next"
 
     assert _run_boundary(request, call_next) == "next"
+
+
+def test_super_admin_property_submissions_dedicated_route_is_not_bridged_back_to_admin():
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/super-admin/property-submissions"),
+        session={"user_id": 1, "login_portal": "super_admin"},
+        method="GET",
+        scope={"path": "/super-admin/property-submissions", "raw_path": b"/super-admin/property-submissions"},
+    )
+
+    assert portal_boundary._super_admin_legacy_route_bridge(request) is False
+    assert request.scope["path"] == "/super-admin/property-submissions"
+    assert request.scope["raw_path"] == b"/super-admin/property-submissions"
