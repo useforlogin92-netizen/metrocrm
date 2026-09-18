@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.integration_models import IntegrationConfig, PropertyVisitAlert
 from app.models import AuditEvent, User
-from app.csrf import require_csrf_header
+from app.csrf import csrf_token, require_csrf_header
 from app.services.integrations import SUPPORTED_LEAD_PROVIDERS, ingest_lead, verify_webhook_signature
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -52,11 +52,14 @@ def _shell_context(request: Request, user: User) -> dict:
 
 @router.get("/providers")
 def providers(request: Request, db: Session = Depends(get_db)):
-    _management(request, db)
-    enabled = {row.provider: row.enabled for row in db.scalars(select(IntegrationConfig)).all()}
-    return {"providers": [{"name": p, "enabled": bool(enabled.get(p, False))} for p in SUPPORTED_LEAD_PROVIDERS],
-            "otp": {"mobile": settings.otp_mobile_provider, "email": settings.otp_email_provider},
-            "property_visit_alerts": settings.property_visit_alerts_enabled}
+    user = _management(request, db)
+    rows = db.scalars(select(IntegrationConfig)).all()
+    configs = {row.provider: row for row in rows}
+    wants_json = "application/json" in request.headers.get("accept", "") and "text/html" not in request.headers.get("accept", "")
+    payload = {"providers": [{"name": p, "enabled": bool(configs[p].enabled) if p in configs else False, "mode": configs[p].mode if p in configs else "webhook", "configured": p in configs} for p in SUPPORTED_LEAD_PROVIDERS], "otp": {"mobile": settings.otp_mobile_provider, "email": settings.otp_email_provider}, "property_visit_alerts": settings.property_visit_alerts_enabled}
+    if wants_json:
+        return payload
+    return templates.TemplateResponse("integrations_providers.html", {**_shell_context(request, user), "providers": payload["providers"], "otp": payload["otp"], "property_visit_alerts": payload["property_visit_alerts"], "csrf_token": csrf_token(request)})
 
 
 @router.post("/providers/{provider}", dependencies=[Depends(require_csrf_header)])
@@ -78,6 +81,27 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
     db.commit()
     return {"provider": provider, "enabled": row.enabled, "mode": row.mode}
 
+
+@router.post("/providers/{provider}/run", dependencies=[Depends(require_csrf_header)])
+def run_provider(provider: str, request: Request, db: Session = Depends(get_db)):
+    user = _management(request, db)
+    provider = provider.lower().strip()
+    if provider not in SUPPORTED_LEAD_PROVIDERS:
+        raise HTTPException(404, "unsupported_provider")
+    row = db.scalar(select(IntegrationConfig).where(IntegrationConfig.provider == provider))
+    if row is None:
+        return JSONResponse({"status": "PENDING", "provider": provider, "message": "Integration is not configured yet."}, status_code=409)
+    if not row.enabled:
+        return JSONResponse({"status": "DISABLED", "provider": provider, "message": "Integration is configured but disabled."}, status_code=409)
+    try:
+        cfg = json.loads(row.settings_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        cfg = {}
+    checks = {"mode": bool(row.mode), "webhook_url": bool(cfg.get("webhook_url")) if row.mode == "webhook" else True, "global_lead_integrations": bool(settings.lead_integrations_enabled)}
+    status = "READY" if all(checks.values()) else "PENDING"
+    db.add(AuditEvent(actor_user_id=user.id, action="INTEGRATION_TEST_RUN", entity_type="IntegrationConfig", entity_id=provider, details=json.dumps({"checks": checks, "status": status})))
+    db.commit()
+    return {"status": status, "provider": provider, "checks": checks, "message": "Configuration check completed. No external lead was created."}
 
 @router.post("/lead/{provider}")
 async def lead_webhook(provider: str, request: Request, x_metrocrm_signature: str | None = Header(default=None), db: Session = Depends(get_db)):
