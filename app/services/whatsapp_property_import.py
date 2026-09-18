@@ -126,6 +126,9 @@ def parse_property_text(text: str) -> dict[str, Any]:
     identities = _extract_identities(text)
     upper = text.upper()
     city = _first((r"\b(?:city)\s*[:\-]\s*([^\n,|]+)",), text)
+    state = _first((r"\b(?:state)\s*[:\-]\s*([^\n,|]+)",), text)
+    district = _first((r"\b(?:district)\s*[:\-]\s*([^\n,|]+)",), text)
+    pincode = _first((r"\b(?:pincode|pin code|pin)\s*[:\-]?\s*(\d{6})\b",), text)
     if not city and "MUMBAI" in upper and "KANDIVALI" in upper:
         city = "Mumbai"
     locality = _first((r"\b(?:locality|area)\s*[:\-]\s*([^\n|]+)",), text)
@@ -169,10 +172,19 @@ def parse_property_text(text: str) -> dict[str, Any]:
     floors = _first((r"\b(\d+)\s*[- ]?storey(?:\s+iconic\s+tower)?\b",), text)
     total_units = _first((r"\b(?:total units|no\. of units|number of units)\s*[:\-]\s*([^\n]+)",), text)
     parking = _first((r"\bparking\s*[:\-]\s*([^\n]+)", r"\b(\d+\s*(?:car|car park|parking)(?:s)?\b)"), text)
+    construction_status = _first((r"\b(?:construction status|status)\s*[:\-]\s*([^\n|]+)",), text)
+    if not construction_status:
+        construction_status = "Ready to Move" if re.search(r"(?i)\bready\s*to\s*move\b", text) else "Under Construction" if re.search(r"(?i)\bunder\s*construction\b", text) else None
+    property_type = _first((r"\b(?:property type|type)\s*[:\-]\s*([^\n|]+)",), text)
+    website = website.rstrip(").,;")
+    map_url = map_url.rstrip(").,;") if map_url else map_url
     return {
         "developer": developer,
         "project": project,
         "project_candidates": identities["projects"],
+        "state": state,
+        "district": district,
+        "pincode": pincode,
         "city": city,
         "locality": locality,
         "address": address,
@@ -186,6 +198,8 @@ def parse_property_text(text: str) -> dict[str, Any]:
         "total_building_floors": int(floors) if floors and floors.isdigit() else None,
         "parking": parking,
         "total_units": total_units,
+        "construction_status": construction_status,
+        "property_type": property_type,
         "unit_configurations": _extract_configurations(text),
         "possession_text": possession,
         "raw_text": text,
