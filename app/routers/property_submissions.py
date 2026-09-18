@@ -331,6 +331,8 @@ def _management_page(request: Request, db: Session, actor: User, portal: str):
 @router.get("/admin/property-submissions", response_class=HTMLResponse)
 def admin_property_submissions(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
+    if _super_role(actor):
+        return RedirectResponse("/super-admin/property-submissions", status_code=303)
     if not _admin_role(actor):
         return RedirectResponse("/admin/login", status_code=303)
     return _management_page(request, db, actor, "admin")
@@ -339,6 +341,8 @@ def admin_property_submissions(request: Request, db: Session = Depends(get_db)):
 @router.get("/super-admin/property-submissions", response_class=HTMLResponse)
 def super_property_submissions(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
+    if _admin_role(actor):
+        return RedirectResponse("/admin/property-submissions", status_code=303)
     if not _super_role(actor):
         return RedirectResponse("/super-admin/login", status_code=303)
     return _management_page(request, db, actor, "super-admin")
