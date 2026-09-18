@@ -75,7 +75,7 @@ def configure_provider(provider: str, body: dict, request: Request, db: Session 
         db.add(row)
     row.enabled = bool(body.get("enabled", False))
     row.mode = str(body.get("mode", "webhook"))[:30]
-    safe_settings = {k: v for k, v in body.items() if k in {"mode", "webhook_url", "page_id", "form_id", "notes", "auto_create_lead", "duplicate_handling", "assigned_user_id", "lead_source"}}
+    safe_settings = {k: v for k, v in body.items() if k in {"mode", "webhook_url", "page_id", "form_id", "notes", "auto_create_lead", "duplicate_handling", "assigned_user_id", "lead_source", "integration_name", "api_permission"}}
     row.settings_json = json.dumps(safe_settings)
     credentials = {k: str(body.get(k)).strip() for k in ("api_key", "api_secret", "access_token") if body.get(k)}
     if credentials:
