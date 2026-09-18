@@ -9,12 +9,12 @@ from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import String, cast, or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, DataRequest, User
+from app.models import AuditEvent, DataRequest, Developer, Project, Unit, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
 from tools.seed_godrej_nest_test import seed_godrej_nest_test
 
@@ -68,7 +68,38 @@ def property_data_page(request: Request, db: Session = Depends(get_db)):
     if selected not in PROPERTY_MODELS:
         selected = "Projects"
     model, fields = PROPERTY_MODELS[selected]
-    rows = db.scalars(select(model).order_by(model.id.desc()).limit(100)).all()
+    search = request.query_params.get("search", "").strip()[:120]
+    if search:
+        pattern = f"%{search}%"
+        if selected == "Projects":
+            project_columns = [
+                Project.id, Project.name, Project.state, Project.district, Project.city,
+                Project.locality, Project.sector, Project.address, Project.pincode,
+                Project.latitude, Project.longitude, Project.rera, Project.possession_date,
+                Project.builder_commitment_date, Project.construction_status,
+                Project.amenities_json, Project.photos_json, Project.brochure, Project.description,
+            ]
+            unit_columns = [
+                Unit.id, Unit.unit_number, Unit.bhk, Unit.property_type, Unit.carpet_area,
+                Unit.built_up_area, Unit.super_built_up_area, Unit.plot_area, Unit.price,
+                Unit.price_per_sqft, Unit.parking, Unit.facing, Unit.furnishing, Unit.possession,
+                Unit.rera, Unit.availability, Unit.status, Unit.amenities_json,
+                Unit.photos_json, Unit.floor_plan, Unit.brochure, Unit.description, Unit.other_details,
+            ]
+            conditions = [cast(column, String).ilike(pattern) for column in project_columns]
+            conditions.append(cast(Developer.name, String).ilike(pattern))
+            unit_match = select(Unit.id).where(
+                Unit.project_id == Project.id,
+                or_(*[cast(column, String).ilike(pattern) for column in unit_columns]),
+            ).exists()
+            conditions.append(unit_match)
+            stmt = select(Project).outerjoin(Developer, Developer.id == Project.developer_id).where(or_(*conditions))
+        else:
+            columns = [column for column in model.__table__.columns]
+            stmt = select(model).where(or_(*[cast(column, String).ilike(pattern) for column in columns]))
+        rows = db.scalars(stmt.order_by(model.id.desc()).limit(100)).all()
+    else:
+        rows = db.scalars(select(model).order_by(model.id.desc()).limit(100)).all()
     editing_id = request.query_params.get("id")
     edit_row = db.get(model, int(editing_id)) if editing_id and editing_id.isdigit() else None
     export_requests = db.scalars(
@@ -79,7 +110,7 @@ def property_data_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("property_data.html", {
         "request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(),
         "csrf_token": csrf_token(request), "entities": PROPERTY_SHEETS, "selected": selected, "fields": fields,
-        "rows": rows, "edit_row": edit_row, "display_value": _display_value, "getattr": getattr,
+        "rows": rows, "edit_row": edit_row, "display_value": _display_value, "getattr": getattr, "search": search,
         "export_requests": export_requests,
         "message": request.query_params.get("message"), "error": request.query_params.get("error"),
         "show_user_management": actor.role in {"SUPER_ADMIN", "ADMIN"}, "show_integrations": False,
