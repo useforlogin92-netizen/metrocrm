@@ -1,6 +1,8 @@
 """Inline WhatsApp property capture UI for the Property Data workspace."""
 from __future__ import annotations
 
+import re
+
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
@@ -37,6 +39,8 @@ class WhatsAppPropertyImportUIMiddleware:
                     return
                 html = body.decode("utf-8", errors="replace")
                 if "metrocrm-whatsapp-property-import" not in html:
+                    csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+                    page_csrf = csrf_match.group(1) if csrf_match else ""
                     base = "/super-admin/property-data" if path.startswith("/super-admin/") else "/admin/property-data"
                     analyze = f"{base}/whatsapp-import/analyze"
                     widget = f"""
@@ -59,7 +63,7 @@ class WhatsAppPropertyImportUIMiddleware:
     <h2 id="metrocrm-whatsapp-title">📲 Property Data Received by WhatsApp</h2>
     <p class="metrocrm-wa-muted">Paste the complete WhatsApp property message below. You can also attach the brochure, PDF, images or videos you received. MetroCRM will extract only information actually present in these sources; anything not present stays blank for later SM verification.</p>
     <form id="metrocrm-whatsapp-form" method="post" action="{analyze}" enctype="multipart/form-data">
-      <input type="hidden" name="csrf_token" id="metrocrm-whatsapp-csrf" value="{csrf_token}">
+      <input type="hidden" name="csrf_token" id="metrocrm-whatsapp-csrf" value="{page_csrf}">
       <label for="metrocrm-whatsapp-text"><b>WhatsApp message</b></label>
       <textarea id="metrocrm-whatsapp-text" name="source_text" placeholder="Paste WhatsApp text here..." required></textarea>
       <label for="metrocrm-whatsapp-files" style="display:block;margin-top:12px"><b>Attachments</b></label>
