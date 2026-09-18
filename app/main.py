@@ -407,8 +407,16 @@ def logout(request: Request, db: Session = Depends(get_db)):
         if user:
             _audit(db, user.id, "LOGOUT", user)
             db.commit()
+    login_portal = request.session.get("login_portal")
     request.session.clear()
-    response = RedirectResponse("/", status_code=303)
+    logout_destination = (
+        "/super-admin/login"
+        if login_portal == "super_admin"
+        else "/admin/login"
+        if login_portal == "admin"
+        else "/"
+    )
+    response = RedirectResponse(logout_destination, status_code=303)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
