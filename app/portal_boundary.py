@@ -64,6 +64,10 @@ def _super_admin_legacy_route_bridge(request: Request) -> bool:
     if request.session.get("login_portal") != "super_admin":
         return False
     path = request.url.path
+    # /super-admin/property-submissions is a dedicated handler namespace;
+    # do not bridge it back to the legacy Admin implementation.
+    if path == "/super-admin/property-submissions" or path.startswith("/super-admin/property-submissions/"):
+        return False
     for legacy, dedicated in _SUPER_ADMIN_LEGACY_ROUTES:
         if path == dedicated or path.startswith(dedicated + "/"):
             legacy_path = legacy + path[len(dedicated):]
