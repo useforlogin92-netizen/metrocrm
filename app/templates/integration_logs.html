@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Integration Logs{% endblock %}
+{% block header_title %}Integration Activity{% endblock %}
+{% block breadcrumb %}Integrations / Activity Logs{% endblock %}
+{% block content %}
+<div class="toolbar"><div><h1 style="margin:0">Integration Activity</h1><p class="muted">Recent configuration, connection-test and sync requests.</p></div><a class="ib" href="/integrations/providers">← Integrations</a></div>
+<div class="table-wrap"><table><thead><tr><th>Time</th><th>Provider</th><th>Event</th><th>Details</th></tr></thead><tbody>
+{% for row in rows %}
+<tr><td>{{ row.created_at }}</td><td>{{ row.entity_id or '—' }}</td><td>{{ row.action }}</td><td><code>{{ row.details or '' }}</code></td></tr>
+{% else %}<tr><td colspan="4">No integration activity yet.</td></tr>{% endfor %}
+</tbody></table></div>
+<style>.muted{color:var(--muted);font-size:11px}.table-wrap{margin-top:15px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:auto}table{width:100%;border-collapse:collapse;font-size:11px}th,td{text-align:left;padding:11px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:10px;text-transform:uppercase;color:var(--muted)}code{white-space:pre-wrap;word-break:break-word}</style>
+{% endblock %}
