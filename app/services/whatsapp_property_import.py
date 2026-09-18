@@ -353,12 +353,26 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
         if source.get("developer"):
             all_developers.setdefault(normalize_name(str(source["developer"])), str(source["developer"]))
 
-    parsed["project_candidates"] = list(all_projects.values())
+    brochure_projects = []
+    brochure_developers = []
+    for source in brochure_sources:
+        brochure_projects.extend(source.get("project_candidates") or [])
+        if source.get("developer"):
+            brochure_developers.append(str(source["developer"]))
+    primary_projects = list(dict.fromkeys(brochure_projects)) or list(dict.fromkeys(whatsapp.get("project_candidates") or []))
+    primary_developers = list(dict.fromkeys(brochure_developers)) or ([whatsapp["developer"]] if whatsapp.get("developer") else [])
+
+    # Primary identity comes from the brochure when available. WhatsApp/media
+    # differences are retained as warnings for Ready-to-Check rather than
+    # preventing the brochure-backed project from being selected.
+    parsed["project_candidates"] = primary_projects
+    parsed["additional_project_candidates"] = [x for x in all_projects.values() if normalize_name(x) not in {normalize_name(y) for y in primary_projects}]
     parsed["source_identities"] = source_identities
     parsed["source_priority"] = "BROCHURE/PDF > WHATSAPP > IMAGE/VIDEO"
     parsed["field_conflicts"] = field_conflicts
     parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
-    parsed["identity_conflict"] = len(all_projects) > 1 or len(all_developers) > 1
+    parsed["source_identity_warning"] = len(all_projects) > 1 or len(all_developers) > 1
+    parsed["identity_conflict"] = len(primary_projects) != 1 or len(primary_developers) > 1
     parsed["source_documents"] = {
         "brochures": [x.get("filename") for x in attachments if str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf")],
         "supporting_media": [x.get("filename") for x in attachments if not (str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf"))],
