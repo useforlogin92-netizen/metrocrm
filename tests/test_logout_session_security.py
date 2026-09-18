@@ -62,18 +62,24 @@ def test_logout_cookie_hardening_does_not_touch_other_routes():
     assert sent[0]["headers"] == []
 
 
+
 def test_logout_destination_is_selected_from_portal():
-    from app import main
+    from app.main import logout
 
     class Session(dict):
         def clear(self):
             super().clear()
 
-    class Req:
+    class Request:
         def __init__(self, portal):
-            self.session = Session(user_id=1, login_portal=portal)
+            self.session = Session(user_id=0, login_portal=portal)
+        def __getattr__(self, name):
+            raise AttributeError(name)
 
-    # Exercise the destination logic without requiring a database lookup.
-    assert (lambda portal: "/super-admin/login" if portal == "super_admin" else "/admin/login" if portal == "admin" else "/")( "super_admin") == "/super-admin/login"
-    assert (lambda portal: "/super-admin/login" if portal == "super_admin" else "/admin/login" if portal == "admin" else "/")( "admin") == "/admin/login"
-    assert (lambda portal: "/super-admin/login" if portal == "super_admin" else "/admin/login" if portal == "admin" else "/")( "staff") == "/"
+    class DB:
+        def get(self, *_args):
+            return None
+
+    assert logout(Request("super_admin"), DB()).headers["location"] == "/super-admin/login"
+    assert logout(Request("admin"), DB()).headers["location"] == "/admin/login"
+    assert logout(Request("staff"), DB()).headers["location"] == "/"
