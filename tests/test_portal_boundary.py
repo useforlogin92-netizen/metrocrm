@@ -46,15 +46,17 @@ def test_super_admin_legacy_navigation_is_redirected_to_dedicated_urls():
         assert response.headers["location"] == expected
 
 
-def test_super_admin_unmapped_admin_surface_still_requires_admin_login():
-    request = _request("/admin", {"user_id": 1, "login_portal": "super_admin"})
+def test_super_admin_unmapped_admin_surface_stays_inside_super_admin_namespace():
+    request = _request("/admin/unknown-feature", {"user_id": 1, "login_portal": "super_admin"})
 
     async def call_next(_request):
         return "next"
 
     response = _run_boundary(request, call_next)
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"] == "/super-admin"
+
+
 
 
 def test_super_admin_legacy_route_bridge_maps_dedicated_url_to_existing_handler():
