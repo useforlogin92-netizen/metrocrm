@@ -21,6 +21,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <div class="pd-actions">
     <a class="pd-btn primary" href="{{ property_data_base }}/template">⬇ Download Property Template</a>
     <a class="pd-btn" href="/admin/media-catalog">🖼 Property Media Catalog</a>
+    {% if selected == "Projects" %}<a class="pd-btn primary" href="{{ property_data_base }}?entity=Projects&modify=new">✏️ Single Property Modification</a><a class="pd-btn" href="{{ property_data_base }}?entity=Projects&modify=bulk">📝 Bulk Property Modification</a>{% endif %}
     {% if role == 'ADMIN' %}
     <form method="post" action="/admin/property-data/export/request" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="pd-btn" type="submit">⬆ Request Property Data Export</button></form>
     {% else %}
@@ -110,7 +111,23 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
     <div><h3 style="margin:0">{{ selected }} Records</h3><div class="pd-small">Latest 100 records shown</div></div>
     <a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}">+ New Record</a>
   </div>
-  {% if role == 'SUPER_ADMIN' and selected == 'Projects' %}
+  {% if selected == 'Projects' and request.query_params.get("modify") == "bulk" %}
+  <form id="project-bulk-modify" method="post" action="{{ property_data_base }}/bulk-modify" onsubmit="return confirmBulkPropertyModify();">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="pd-bulkbar" style="margin-top:0">
+      <b>📝 Bulk Property Modification</b><span id="property-modify-count" class="pd-small">0 selected</span>
+      <button class="pd-btn primary" type="submit">Update Selected Properties</button>
+    </div>
+    <div class="pd-form" style="margin-bottom:14px">
+      <div><label>City</label><input name="city" placeholder="Leave blank = no change"></div>
+      <div><label>Locality</label><input name="locality" placeholder="Leave blank = no change"></div>
+      <div class="wide"><label>Address</label><input name="address" placeholder="Leave blank = no change"></div>
+      <div><label>RERA</label><input name="rera" placeholder="Leave blank = no change"></div>
+    </div>
+  </form>
+{% endif %}
+
+{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}
   <form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" onsubmit="return confirmSelectedPropertyDelete();">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   </form>
@@ -121,13 +138,22 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   </div>
   {% endif %}
   <div class="pd-table-wrap" style="margin-top:12px">
-    <table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<th>Select</th>{% endif %}<th>Action</th></tr></thead><tbody>
+    <table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<th>Select</th>{% elif request.query_params.get("modify") == "bulk" %}<th>Select</th>{% endif %}<th>Action</th></tr></thead><tbody>
       {% for row in rows %}
-      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<td style="width:70px;text-align:center"><input class="pd-select-box property-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" aria-label="Select property {{ row.id }}"></td>{% endif %}<td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
+      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<td style="width:70px;text-align:center"><input class="pd-select-box property-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" aria-label="Select property {{ row.id }}"></td>{% elif request.query_params.get("modify") == "bulk" %}<td style="width:70px;text-align:center"><input class="pd-select-box property-modify-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-modify" onchange="updatePropertyModifyCount()" aria-label="Select property {{ row.id }} for bulk modification"></td>{% endif %}<td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
       {% else %}<tr><td colspan="{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}4{% else %}3{% endif %}">No records found.</td></tr>{% endfor %}
     </tbody></table>
   </div>
 </div>
+
+{% if selected == 'Projects' and request.query_params.get("modify") == "bulk" %}
+<script>
+function propertyModifyBoxes(){return Array.from(document.querySelectorAll('.property-modify-select'));}
+function updatePropertyModifyCount(){const n=propertyModifyBoxes().filter(x=>x.checked).length;const el=document.getElementById('property-modify-count');if(el)el.textContent=n+' selected';}
+function confirmBulkPropertyModify(){const n=propertyModifyBoxes().filter(x=>x.checked).length;if(!n)return false;return confirm('Update '+n+' selected properties with the entered fields? Blank fields will remain unchanged.');}
+document.addEventListener('DOMContentLoaded',updatePropertyModifyCount);
+</script>
+{% endif %}
 
 {% if role == 'SUPER_ADMIN' and selected == 'Projects' %}
 <script>
