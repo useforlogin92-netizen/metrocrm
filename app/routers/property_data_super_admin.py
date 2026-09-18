@@ -171,6 +171,12 @@ async def super_admin_delete_selected_properties(request: Request, db: Session =
     return RedirectResponse(f"/super-admin/property-data?entity=Projects&message=Deleted+{len(actual_ids)}+selected+properties", status_code=303)
 
 
+@router.post("/super-admin/property-data/delete-selected/", dependencies=[Depends(require_csrf)], include_in_schema=False)
+async def super_admin_delete_selected_properties_trailing_slash(request: Request, db: Session = Depends(get_db)):
+    """Compatibility alias for clients that submit the bulk-delete form with a trailing slash."""
+    return await super_admin_delete_selected_properties(request, db)
+
+
 @router.get("/super-admin/property-data/export")
 def super_admin_export_property_data(request: Request, db: Session = Depends(get_db)):
     if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
