@@ -365,8 +365,11 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     # Brochure/PDF remains the primary structured source, but disagreement
     # between distinct project identities is a hard conflict and must require
     # manual project selection before commit.
-    parsed["project_candidates"] = primary_projects
-    parsed["additional_project_candidates"] = [x for x in all_projects.values() if normalize_name(x) not in {normalize_name(y) for y in primary_projects}]
+    # Preserve every distinct source identity for review; the brochure remains
+    # the preferred primary identity but must not hide competing candidates.
+    parsed["project_candidates"] = list(all_projects.values()) or primary_projects
+    parsed["primary_project_candidates"] = primary_projects
+    parsed["additional_project_candidates"] = [x for x in parsed["project_candidates"] if normalize_name(x) not in {normalize_name(y) for y in primary_projects}]
     parsed["source_identities"] = source_identities
     parsed["source_priority"] = "BROCHURE/PDF > WHATSAPP > IMAGE/VIDEO"
     parsed["field_conflicts"] = field_conflicts
