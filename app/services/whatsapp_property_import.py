@@ -176,7 +176,7 @@ def parse_property_text(text: str) -> dict[str, Any]:
     if not construction_status:
         construction_status = "Ready to Move" if re.search(r"(?i)\bready\s*to\s*move\b", text) else "Under Construction" if re.search(r"(?i)\bunder\s*construction\b", text) else None
     property_type = _first((r"\b(?:property type|type)\s*[:\-]\s*([^\n|]+)",), text)
-    website = website.rstrip(").,;")
+    website = website.rstrip(").,;") if website else website
     map_url = map_url.rstrip(").,;") if map_url else map_url
     return {
         "developer": developer,
