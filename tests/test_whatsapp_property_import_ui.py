@@ -49,3 +49,32 @@ async def test_admin_property_data_injects_whatsapp_capture_modal():
     assert 'id="metrocrm-whatsapp-property-import"' in html
     assert 'id="metrocrm-whatsapp-modal"' in html
     assert 'action="/admin/property-data/whatsapp-import/analyze"' in html
+
+
+@pytest.mark.anyio
+async def test_legacy_whatsapp_review_queue_is_normalized_to_capture_button(): 
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"text/html; charset=utf-8")]})
+        await send({
+            "type": "http.response.body",
+            "body": (
+                b'<html><body>'
+                b'<a class="pd-btn primary" href="/super-admin/property-data/whatsapp-import">📋 WhatsApp Review Queue</a>'
+                b'</body></html>'
+            ),
+        })
+
+    middleware = WhatsAppPropertyImportUIMiddleware(app)
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    await middleware({"type": "http", "path": "/super-admin/property-data", "method": "GET", "headers": []}, receive, send)
+    html = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body").decode("utf-8")
+    assert 'id="metrocrm-whatsapp-property-import"' in html
+    assert "WhatsApp Review Queue" not in html
+    assert 'id="metrocrm-whatsapp-modal"' in html
