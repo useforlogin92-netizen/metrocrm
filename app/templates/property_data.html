@@ -139,7 +139,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 {% endif %}
 
 {% if role == 'SUPER_ADMIN' and selected == 'Projects' %}
-  <form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected" onsubmit="return confirmSelectedPropertyDelete();">
+  <form id="project-bulk-delete" method="post" action="/super-admin/property-data/delete-selected/" onsubmit="return confirmSelectedPropertyDelete();">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   </form>
   <div class="pd-bulkbar">
