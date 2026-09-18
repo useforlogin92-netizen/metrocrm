@@ -342,12 +342,13 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
         if data.get("address") and not project.address: project.address = data["address"]
         if data.get("rera") and not project.rera: project.rera = data["rera"]
         if data.get("construction_status") and not project.construction_status: project.construction_status = data["construction_status"]
-        if data.get("website") and not project.photos_json:
-            project.photos_json = json.dumps([data["website"]], ensure_ascii=False)
         if data.get("possession_text") and not project.description: project.description = data["possession_text"]
         description_parts = []
         if data.get("highlights"): description_parts.append("WhatsApp source highlights:\n- " + "\n- ".join(data["highlights"]))
         if data.get("map_url"): description_parts.append("WhatsApp source map: " + str(data["map_url"]))
+        if data.get("website"): description_parts.append("WhatsApp source website: " + str(data["website"]))
+        if data.get("parking"): description_parts.append("WhatsApp source parking: " + str(data["parking"]))
+        if data.get("total_units"): description_parts.append("WhatsApp source total units: " + str(data["total_units"]))
         if description_parts and project.description:
             existing_description = str(project.description)
             additions = "\n\n".join(description_parts)
