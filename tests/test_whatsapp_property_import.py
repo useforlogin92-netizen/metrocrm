@@ -48,6 +48,26 @@ def test_unattributed_attachment_requires_manual_review():
     assert parsed["unattributed_sources"] == ["catalog.pdf"]
 
 
+def test_unattributed_attachment_blocks_auto_commit():
+    from app.services.whatsapp_property_import import build_draft
+
+    class FakeSession:
+        def scalars(self, *args, **kwargs):
+            class Result:
+                def all(self):
+                    return []
+            return Result()
+
+    draft = build_draft(
+        "Sethia Pride Kandivali East",
+        [{"filename": "catalog.pdf", "extracted_text": "2 BHK 900 Sq.ft ₹2.10 CRORE"}],
+        FakeSession(),
+    )
+    assert draft["unattributed_sources"] == ["catalog.pdf"]
+    assert draft["requires_manual_project_selection"] is True
+    assert draft["safe_to_commit"] is False
+
+
 def test_project_name_normalization_is_stable():
     assert normalize_name("Sethia Pride (Kandivali E)") == "sethia pride kandivali e"
 
