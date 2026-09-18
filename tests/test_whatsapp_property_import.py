@@ -1,5 +1,5 @@
 from app.services import whatsapp_property_import as importer
-from app.services.whatsapp_property_import import analyze_sources, attachment_record, normalize_name, parse_property_text
+from app.services.whatsapp_property_import import analyze_sources, attachment_record, find_safe_project_matches, normalize_name, parse_property_text
 
 
 def test_whatsapp_parser_extracts_project_and_configurations():
@@ -86,3 +86,30 @@ def test_video_attachment_uses_video_extractor(monkeypatch):
     record = attachment_record("tour.mov", "video/quicktime", b"video")
     assert record["extracted_text_chars"] > 0
     assert record["mime_type"] == "video/quicktime"
+
+
+def test_project_matching_uses_normalized_name():
+    class ProjectRow:
+        id = 42
+        name = "Sethia Pride (Kandivali E)"
+        developer_id = None
+        city = "Mumbai"
+        rera = "P518000046531"
+
+    class DeveloperRow:
+        name = "Sethia Infrastructure"
+
+    class FakeSession:
+        def scalars(self, *args, **kwargs):
+            class Result:
+                def all(self):
+                    return [ProjectRow()]
+            return Result()
+
+        def get(self, model, object_id):
+            return DeveloperRow()
+
+    parsed = {"project_candidates": ["Sethia Pride Kandivali E"], "developer": "Sethia Infrastructure", "city": "Mumbai", "rera": "P518000046531"}
+    result = find_safe_project_matches(FakeSession(), parsed)
+    assert result["ambiguous"] is False
+    assert result["matches"][0]["project_id"] == 42
