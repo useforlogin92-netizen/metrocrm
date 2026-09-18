@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.database import SessionLocal
 from app.models import User
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -34,7 +36,14 @@ class SessionActivityCompatibilityMiddleware:
                 if not session.get("login_portal"):
                     db = SessionLocal()
                     try:
-                        user = db.get(User, session.get("user_id"))
+                        try:
+                            user = db.get(User, session.get("user_id"))
+                        except SQLAlchemyError:
+                            # Compatibility must not make a signed legacy
+                            # session unusable when an isolated/test DB has
+                            # no users table. Normal auth checks remain the
+                            # source of truth when a database is available.
+                            user = None
                         if user and user.is_active:
                             role = str(user.role or "").upper()
                             session["login_portal"] = (
