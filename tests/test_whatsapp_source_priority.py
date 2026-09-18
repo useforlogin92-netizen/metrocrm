@@ -17,7 +17,7 @@ def test_brochure_is_primary_source_for_conflicting_fields():
     assert result["project_candidates"] == ["Passcode Highway Bonanza"]
     assert result["project"] == "Passcode Highway Bonanza"
     assert result["source_identity_warning"] is True
-    assert result["identity_conflict"] is False
+    assert result["identity_conflict"] is True
 
 
 def test_whatsapp_fills_blank_fields_when_brochure_has_no_value():
