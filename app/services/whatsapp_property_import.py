@@ -298,7 +298,11 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
 def find_safe_project_matches(db: Session, parsed: dict[str, Any]) -> dict[str, Any]:
     result: list[dict[str, Any]] = []
     for project_name in parsed.get("project_candidates") or []:
-        exact = db.scalars(select(Project).where(func.lower(Project.name) == normalize_name(project_name))).all()
+        # Match project names using the same normalization used by the parser.
+        # The database value may contain punctuation/parenthetical locality text,
+        # so comparing only lower(Project.name) is not sufficient.
+        candidates = db.scalars(select(Project)).all()
+        exact = [project for project in candidates if normalize_name(project.name) == normalize_name(project_name)]
         for project in exact:
             developer = db.get(Developer, project.developer_id)
             checks = {"developer": not parsed.get("developer") or normalize_name(developer.name if developer else "") == normalize_name(parsed["developer"]), "city": not parsed.get("city") or normalize_name(project.city) == normalize_name(parsed["city"]), "rera": not parsed.get("rera") or normalize_name(project.rera) == normalize_name(parsed["rera"])}
