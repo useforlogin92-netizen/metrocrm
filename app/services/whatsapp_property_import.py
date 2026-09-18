@@ -372,7 +372,21 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     parsed["field_conflicts"] = field_conflicts
     parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
     parsed["source_identity_warning"] = len(all_projects) > 1 or len(all_developers) > 1
-    parsed["identity_conflict"] = len(primary_projects) != 1 or len(primary_developers) > 1
+    # Brochure/PDF has priority for field selection. A conflict between
+    # WhatsApp text and the primary brochure is a source-priority decision;
+    # however, two independently uploaded attachments identifying different
+    # projects must never be silently merged.
+    attachment_projects: dict[str, str] = {}
+    attachment_developers: dict[str, str] = {}
+    for source in supporting_sources + brochure_sources:
+        for project in source.get("project_candidates") or []:
+            attachment_projects.setdefault(normalize_name(project), project)
+        if source.get("developer"):
+            attachment_developers.setdefault(normalize_name(str(source["developer"])), str(source["developer"]))
+    attachment_identity_conflict = len(attachment_projects) > 1 or len(attachment_developers) > 1
+    parsed["identity_conflict"] = attachment_identity_conflict or len(primary_projects) != 1
+    if attachment_identity_conflict:
+        parsed["project_candidates"] = list(attachment_projects.values())
     parsed["source_documents"] = {
         "brochures": [x.get("filename") for x in attachments if str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf")],
         "supporting_media": [x.get("filename") for x in attachments if not (str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf"))],

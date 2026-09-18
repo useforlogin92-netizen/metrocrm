@@ -38,10 +38,11 @@ class WhatsAppPropertyImportUIMiddleware:
                     await send(message)
                     return
                 html = body.decode("utf-8", errors="replace")
-                if "metrocrm-whatsapp-property-import" not in html:
+                if "metrocrm-whatsapp-modal" not in html:
                     csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', html)
                     page_csrf = csrf_match.group(1) if csrf_match else ""
                     base = "/super-admin/property-data" if path.startswith("/super-admin/") else "/admin/property-data"
+                    media_base = "/super-admin/media-catalog" if path.startswith("/super-admin/") else "/admin/media-catalog"
                     analyze = f"{base}/whatsapp-import/analyze"
                     widget = f"""
 <style>
@@ -97,7 +98,19 @@ class WhatsAppPropertyImportUIMiddleware:
 </script>
 """
                     link = '<button id="metrocrm-whatsapp-property-import" class="pd-btn primary" type="button">📲 Property Data Received by WhatsApp</button>'
-                    html = html.replace('<a class="pd-btn" href="/admin/media-catalog">🖼 Property Media Catalog</a>', '<a class="pd-btn" href="/admin/media-catalog">🖼 Property Media Catalog</a>' + link + widget, 1)
+                    media_link = f'<a class="pd-btn" href="{media_base}">🖼 Property Media Catalog</a>'
+                    if "metrocrm-whatsapp-property-import" not in html:
+                        # Match the catalog anchor by href/class rather than its
+                        # visible label so small UI label changes do not remove
+                        # the capture button.
+                        media_pattern = rf'(<a\\b[^>]*href="{re.escape(media_base)}"[^>]*>.*?</a>)'
+                        html, replaced = re.subn(media_pattern, r"\\1" + link, html, count=1, flags=re.I | re.S)
+                        if not replaced:
+                            html = html.replace("</body>", link + "</body>", 1) if "</body>" in html else html + link
+                    if "</body>" in html:
+                        html = html.replace("</body>", widget + "</body>", 1)
+                    else:
+                        html += widget
                 encoded = html.encode("utf-8")
                 headers = [(k, v) for k, v in headers if k.lower() != b"content-length"]
                 headers.append((b"content-length", str(len(encoded)).encode("ascii")))
