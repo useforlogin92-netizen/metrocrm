@@ -127,6 +127,53 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
     return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+property+records", status_code=303)
 
 
+@router.post("/admin/property-data/bulk-modify", dependencies=[Depends(require_csrf)])
+async def bulk_modify_property_data(request: Request, db: Session = Depends(get_db)):
+    """Apply explicitly supplied fields to multiple selected Projects."""
+    actor = _guard(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    form = await request.form()
+    raw_ids = form.getlist("project_ids")
+    project_ids = []
+    for raw_id in raw_ids:
+        try:
+            project_ids.append(int(str(raw_id)))
+        except (TypeError, ValueError):
+            continue
+    project_ids = list(dict.fromkeys(project_ids))
+    if not project_ids:
+        return RedirectResponse("/admin/property-data?entity=Projects&error=Select+at+least+one+property", status_code=303)
+
+    allowed_fields = ("city", "locality", "address", "rera")
+    values = {field: str(form.get(field, "")).strip() for field in allowed_fields}
+    supplied = {field: value for field, value in values.items() if value}
+    if not supplied:
+        return RedirectResponse("/admin/property-data?entity=Projects&error=Enter+at+least+one+field+to+modify", status_code=303)
+
+    try:
+        rows = db.scalars(select(PROPERTY_MODELS["Projects"][0]).where(PROPERTY_MODELS["Projects"][0].id.in_(project_ids))).all()
+        found = {row.id: row for row in rows}
+        missing = [str(pid) for pid in project_ids if pid not in found]
+        if missing:
+            raise ValueError("Property ID not found: " + ", ".join(missing[:10]))
+        for row in rows:
+            for field, value in supplied.items():
+                setattr(row, field, value)
+            db.add(AuditEvent(
+                actor_user_id=actor.id,
+                action="PROPERTY_RECORD_BULK_UPDATED",
+                entity_type="Projects",
+                entity_id=str(row.id),
+                details=json.dumps({"fields": list(supplied.keys()), "bulk_count": len(rows), "online_editor": True}),
+            ))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return RedirectResponse("/admin/property-data?entity=Projects&error=" + str(exc).replace(" ", "+")[:350], status_code=303)
+    return RedirectResponse("/admin/property-data?entity=Projects&message=Updated+" + str(len(rows)) + "+properties+successfully", status_code=303)
+
+
 @router.post("/admin/property-data/save", dependencies=[Depends(require_csrf)])
 async def save_property_data(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
