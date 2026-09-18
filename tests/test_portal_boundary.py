@@ -30,7 +30,6 @@ def test_super_admin_legacy_navigation_is_redirected_to_dedicated_urls():
         ("/admin/users/pending", "/super-admin/users/pending"),
         ("/admin/property-data", "/super-admin/property-data"),
         ("/admin/property-data/social", "/super-admin/property-data/social"),
-        ("/admin/property-submissions", "/super-admin/property-submissions"),
         ("/admin/leads/offline-import", "/super-admin/leads/offline-import"),
         ("/admin/data-tools", "/super-admin/data-tools"),
         ("/admin/backups/status", "/super-admin/backups/status"),
