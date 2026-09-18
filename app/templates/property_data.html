@@ -176,7 +176,7 @@ function updatePropertySelectionCount(){
   const deleteButton=document.getElementById('property-delete-selected');
   const selectAll=document.getElementById('property-select-all');
   if(count) count.textContent=selected+' selected';
-  if(deleteButton) deleteButton.disabled=selected===0;
+  // Keep the bulk-delete action clickable. Selection is validated by the confirmation handler and server-side route.
   if(selectAll){selectAll.checked=boxes.length>0 && selected===boxes.length;selectAll.indeterminate=selected>0 && selected<boxes.length;}
 }
 function toggleAllProperties(checked){propertySelectionBoxes().forEach(function(box){box.checked=checked;});updatePropertySelectionCount();}
