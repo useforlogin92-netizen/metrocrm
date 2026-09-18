@@ -190,7 +190,15 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
         status_html = f"<div class='card' style='border-color:#bbf7d0;background:#f0fdf4'><h2 style='margin:0 0 6px'>✅ Draft updated</h2><div>Your corrections are saved in review draft <b>#{row.id}</b>. The live Property Data record is still unchanged until verification.</div></div>"
     elif row.status == "CONFLICT":
         status_html = f"<div class='card' style='border-color:#fde68a;background:#fffbeb'><h2 style='margin:0 0 6px'>⚠️ Review required</h2><div>Multiple or conflicting project identities were detected. Check the details below before any commit.</div></div>"
-    body = status_html + f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected project(s): <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{identity_html}</div>"
+    priority_html = f"<p class='muted'><b>Source priority:</b> {escape(str(data.get('source_priority') or 'WhatsApp only'))}</p>"
+    if data.get("source_identity_warning"):
+        priority_html += "<p style='color:#b45309'><b>⚠ Source difference detected:</b> WhatsApp/media and brochure identities are not identical. Brochure remains the primary source; review the Ready-to-Check fields before final commit.</p>"
+    conflicts = data.get("field_conflicts") or []
+    if conflicts:
+        priority_html += "<h3>Field conflicts to check</h3><table><tr><th>Field</th><th>Existing/WhatsApp</th><th>Brochure or incoming value</th></tr>" + "".join(
+            f"<tr><td>{escape(str(x.get('field')))}</td><td>{escape(str(x.get('existing')))}</td><td>{escape(str(x.get('incoming')))}</td></tr>" for x in conflicts
+        ) + "</table>"
+    body = status_html + f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected primary project: <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Additional source candidates: <b>{escape(', '.join(data.get('additional_project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict requiring manual project selection: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{priority_html}{identity_html}</div>"
     body += "<div class='card'><h2>Extracted data</h2><pre>" + escape(json.dumps({k: v for k, v in data.items() if k not in {'raw_text', 'attachments'}}, ensure_ascii=False, indent=2)) + "</pre>"
     if data.get("attachments"):
         body += "<h3>Attachments</h3><ul>" + "".join(f"<li>{escape(str(x.get('filename')))} · {escape(str(x.get('mime_type')))} · {x.get('extracted_text_chars', 0)} extracted characters</li>" for x in data["attachments"]) + "</ul>"
