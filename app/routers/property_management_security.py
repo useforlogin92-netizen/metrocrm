@@ -9,8 +9,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.catalog_models import CatalogShare, PropertyMedia, PropertySocialProfile
+from app.catalog_models import CatalogShare, CatalogShareVisit, PropertyMedia, PropertySocialProfile
 from app.csrf import csrf_token, require_csrf
+from app.crm_plus_models import MarketingCampaign
+from app.marketing_models import MarketingLandingVisit, MarketingLeadEvent
 from app.database import get_db
 from app.models import (
     AuditEvent,
@@ -90,6 +92,24 @@ def _delete_project(db: Session, project_id: int) -> tuple[Project | None, dict,
     unit_rows = db.scalars(select(Unit).where(Unit.project_id == project_id)).all()
     tower_rows = db.scalars(select(Tower).where(Tower.project_id == project_id)).all()
 
+    share_ids = [row.id for row in share_rows]
+    campaign_rows = (
+        db.scalars(select(MarketingCampaign).where(MarketingCampaign.catalog_share_id.in_(share_ids))).all()
+        if share_ids else []
+    )
+    campaign_ids = [row.id for row in campaign_rows]
+
+    # Remove dependent marketing/share rows before deleting the catalog shares.
+    # This keeps single-property and bulk-property deletion consistent and
+    # prevents foreign-key errors when a property has been shared/campaigned.
+    if campaign_ids:
+        db.execute(delete(MarketingLeadEvent).where(MarketingLeadEvent.campaign_id.in_(campaign_ids)))
+        db.execute(delete(MarketingLandingVisit).where(MarketingLandingVisit.campaign_id.in_(campaign_ids)))
+        for row in campaign_rows:
+            db.delete(row)
+    if share_ids:
+        db.execute(delete(CatalogShareVisit).where(CatalogShareVisit.share_id.in_(share_ids)))
+
     for row in media_rows:
         db.delete(row)
     for row in share_rows:
@@ -112,6 +132,7 @@ def _delete_project(db: Session, project_id: int) -> tuple[Project | None, dict,
         "media": len(media_rows),
         "social_profiles": len(social_rows),
         "catalog_shares": len(share_rows),
+        "marketing_campaigns": len(campaign_rows),
     }
     return project, counts, None
 
