@@ -204,7 +204,16 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
         "address": data.get("address", ""),
         "rera": data.get("rera", ""),
         "possession_text": data.get("possession_text", ""),
+        "state": data.get("state", ""),
+        "district": data.get("district", ""),
+        "pincode": data.get("pincode", ""),
         "contact_phone": data.get("contact_phone", ""),
+        "construction_status": data.get("construction_status", ""),
+        "property_type": data.get("property_type", ""),
+        "parking": data.get("parking", ""),
+        "total_units": data.get("total_units", ""),
+        "website": data.get("website", ""),
+        "map_url": data.get("map_url", ""),
         "amenities": data.get("amenities") or [],
         "highlights": data.get("highlights") or [],
         "unit_configurations": data.get("unit_configurations") or [],
@@ -212,9 +221,21 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
     body += f"""<div class='card'><h2>✏️ Update Extracted Property Data</h2><p class='muted'>Correct extracted values here. These changes are saved to the review draft only; the live Property Data record changes only after verification.</p>
 <form method='post' action='{action}/{row.id}/update' onsubmit="return confirm('Save these corrections to the review draft?');">
 <input type='hidden' name='csrf_token' value='{csrf}'>
+<label>State<input name='state' value='{escape(str(editable["state"]))}'></label>
+<label>District<input name='district' value='{escape(str(editable["district"]))}'></label>
+<label>Pincode<input name='pincode' value='{escape(str(editable["pincode"]))}'></label>
 <label>City<input name='city' value='{escape(str(editable["city"]))}'></label>
 <label>Locality<input name='locality' value='{escape(str(editable["locality"]))}'></label>
+<label>Property Type<input name='property_type' value='{escape(str(editable["property_type"]))}'></label>
+<label>Construction Status<input name='construction_status' value='{escape(str(editable["construction_status"]))}'></label>
 <label>Address<input name='address' value='{escape(str(editable["address"]))}'></label>
+<label>RERA<input name='rera' value='{escape(str(editable["rera"]))}'></label>
+<label>Possession<input name='possession_text' value='{escape(str(editable["possession_text"]))}'></label>
+<label>Parking<input name='parking' value='{escape(str(editable["parking"]))}'></label>
+<label>Total Units<input name='total_units' value='{escape(str(editable["total_units"]))}'></label>
+<label>Contact Phone<input name='contact_phone' value='{escape(str(editable["contact_phone"]))}'></label>
+<label>Website<input name='website' value='{escape(str(editable["website"]))}'></label>
+<label>Google Maps URL<input name='map_url' value='{escape(str(editable["map_url"]))}'></label>
 <label>RERA<input name='rera' value='{escape(str(editable["rera"]))}'></label>
 <label>Possession<input name='possession_text' value='{escape(str(editable["possession_text"]))}'></label>
 <label>Contact Phone<input name='contact_phone' value='{escape(str(editable["contact_phone"]))}'></label>
