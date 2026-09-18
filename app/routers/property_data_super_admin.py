@@ -1,6 +1,7 @@
 """Dedicated Super Admin routes for the property-data workspace."""
 
 import re
+from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.catalog_models import CatalogShare, CatalogShareVisit, PropertyMedia, PropertySocialProfile
 from app.csrf import require_csrf
 from app.database import get_db
-from app.models import AuditEvent, NearbyLocation, Project, Tower, Unit
+from app.models import AuditEvent, Booking, Commission, NearbyLocation, Project, SiteVisit, Token, Tower, Unit
 from app.crm_plus_models import MarketingCampaign
 from app.marketing_models import MarketingLandingVisit, MarketingLeadEvent
 from app.routers.property_management_security import _delete_project
@@ -159,23 +160,20 @@ async def super_admin_delete_selected_properties(request: Request, db: Session =
             )
 
         for project_id in project_ids:
-            unit_ids = list(db.scalars(select(Unit.id).where(Unit.project_id == project_id)).all())
             blocked = []
-            if db.scalar(select(__import__("app.models", fromlist=["SiteVisit"]).SiteVisit.id).where(__import__("app.models", fromlist=["SiteVisit"]).SiteVisit.project_id == project_id).limit(1)) is not None:
-                blocked.append("site visits")
-            if db.scalar(select(__import__("app.models", fromlist=["Token"]).Token.id).where(__import__("app.models", fromlist=["Token"]).Token.project_id == project_id).limit(1)) is not None:
-                blocked.append("tokens")
-            if db.scalar(select(__import__("app.models", fromlist=["Booking"]).Booking.id).where(__import__("app.models", fromlist=["Booking"]).Booking.project_id == project_id).limit(1)) is not None:
-                blocked.append("bookings")
-            if db.scalar(select(__import__("app.models", fromlist=["Commission"]).Commission.id).where(__import__("app.models", fromlist=["Commission"]).Commission.project_id == project_id).limit(1)) is not None:
-                blocked.append("commissions")
+            for model, label in (
+                (SiteVisit, "site visits"),
+                (Token, "tokens"),
+                (Booking, "bookings"),
+                (Commission, "commissions"),
+            ):
+                if db.scalar(select(model.id).where(model.project_id == project_id).limit(1)) is not None:
+                    blocked.append(label)
             if blocked:
                 name = db.get(Project, project_id).name
+                message = f"Cannot delete {name}: linked {', '.join(blocked)}."
                 return RedirectResponse(
-                    "/super-admin/property-data?entity=Projects&error=Cannot+delete+"
-                    + str(name).replace(" ", "+")[:120]
-                    + "%3A+linked+"
-                    + "%2C+".join(blocked),
+                    "/super-admin/property-data?entity=Projects&error=" + quote_plus(message)[:500],
                     status_code=303,
                 )
 
