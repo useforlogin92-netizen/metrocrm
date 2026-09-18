@@ -22,7 +22,6 @@ _SUPER_ADMIN_LEGACY_ROUTES = (
     ("/admin/users", "/super-admin/users"),
     ("/admin/property-data/social", "/super-admin/property-data/social"),
     ("/admin/property-data", "/super-admin/property-data"),
-    ("/admin/property-submissions", "/super-admin/property-submissions"),
     ("/admin/leads/offline-import", "/super-admin/leads/offline-import"),
     ("/admin/data-tools", "/super-admin/data-tools"),
     ("/admin/backups", "/super-admin/backups"),
