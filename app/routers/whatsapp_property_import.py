@@ -150,7 +150,7 @@ async def _analyze(request: Request, source_text: str, files: list[UploadFile], 
     except Exception as exc:
         db.rollback(); shutil.rmtree(_root("property-import-staging") / token, ignore_errors=True)
         return RedirectResponse(_index(role) + "?error=" + escape(str(exc))[:250].replace(" ", "+"), status_code=303)
-    return RedirectResponse(f"{_index(role)}/{row.id}", status_code=303)
+    return RedirectResponse(f"{_index(role)}/{row.id}?status=success", status_code=303)
 
 
 @router.post("/admin/property-data/whatsapp-import/analyze", dependencies=[Depends(require_csrf)])
@@ -169,6 +169,8 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
     data = _payload(row)
     action = _index(actor.role)
     csrf = csrf_token(request)
+    status = request.query_params.get("status")
+    review_error = request.query_params.get("error")
     identities = data.get("source_identities", [])
     identity_html = ""
     if identities:
@@ -179,7 +181,14 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
     match = data.get("project_match") or {}
     safe_matches = [x for x in match.get("matches", []) if x.get("safe")]
     suggested_id = safe_matches[0].get("project_id") if len(safe_matches) == 1 else ""
-    body = f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected project(s): <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{identity_html}</div>"
+    status_html = ""
+    if review_error:
+        status_html = f"<div class='card' style='border-color:#fecaca;background:#fff7f7'><h2 style='margin:0 0 6px'>❌ Import failed</h2><div>{escape(review_error)}</div></div>"
+    elif status == "success":
+        status_html = f"<div class='card' style='border-color:#bbf7d0;background:#f0fdf4'><h2 style='margin:0 0 6px'>✅ Import submitted successfully</h2><div>Review draft <b>#{row.id}</b> was created. Nothing is written to the final project until you verify and commit it.</div></div>"
+    elif row.status == "CONFLICT":
+        status_html = f"<div class='card' style='border-color:#fde68a;background:#fffbeb'><h2 style='margin:0 0 6px'>⚠️ Review required</h2><div>Multiple or conflicting project identities were detected. Check the details below before any commit.</div></div>"
+    body = status_html + f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected project(s): <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{identity_html}</div>"
     body += "<div class='card'><h2>Extracted data</h2><pre>" + escape(json.dumps({k: v for k, v in data.items() if k not in {'raw_text', 'attachments'}}, ensure_ascii=False, indent=2)) + "</pre>"
     if data.get("attachments"):
         body += "<h3>Attachments</h3><ul>" + "".join(f"<li>{escape(str(x.get('filename')))} · {escape(str(x.get('mime_type')))} · {x.get('extracted_text_chars', 0)} extracted characters</li>" for x in data["attachments"]) + "</ul>"
