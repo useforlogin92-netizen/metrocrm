@@ -243,6 +243,66 @@ def super_admin_review(submission_id: int, request: Request, db: Session = Depen
     return _review(submission_id, request, db, actor)
 
 
+@router.post("/admin/property-data/whatsapp-import/{submission_id}/update", dependencies=[Depends(require_csrf)])
+async def admin_update_draft(
+    submission_id: int, request: Request,
+    city: str = Form(""), locality: str = Form(""), address: str = Form(""),
+    rera: str = Form(""), possession_text: str = Form(""), contact_phone: str = Form(""),
+    amenities: str = Form(""), highlights: str = Form(""), unit_configurations: str = Form("[]"),
+    db: Session = Depends(get_db),
+):
+    return _update_draft(submission_id, request, db, "ADMIN", city, locality, address, rera, possession_text, contact_phone, amenities, highlights, unit_configurations)
+
+
+@router.post("/super-admin/property-data/whatsapp-import/{submission_id}/update", dependencies=[Depends(require_csrf)])
+async def super_admin_update_draft(
+    submission_id: int, request: Request,
+    city: str = Form(""), locality: str = Form(""), address: str = Form(""),
+    rera: str = Form(""), possession_text: str = Form(""), contact_phone: str = Form(""),
+    amenities: str = Form(""), highlights: str = Form(""), unit_configurations: str = Form("[]"),
+    db: Session = Depends(get_db),
+):
+    return _update_draft(submission_id, request, db, "SUPER_ADMIN", city, locality, address, rera, possession_text, contact_phone, amenities, highlights, unit_configurations)
+
+
+def _update_draft(
+    submission_id: int, request: Request, db: Session, role: str,
+    city: str, locality: str, address: str, rera: str, possession_text: str,
+    contact_phone: str, amenities: str, highlights: str, unit_configurations: str,
+):
+    actor = _guard(request, db)
+    if not actor or actor.role != role:
+        return RedirectResponse(_index(role), status_code=303)
+    row = db.get(SalesPropertySubmission, submission_id)
+    if not row or row.status not in {"DRAFT", "CONFLICT"} or not _can_access(row, actor):
+        return RedirectResponse(_index(role) + "?error=Draft+is+not+available", status_code=303)
+    data = _payload(row)
+    try:
+        configs = json.loads(unit_configurations or "[]")
+        if not isinstance(configs, list) or any(not isinstance(item, dict) for item in configs):
+            raise ValueError("Configurations must be a JSON list of objects")
+        data.update({
+            "city": city.strip(),
+            "locality": locality.strip(),
+            "address": address.strip(),
+            "rera": rera.strip(),
+            "possession_text": possession_text.strip(),
+            "contact_phone": contact_phone.strip(),
+            "amenities": [x.strip() for x in amenities.split(",") if x.strip()],
+            "highlights": [x.strip() for x in highlights.splitlines() if x.strip()],
+            "unit_configurations": configs,
+        })
+        data["manual_review_updated_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        data["manual_review_updated_by"] = actor.id
+        row.data_json = json.dumps(data, ensure_ascii=False)
+        db.add(AuditEvent(actor_user_id=actor.id, action="WHATSAPP_PROPERTY_IMPORT_DRAFT_UPDATED", entity_type="SalesPropertySubmission", entity_id=str(row.id), details=json.dumps({"fields": ["city", "locality", "address", "rera", "possession_text", "contact_phone", "amenities", "highlights", "unit_configurations"]})))
+        db.commit()
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        db.rollback()
+        return RedirectResponse(f"{_index(role)}/{row.id}?error=Draft+update+failed%3A+{escape(str(exc))[:220]}", status_code=303)
+    return RedirectResponse(f"{_index(role)}/{row.id}?status=updated", status_code=303)
+
+
 @router.post("/admin/property-data/whatsapp-import/{submission_id}/commit", dependencies=[Depends(require_csrf)])
 async def admin_commit(submission_id: int, request: Request, project_id: int = Form(...), db: Session = Depends(get_db)):
     return _commit(submission_id, request, project_id, db, "ADMIN")
