@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.database import SessionLocal
 from app.models import User
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -44,6 +46,11 @@ class SessionActivityCompatibilityMiddleware:
                                 if role == "ADMIN"
                                 else "staff"
                             )
+                    except SQLAlchemyError:
+                        # CI/unit-test databases may intentionally use a separate
+                        # in-memory engine. A missing compatibility lookup must not
+                        # invalidate an otherwise valid signed session.
+                        pass
                     finally:
                         db.close()
         await self.app(scope, receive, send)
