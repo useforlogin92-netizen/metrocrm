@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models import AuditEvent, NearbyLocation, Project, Tower, Unit
 from app.crm_plus_models import MarketingCampaign
 from app.marketing_models import MarketingLandingVisit, MarketingLeadEvent
+from app.routers.property_management_security import _delete_project
 from app.routers.property_data import (
     _user,
     download_approved_property_export as _download_approved_property_export,
@@ -134,41 +135,84 @@ async def super_admin_save_property_data(request: Request, db: Session = Depends
 @router.post("/super-admin/property-data/delete-selected", dependencies=[Depends(require_csrf)])
 async def super_admin_delete_selected_properties(request: Request, db: Session = Depends(get_db)):
     actor = _require_super_admin(request, db)
-    if not actor: return RedirectResponse("/super-admin/login", status_code=303)
+    if not actor:
+        return RedirectResponse("/super-admin/login", status_code=303)
+
     form = await request.form()
     raw_ids = form.getlist("project_ids")
     project_ids = sorted({int(value) for value in raw_ids if str(value).isdigit()})
     if not project_ids:
-        return RedirectResponse("/super-admin/property-data?entity=Projects&error=Select+at+least+one+property", status_code=303)
+        return RedirectResponse(
+            "/super-admin/property-data?entity=Projects&error=Select+at+least+one+property",
+            status_code=303,
+        )
+
+    # Use the same guarded deletion service as the individual Delete action.
+    # Preflight every selected property first so a business-linked property
+    # cannot leave the batch half-deleted.
     try:
-        projects = db.scalars(select(Project).where(Project.id.in_(project_ids))).all()
-        actual_ids = [project.id for project in projects]
-        if not actual_ids: return RedirectResponse("/super-admin/property-data?entity=Projects&error=Selected+properties+were+not+found", status_code=303)
-        share_ids = db.scalars(select(CatalogShare.id).where(CatalogShare.project_id.in_(actual_ids))).all()
-        unit_ids = db.scalars(select(Unit.id).where(Unit.project_id.in_(actual_ids))).all()
-        if unit_ids:
-            share_ids = sorted(set(share_ids) | set(db.scalars(select(CatalogShare.id).where(CatalogShare.unit_id.in_(unit_ids))).all()))
-        campaign_ids = db.scalars(select(MarketingCampaign.id).where(MarketingCampaign.catalog_share_id.in_(share_ids))).all() if share_ids else []
-        if campaign_ids:
-            db.execute(delete(MarketingLeadEvent).where(MarketingLeadEvent.campaign_id.in_(campaign_ids)))
-            db.execute(delete(MarketingLandingVisit).where(MarketingLandingVisit.campaign_id.in_(campaign_ids)))
-            db.execute(delete(MarketingCampaign).where(MarketingCampaign.id.in_(campaign_ids)))
-        if share_ids:
-            db.execute(delete(CatalogShareVisit).where(CatalogShareVisit.share_id.in_(share_ids)))
-            db.execute(delete(CatalogShare).where(CatalogShare.id.in_(share_ids)))
-        db.execute(delete(PropertySocialProfile).where(PropertySocialProfile.project_id.in_(actual_ids)))
-        db.execute(delete(PropertyMedia).where(PropertyMedia.project_id.in_(actual_ids)))
-        db.execute(delete(NearbyLocation).where(NearbyLocation.project_id.in_(actual_ids)))
-        if unit_ids: db.execute(delete(Unit).where(Unit.id.in_(unit_ids)))
-        db.execute(delete(Tower).where(Tower.project_id.in_(actual_ids)))
-        db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "Projects", AuditEvent.entity_id.in_([str(x) for x in actual_ids])))
-        for project in projects: db.delete(project)
-        db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_PROJECTS_BULK_DELETED", entity_type="Projects", entity_id=None, details=f"Deleted project ids: {actual_ids}"))
+        missing = [pid for pid in project_ids if db.get(Project, pid) is None]
+        if missing:
+            return RedirectResponse(
+                "/super-admin/property-data?entity=Projects&error=One+or+more+selected+properties+were+not+found",
+                status_code=303,
+            )
+
+        for project_id in project_ids:
+            unit_ids = list(db.scalars(select(Unit.id).where(Unit.project_id == project_id)).all())
+            blocked = []
+            if db.scalar(select(__import__("app.models", fromlist=["SiteVisit"]).SiteVisit.id).where(__import__("app.models", fromlist=["SiteVisit"]).SiteVisit.project_id == project_id).limit(1)) is not None:
+                blocked.append("site visits")
+            if db.scalar(select(__import__("app.models", fromlist=["Token"]).Token.id).where(__import__("app.models", fromlist=["Token"]).Token.project_id == project_id).limit(1)) is not None:
+                blocked.append("tokens")
+            if db.scalar(select(__import__("app.models", fromlist=["Booking"]).Booking.id).where(__import__("app.models", fromlist=["Booking"]).Booking.project_id == project_id).limit(1)) is not None:
+                blocked.append("bookings")
+            if db.scalar(select(__import__("app.models", fromlist=["Commission"]).Commission.id).where(__import__("app.models", fromlist=["Commission"]).Commission.project_id == project_id).limit(1)) is not None:
+                blocked.append("commissions")
+            if blocked:
+                name = db.get(Project, project_id).name
+                return RedirectResponse(
+                    "/super-admin/property-data?entity=Projects&error=Cannot+delete+"
+                    + str(name).replace(" ", "+")[:120]
+                    + "%3A+linked+"
+                    + "%2C+".join(blocked),
+                    status_code=303,
+                )
+
+        deleted_ids = []
+        for project_id in project_ids:
+            project, _, error = _delete_project(db, project_id)
+            if error:
+                db.rollback()
+                return RedirectResponse(
+                    "/super-admin/property-data?entity=Projects&error="
+                    + error.replace(" ", "+")[:300],
+                    status_code=303,
+                )
+            deleted_ids.append(project_id)
+
+        db.add(
+            AuditEvent(
+                actor_user_id=actor.id,
+                action="PROPERTY_PROJECTS_BULK_DELETED",
+                entity_type="Projects",
+                entity_id=None,
+                details=f"Deleted project ids: {deleted_ids}",
+            )
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
-        return RedirectResponse("/super-admin/property-data?entity=Projects&error=Property+delete+failed%3A+" + str(exc).replace(" ", "+")[:300], status_code=303)
-    return RedirectResponse(f"/super-admin/property-data?entity=Projects&message=Deleted+{len(actual_ids)}+selected+properties", status_code=303)
+        return RedirectResponse(
+            "/super-admin/property-data?entity=Projects&error=Property+delete+failed%3A+"
+            + str(exc).replace(" ", "+")[:300],
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        f"/super-admin/property-data?entity=Projects&message=Deleted+{len(deleted_ids)}+selected+properties",
+        status_code=303,
+    )
 
 
 @router.post("/super-admin/property-data/delete-selected/", dependencies=[Depends(require_csrf)], include_in_schema=False)
