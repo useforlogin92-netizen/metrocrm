@@ -279,7 +279,8 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
             db.add(unit)
         for attachment in data.get("attachments") or []:
             staged = Path(str(attachment.get("staged_path", ""))).resolve()
-            if not staged.is_file() or staging_root not in staged.parents: continue
+            if not staged.is_file() or staging_root not in staged.parents:
+                raise ValueError(f"Staged attachment is missing or outside the import staging area: {attachment.get('filename', 'unknown')}")
             filename = f"{secrets.token_urlsafe(18)}{staged.suffix.lower()}"
             destination = _root("property-media") / filename
             shutil.copy2(str(staged), str(destination)); created_destinations.append(destination)
