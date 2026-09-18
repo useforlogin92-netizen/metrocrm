@@ -311,7 +311,19 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     payload["bundle_price"] = first["bundle_price"]
     payload["inventory_status"] = first["inventory_status"]
     payload["available_units"] = first["available_units"]
-    payload["last_submitted_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    submitted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    payload["last_submitted_at"] = submitted_at.isoformat()
+    payload.setdefault("first_submitted_at", submitted_at.isoformat())
+    update_history = payload.get("update_history") or []
+    update_history.append(
+        {
+            "updated_at": submitted_at.isoformat(),
+            "type": "FIRST_SUBMISSION" if len(update_history) == 0 else "CORRECTION_RESUBMISSION",
+            "configuration_count": len(details),
+            "project_name": payload.get("project_name", ""),
+        }
+    )
+    payload["update_history"] = update_history
     payload["revision_history"] = revision_history
     submission.payload_json = json.dumps(payload, ensure_ascii=False)
     submission.status = "SUBMITTED"
@@ -325,7 +337,31 @@ def _management_page(request: Request, db: Session, actor: User, portal: str):
     rows = db.scalars(select(PropertySubmission).order_by(PropertySubmission.id.desc()).limit(100)).all()
     new_count = sum(1 for row in rows if row.status == "SUBMITTED")
     correction_count = sum(1 for row in rows if row.status == "CORRECTION_REQUESTED")
-    return templates.TemplateResponse("property_submissions_admin.html", {"request": request, "actor": actor, "rows": rows, "portal": portal, "new_count": new_count, "correction_count": correction_count, "csrf_token": csrf_token(request)})
+    listing_dates = {}
+    for row in rows:
+        listing_dates[row.id] = db.scalar(
+            select(AuditEvent.created_at)
+            .where(
+                AuditEvent.entity_type == "PropertySubmission",
+                AuditEvent.entity_id == str(row.id),
+                AuditEvent.action == "SM_PROPERTY_IMPORTED",
+            )
+            .order_by(AuditEvent.created_at.asc())
+            .limit(1)
+        )
+    return templates.TemplateResponse(
+        "property_submissions_admin.html",
+        {
+            "request": request,
+            "actor": actor,
+            "rows": rows,
+            "portal": portal,
+            "new_count": new_count,
+            "correction_count": correction_count,
+            "listing_dates": listing_dates,
+            "csrf_token": csrf_token(request),
+        },
+    )
 
 
 @router.get("/admin/property-submissions", response_class=HTMLResponse)
