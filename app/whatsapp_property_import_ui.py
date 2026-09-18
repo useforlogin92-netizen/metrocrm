@@ -100,7 +100,13 @@ class WhatsAppPropertyImportUIMiddleware:
                     link = '<button id="metrocrm-whatsapp-property-import" class="pd-btn primary" type="button">📲 Property Data Received by WhatsApp</button>'
                     media_link = f'<a class="pd-btn" href="{media_base}">🖼 Property Media Catalog</a>'
                     if "metrocrm-whatsapp-property-import" not in html:
-                        html = html.replace(media_link, media_link + link, 1)
+                        # Match the catalog anchor by href/class rather than its
+                        # visible label so small UI label changes do not remove
+                        # the capture button.
+                        media_pattern = rf'(<a\\b[^>]*href="{re.escape(media_base)}"[^>]*>.*?</a>)'
+                        html, replaced = re.subn(media_pattern, r"\\1" + link, html, count=1, flags=re.I | re.S)
+                        if not replaced:
+                            html = html.replace("</body>", link + "</body>", 1) if "</body>" in html else html + link
                     if "</body>" in html:
                         html = html.replace("</body>", widget + "</body>", 1)
                     else:
