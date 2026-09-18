@@ -248,12 +248,15 @@ def super_admin_review(submission_id: int, request: Request, db: Session = Depen
 @router.post("/admin/property-data/whatsapp-import/{submission_id}/update", dependencies=[Depends(require_csrf)])
 async def admin_update_draft(
     submission_id: int, request: Request,
+    state: str = Form(""), district: str = Form(""), pincode: str = Form(""),
     city: str = Form(""), locality: str = Form(""), address: str = Form(""),
     rera: str = Form(""), possession_text: str = Form(""), contact_phone: str = Form(""),
+    construction_status: str = Form(""), property_type: str = Form(""), parking: str = Form(""),
+    total_units: str = Form(""), website: str = Form(""), map_url: str = Form(""),
     amenities: str = Form(""), highlights: str = Form(""), unit_configurations: str = Form("[]"),
     db: Session = Depends(get_db),
 ):
-    return _update_draft(submission_id, request, db, "ADMIN", city, locality, address, rera, possession_text, contact_phone, amenities, highlights, unit_configurations)
+    return _update_draft(submission_id, request, db, "ADMIN", state, district, pincode, city, locality, address, rera, possession_text, contact_phone, construction_status, property_type, parking, total_units, website, map_url, amenities, highlights, unit_configurations)
 
 
 @router.post("/super-admin/property-data/whatsapp-import/{submission_id}/update", dependencies=[Depends(require_csrf)])
@@ -264,13 +267,15 @@ async def super_admin_update_draft(
     amenities: str = Form(""), highlights: str = Form(""), unit_configurations: str = Form("[]"),
     db: Session = Depends(get_db),
 ):
-    return _update_draft(submission_id, request, db, "SUPER_ADMIN", city, locality, address, rera, possession_text, contact_phone, amenities, highlights, unit_configurations)
+    return _update_draft(submission_id, request, db, "SUPER_ADMIN", state, district, pincode, city, locality, address, rera, possession_text, contact_phone, construction_status, property_type, parking, total_units, website, map_url, amenities, highlights, unit_configurations)
 
 
 def _update_draft(
     submission_id: int, request: Request, db: Session, role: str,
-    city: str, locality: str, address: str, rera: str, possession_text: str,
-    contact_phone: str, amenities: str, highlights: str, unit_configurations: str,
+    state: str, district: str, pincode: str, city: str, locality: str, address: str,
+    rera: str, possession_text: str, contact_phone: str, construction_status: str,
+    property_type: str, parking: str, total_units: str, website: str, map_url: str,
+    amenities: str, highlights: str, unit_configurations: str,
 ):
     actor = _guard(request, db)
     if not actor or actor.role != role:
@@ -284,12 +289,21 @@ def _update_draft(
         if not isinstance(configs, list) or any(not isinstance(item, dict) for item in configs):
             raise ValueError("Configurations must be a JSON list of objects")
         data.update({
+            "state": state.strip(),
+            "district": district.strip(),
+            "pincode": pincode.strip(),
             "city": city.strip(),
             "locality": locality.strip(),
             "address": address.strip(),
             "rera": rera.strip(),
             "possession_text": possession_text.strip(),
             "contact_phone": contact_phone.strip(),
+            "construction_status": construction_status.strip(),
+            "property_type": property_type.strip(),
+            "parking": parking.strip(),
+            "total_units": total_units.strip(),
+            "website": website.strip(),
+            "map_url": map_url.strip(),
             "amenities": [x.strip() for x in amenities.split(",") if x.strip()],
             "highlights": [x.strip() for x in highlights.splitlines() if x.strip()],
             "unit_configurations": configs,
