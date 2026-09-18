@@ -70,7 +70,7 @@ class WhatsAppPropertyImportUIMiddleware:
       <input id="metrocrm-whatsapp-files" type="file" name="files" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.mp4,.mov">
       <div class="metrocrm-wa-muted">Allowed: PDF, JPG, PNG, WEBP, MP4, MOV · up to 30 MB per attachment.</div>
       <div class="metrocrm-wa-actions">
-        <button type="button" id="metrocrm-whatsapp-cancel" class="metrocrm-wa-btn metrocrm-wa-secondary">Cancel</button>
+        <button type="button" id="metrocrm-whatsapp-cancel" class="metrocrm-wa-btn metrocrm-wa-secondary">Cancel</button><a href="{base}/whatsapp-import" class="metrocrm-wa-btn metrocrm-wa-secondary" style="text-decoration:none">📋 Review Queue</a>
         <button type="submit" id="metrocrm-whatsapp-submit" class="metrocrm-wa-btn metrocrm-wa-primary">🤖 Analyze &amp; Create Review Draft</button>
       </div>
     </form>
