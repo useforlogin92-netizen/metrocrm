@@ -372,7 +372,10 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     parsed["field_conflicts"] = field_conflicts
     parsed["unattributed_sources"] = [x for x in unattributed_sources if x]
     parsed["source_identity_warning"] = len(all_projects) > 1 or len(all_developers) > 1
-    parsed["identity_conflict"] = len(primary_projects) != 1 or len(primary_developers) > 1
+    # Brochure/PDF has priority for field selection, but conflicting project
+    # identities from any independent source must remain a manual-review
+    # condition. Never silently merge two different projects.
+    parsed["identity_conflict"] = len(all_projects) > 1 or len(all_developers) > 1 or len(primary_projects) != 1
     parsed["source_documents"] = {
         "brochures": [x.get("filename") for x in attachments if str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf")],
         "supporting_media": [x.get("filename") for x in attachments if not (str(x.get("mime_type", "")).lower() == "application/pdf" or str(x.get("filename", "")).lower().endswith(".pdf"))],
