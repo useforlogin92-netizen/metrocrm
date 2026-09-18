@@ -186,6 +186,8 @@ def _review(submission_id: int, request: Request, db: Session, actor) -> HTMLRes
         status_html = f"<div class='card' style='border-color:#fecaca;background:#fff7f7'><h2 style='margin:0 0 6px'>❌ Import failed</h2><div>{escape(review_error)}</div></div>"
     elif status == "success":
         status_html = f"<div class='card' style='border-color:#bbf7d0;background:#f0fdf4'><h2 style='margin:0 0 6px'>✅ Import submitted successfully</h2><div>Review draft <b>#{row.id}</b> was created. Nothing is written to the final project until you verify and commit it.</div></div>"
+    elif status == "updated":
+        status_html = f"<div class='card' style='border-color:#bbf7d0;background:#f0fdf4'><h2 style='margin:0 0 6px'>✅ Draft updated</h2><div>Your corrections are saved in review draft <b>#{row.id}</b>. The live Property Data record is still unchanged until verification.</div></div>"
     elif row.status == "CONFLICT":
         status_html = f"<div class='card' style='border-color:#fde68a;background:#fffbeb'><h2 style='margin:0 0 6px'>⚠️ Review required</h2><div>Multiple or conflicting project identities were detected. Check the details below before any commit.</div></div>"
     body = status_html + f"<div class='card'><h2>Draft #{row.id} · <span class='pill'>{escape(row.status)}</span></h2><p class='muted'>Detected project(s): <b>{escape(', '.join(data.get('project_candidates', [])) or 'none')}</b></p><p class='muted'>Identity conflict: <b>{'YES' if data.get('identity_conflict') else 'NO'}</b></p>{identity_html}</div>"
