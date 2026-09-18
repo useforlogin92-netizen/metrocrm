@@ -20,7 +20,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <p class="pd-sub">Download the ready-to-use Excel template for bulk uploads. Use the online editor for small updates.</p>
   <div class="pd-actions">
     <a class="pd-btn primary" href="{{ property_data_base }}/template">⬇ Download Property Template</a>
-    <a class="pd-btn" href="/admin/media-catalog">🖼 Property Media Catalog</a>
+    <a class="pd-btn" href="/admin/media-catalog">🖼 Property Media Catalog</a><a class="pd-btn primary" href="{{ property_data_base }}/whatsapp-import">📋 WhatsApp Review Queue</a>
     {% if selected == "Projects" %}<a class="pd-btn primary" href="{{ property_data_base }}?entity=Projects&modify=new">✏️ Single Property Modification</a><a class="pd-btn" href="{{ property_data_base }}?entity=Projects&modify=bulk">📝 Bulk Property Modification</a>{% endif %}
     {% if role == 'ADMIN' %}
     <form method="post" action="/admin/property-data/export/request" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="pd-btn" type="submit">⬆ Request Property Data Export</button></form>
@@ -108,9 +108,20 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 
 <div class="pd-card" style="margin-top:18px">
   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
-    <div><h3 style="margin:0">{{ selected }} Records</h3><div class="pd-small">Latest 100 records shown</div></div>
+    <div><h3 style="margin:0">{{ selected }} Records</h3><div class="pd-small">{% if search %}Search results for “{{ search }}” · {% endif %}Latest 100 records shown</div></div>
     <a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}">+ New Record</a>
   </div>
+  <form method="get" action="{{ property_data_base }}" style="margin:14px 0 4px">
+    <input type="hidden" name="entity" value="{{ selected }}">
+    {% if request.query_params.get("modify") %}<input type="hidden" name="modify" value="{{ request.query_params.get("modify") }}">{% endif %}
+    <label>Search Property Details</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input name="search" value="{{ search }}" placeholder="Property name, ID, developer, city, locality, address, RERA, BHK, price, unit no. or any property detail" style="flex:1;min-width:280px">
+      <button class="pd-btn primary" type="submit">🔎 Search</button>
+      {% if search %}<a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}{% if request.query_params.get("modify") %}&modify={{ request.query_params.get("modify") }}{% endif %}">✕ Clear</a>{% endif %}
+    </div>
+    <div class="pd-small" style="margin-top:5px">For Projects, search also checks developer details and linked unit/BHK/price information.</div>
+  </form>
   {% if selected == 'Projects' and request.query_params.get("modify") == "bulk" %}
   <form id="project-bulk-modify" method="post" action="{{ property_data_base }}/bulk-modify" onsubmit="return confirmBulkPropertyModify();">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -140,7 +151,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <div class="pd-table-wrap" style="margin-top:12px">
     <table class="pd-table"><thead><tr><th>ID</th><th>Primary Details</th>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<th>Select</th>{% elif request.query_params.get("modify") == "bulk" %}<th>Select</th>{% endif %}<th>Action</th></tr></thead><tbody>
       {% for row in rows %}
-      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<td style="width:70px;text-align:center"><input class="pd-select-box property-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" aria-label="Select property {{ row.id }}"></td>{% elif request.query_params.get("modify") == "bulk" %}<td style="width:70px;text-align:center"><input class="pd-select-box property-modify-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-modify" onchange="updatePropertyModifyCount()" aria-label="Select property {{ row.id }} for bulk modification"></td>{% endif %}<td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}">Edit</a></td></tr>
+      <tr><td>{{ row.id }}</td><td>{% if selected == 'Projects' %}<b>{{ row.name }}</b><br>{{ row.city or '' }} {{ row.locality or '' }}{% elif selected == 'Units' %}<b>{{ row.unit_number }}</b><br>{{ row.bhk or '' }} · {{ row.property_type or '' }} · {{ row.price or '' }}{% elif selected == 'Towers' %}<b>{{ row.name }}</b><br>{{ row.floors or '' }} floors{% elif selected == 'Developers' %}<b>{{ row.name }}</b><br>{{ row.contact or '' }}{% else %}<b>{{ row.name }}</b><br>{{ row.category or '' }}{% endif %}</td>{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}<td style="width:70px;text-align:center"><input class="pd-select-box property-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-delete" onchange="updatePropertySelectionCount()" aria-label="Select property {{ row.id }}"></td>{% elif request.query_params.get("modify") == "bulk" %}<td style="width:70px;text-align:center"><input class="pd-select-box property-modify-select" type="checkbox" name="project_ids" value="{{ row.id }}" form="project-bulk-modify" onchange="updatePropertyModifyCount()" aria-label="Select property {{ row.id }} for bulk modification"></td>{% endif %}<td><a class="pd-btn" href="{{ property_data_base }}?entity={{ selected }}&id={{ row.id }}{% if search %}&search={{ search }}{% endif %}">Edit</a></td></tr>
       {% else %}<tr><td colspan="{% if role == 'SUPER_ADMIN' and selected == 'Projects' %}4{% else %}3{% endif %}">No records found.</td></tr>{% endfor %}
     </tbody></table>
   </div>
