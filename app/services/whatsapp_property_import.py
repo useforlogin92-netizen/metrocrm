@@ -309,7 +309,14 @@ def find_safe_project_matches(db: Session, parsed: dict[str, Any]) -> dict[str, 
 def build_draft(text: str, attachments: list[dict[str, Any]], db: Session) -> dict[str, Any]:
     parsed = analyze_sources(text, attachments)
     parsed["project_match"] = find_safe_project_matches(db, parsed)
-    parsed["requires_manual_project_selection"] = bool(parsed["identity_conflict"] or parsed["project_match"]["ambiguous"])
+    # OCR/text from an attachment that cannot identify its project must not
+    # silently contribute fields to a final CRM record. Keep the attachment in
+    # the review draft, but require explicit manual review before commit.
+    parsed["requires_manual_project_selection"] = bool(
+        parsed["identity_conflict"]
+        or parsed["project_match"]["ambiguous"]
+        or parsed["unattributed_sources"]
+    )
     parsed["safe_to_commit"] = not parsed["requires_manual_project_selection"]
     return parsed
 
