@@ -367,7 +367,13 @@ def analyze_sources(text: str, attachments: list[dict[str, Any]]) -> dict[str, A
     # manual project selection before commit.
     # Preserve every distinct source identity for review; the brochure remains
     # the preferred primary identity but must not hide competing candidates.
-    parsed["project_candidates"] = list(all_projects.values()) or primary_projects
+    # Keep the brochure as the primary identity when it is the sole
+    # authoritative attachment. When multiple attachments independently name
+    # projects, preserve all candidates so review cannot hide a source conflict.
+    has_multiple_identified_attachments = len(source_identities) > 1
+    parsed["project_candidates"] = (
+        list(all_projects.values()) if has_multiple_identified_attachments else primary_projects
+    )
     parsed["primary_project_candidates"] = primary_projects
     parsed["additional_project_candidates"] = [x for x in parsed["project_candidates"] if normalize_name(x) not in {normalize_name(y) for y in primary_projects}]
     parsed["source_identities"] = source_identities
