@@ -178,6 +178,11 @@ def root(request: Request):
         return RedirectResponse("/dashboard", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": False})
 
+@app.get("/auth/super-admin/login", response_class=HTMLResponse)
+def super_admin_login_alias(request: Request):
+    """Provide a browser-safe GET entry point for the existing POST login action."""
+    return RedirectResponse("/super-admin/login", status_code=303)
+
 @app.get("/super-admin/login", response_class=HTMLResponse)
 def super_admin_login_page(request: Request):
     if request.session.get("user_id") and request.session.get("login_portal") == "super_admin":
