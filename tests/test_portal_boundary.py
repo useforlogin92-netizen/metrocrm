@@ -148,3 +148,8 @@ def test_super_admin_property_submissions_dedicated_route_is_not_bridged_back_to
     assert portal_boundary._super_admin_legacy_route_bridge(request) is False
     assert request.scope["path"] == "/super-admin/property-submissions"
     assert request.scope["raw_path"] == b"/super-admin/property-submissions"
+
+
+def test_auth_super_admin_login_get_alias_is_registered():
+    routes = {(route.path, tuple(sorted(route.methods or ()))) for route in portal_boundary.app.routes}
+    assert ("/auth/super-admin/login", ("GET",)) in routes
