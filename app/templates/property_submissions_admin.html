@@ -34,11 +34,67 @@
       <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
         {% if portal=='admin' and row.status=='SUBMITTED' %}
           <form method="post" action="/admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
-          <form method="post" action="/admin/property-submissions/{{row.id}}/request-correction" style="display:flex;gap:6px;align-items:center"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input name="correction_reason" required placeholder="What details are missing?" style="padding:8px;border:1px solid #d0d5dd;border-radius:8px;min-width:220px"><button type="submit">Request Correction</button></form>
+          <details style="width:100%;margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px">
+            <summary style="cursor:pointer;font-weight:800">Fill Missing Details + Re-request SM</summary>
+            {% set p = row.payload_json|from_json if false else none %}
+            <div class="admin-correction-form" data-payload="{{ row.payload_json|e }}"></div>
+            <form method="post" action="/admin/property-submissions/{{row.id}}/request-correction" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:8px">
+              <input type="hidden" name="csrf_token" value="{{csrf_token}}">
+              <input name="developer" placeholder="Developer">
+              <input name="project_name" placeholder="Project Name">
+              <input name="city" placeholder="City">
+              <input name="locality" placeholder="Locality">
+              <input name="address" placeholder="Address">
+              <input name="pincode" placeholder="Pincode">
+              <input name="rera_number" placeholder="RERA Number">
+              <input name="construction_status" placeholder="Construction Status">
+              <input name="possession_date" placeholder="Possession Date">
+              <input name="starting_price" placeholder="Starting Price">
+              <input name="rate_per_sqft" placeholder="Rate / Sq.Ft.">
+              <input name="bundle_price" placeholder="All Inclusive / Bundle Price">
+              <input name="maintenance_charges" placeholder="Maintenance Charges">
+              <input name="gst_charges" placeholder="GST Charges">
+              <input name="registration_charges" placeholder="Registration Charges">
+              <input name="payment_plan" placeholder="Payment Plan">
+              <input name="nearby" placeholder="Nearby">
+              <input name="highlights" placeholder="Highlights">
+              <textarea name="other_details" placeholder="Other details / admin-filled information" style="grid-column:1/-1;min-height:70px"></textarea>
+              <input name="correction_reason" required placeholder="What does the SM still need to provide?" style="grid-column:1/-1">
+              <button type="submit" style="grid-column:1/-1">Save Admin Updates &amp; Re-request</button>
+            </form>
+          </details>
         {% endif %}
         {% if portal=='super-admin' and row.status=='SUBMITTED' %}
           <form method="post" action="/super-admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
-          <form method="post" action="/super-admin/property-submissions/{{row.id}}/request-correction" style="display:flex;gap:6px;align-items:center"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input name="correction_reason" required placeholder="What details are missing?" style="padding:8px;border:1px solid #d0d5dd;border-radius:8px;min-width:220px"><button type="submit">Request Correction</button></form>
+          <details style="width:100%;margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px">
+            <summary style="cursor:pointer;font-weight:800">Fill Missing Details + Re-request SM</summary>
+            {% set p = row.payload_json|from_json if false else none %}
+            <div class="admin-correction-form" data-payload="{{ row.payload_json|e }}"></div>
+            <form method="post" action="/super-admin/property-submissions/{{row.id}}/request-correction" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:8px">
+              <input type="hidden" name="csrf_token" value="{{csrf_token}}">
+              <input name="developer" placeholder="Developer">
+              <input name="project_name" placeholder="Project Name">
+              <input name="city" placeholder="City">
+              <input name="locality" placeholder="Locality">
+              <input name="address" placeholder="Address">
+              <input name="pincode" placeholder="Pincode">
+              <input name="rera_number" placeholder="RERA Number">
+              <input name="construction_status" placeholder="Construction Status">
+              <input name="possession_date" placeholder="Possession Date">
+              <input name="starting_price" placeholder="Starting Price">
+              <input name="rate_per_sqft" placeholder="Rate / Sq.Ft.">
+              <input name="bundle_price" placeholder="All Inclusive / Bundle Price">
+              <input name="maintenance_charges" placeholder="Maintenance Charges">
+              <input name="gst_charges" placeholder="GST Charges">
+              <input name="registration_charges" placeholder="Registration Charges">
+              <input name="payment_plan" placeholder="Payment Plan">
+              <input name="nearby" placeholder="Nearby">
+              <input name="highlights" placeholder="Highlights">
+              <textarea name="other_details" placeholder="Other details / admin-filled information" style="grid-column:1/-1;min-height:70px"></textarea>
+              <input name="correction_reason" required placeholder="What does the SM still need to provide?" style="grid-column:1/-1">
+              <button type="submit" style="grid-column:1/-1">Save Admin Updates &amp; Re-request</button>
+            </form>
+          </details>
         {% endif %}
       </div>
     </div>
@@ -52,6 +108,8 @@
   document.querySelectorAll('.sm-submission-row').forEach(function (row) {
     try {
       var data = JSON.parse(row.getAttribute('data-payload') || '{}');
+      var edit = row.querySelector('.admin-correction-form');
+      if (edit) { var fields = ['developer','project_name','city','locality','address','pincode','rera_number','construction_status','possession_date','starting_price','rate_per_sqft','bundle_price','maintenance_charges','gst_charges','registration_charges','payment_plan','nearby','highlights','other_details']; fields.forEach(function(k){ var input = edit.parentElement.querySelector('[name="'+k+'"]'); if (input && data[k]) input.value = data[k]; }); }
       var sm = row.querySelector('.submission-sm');
       var property = row.querySelector('.submission-property');
       var address = row.querySelector('.submission-address');
