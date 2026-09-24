@@ -5,59 +5,70 @@ from app.property_master import (
 )
 
 
-def test_all_four_sources_normalize_to_same_keys():
-    raw = {
+def _canonical_payload():
+    return {
+        "Property Ref": "P-001",
+        "Developer / Builder": "Example Developer",
         "Project Name": "Sample Heights",
         "Property Type": "Residential",
-        "BHK": "2 BHK",
-        "Carpet Area": "850",
-        "Possession Date": "Dec 2027",
+        "Listing Status": "Active",
+        "Availability Status": "Available",
         "Full Address": "Andheri East, Mumbai",
-        "PIN Code": "400069",
-        "BSP": "1.80 Cr",
-        "RERA Number": "P51800000000",
+        "City": "Mumbai",
+        "Locality / Area": "Andheri East",
+        "Pincode": "400069",
+        "Google Maps Link": "https://maps.google.com/?q=Andheri+East",
+        "Nearby Connectivity / Landmarks": "Metro, station, school",
+        "Project Status": "Under Construction",
+        "Possession Date": "Dec 2027",
+        "Total Towers": 2,
+        "RERA Registration Number": "P51800000000",
+        "Approved Banks List": "HDFC, ICICI",
+        "Title Deed Type": "Freehold",
+        "Configuration Details": [
+            {
+                "configuration": "2 BHK",
+                "carpet_area": 850,
+                "price_including_all": 18000000,
+                "negotiation": "Yes",
+                "availability": "Available",
+            }
+        ],
+        "Additional / Government Charges": "As applicable",
+        "Payment Plan": "20:80",
+        "CP Commission %": 2,
+        "Amenities & Facilities": "Car Parking, Gym, Lift, CCTV",
+        "Other Facility": "Sample facility",
+        "Walkthrough Video Link": "https://example.com/video",
+        "Relationship Manager (RM)": "RM Name",
+        "RM Contact Info": "9999999999",
+        "Site Visit Timings": "10 AM - 6 PM",
+        "Booking Process": "Token + KYC",
     }
-    expected = {
-        "project_name", "property_type", "configuration", "carpet_area",
-        "possession_date", "full_address", "pincode", "bsp",
-        "rera_registration_number", "_update_source",
-    }
+
+
+def test_all_four_sources_normalize_to_same_canonical_keys():
+    raw = _canonical_payload()
+    expected = set(normalize_property_payload(raw, source=PropertyUpdateSource.INDIVIDUAL))
     for source in PropertyUpdateSource:
         normalized = normalize_property_payload(raw, source=source)
         assert set(normalized) == expected
         assert normalized["_update_source"] == source.value
+    assert "configurations" in expected
+    assert "configuration" not in expected
+    assert "bsp" not in expected
 
 
-def test_create_validation_requires_only_core_listing_fields():
-    payload = normalize_property_payload(
-        {
-            "Project Name": "Sample Heights",
-            "Property Type": "Residential",
-            "Configuration": "2 BHK",
-            "Possession Date": "Dec 2027",
-            "Full Address": "Mumbai",
-            "Pincode": "400069",
-            "BSP": "1.8 Cr",
-        },
-        source=PropertyUpdateSource.INDIVIDUAL,
-    )
+def test_create_validation_accepts_complete_v3_property_master():
+    payload = normalize_property_payload(_canonical_payload(), source=PropertyUpdateSource.INDIVIDUAL)
     assert validate_property_payload(payload) == []
 
 
 def test_invalid_pincode_and_commission_are_rejected():
-    payload = normalize_property_payload(
-        {
-            "Project Name": "Sample",
-            "Property Type": "Residential",
-            "Configuration": "2 BHK",
-            "Possession Date": "2027",
-            "Full Address": "Mumbai",
-            "Pincode": "4000",
-            "BSP": "1 Cr",
-            "CP Commission %": "120",
-        },
-        source="WHATSAPP",
-    )
+    raw = _canonical_payload()
+    raw["Pincode"] = "4000"
+    raw["CP Commission %"] = "120"
+    payload = normalize_property_payload(raw, source="WHATSAPP")
     errors = validate_property_payload(payload)
     assert "Pincode must be a 6-digit Indian PIN" in errors
     assert "CP Commission % must be between 0 and 100" in errors
