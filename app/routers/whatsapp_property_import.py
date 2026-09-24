@@ -376,7 +376,47 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     # Normalize WhatsApp data through the same Property Master contract used by
     # Individual/Bulk/SM-link updates. Missing optional fields are preserved;
     # nothing is invented from the source.
-    canonical = normalize_property_payload(data, source=PropertyUpdateSource.WHATSAPP)
+    master_payload = {
+        "project_name": data.get("project_name") or project.name,
+        "developer": data.get("developer"),
+        "property_type": data.get("property_type"),
+        "city": data.get("city"),
+        "locality": data.get("locality"),
+        "full_address": data.get("address"),
+        "pincode": data.get("pincode"),
+        "google_maps_link": data.get("map_url"),
+        "nearby_connectivity": data.get("nearby_connectivity") or data.get("nearby"),
+        "project_status": data.get("construction_status"),
+        "possession_date": data.get("possession_text"),
+        "rera_registration_number": data.get("rera"),
+        "facilities": data.get("amenities") or [],
+        "other_facility": data.get("other_facility"),
+        "site_flat_photos": data.get("photos"),
+        "floor_plan": data.get("floor_plan_url"),
+        "project_pdf_brochure": data.get("brochure_url"),
+        "walkthrough_video_link": data.get("walkthrough_video_url"),
+        "rm_name": data.get("rm_name") or data.get("contact_name"),
+        "rm_contact": data.get("contact_phone"),
+        "configurations": [
+            {
+                "configuration": item.get("bhk"),
+                "carpet_area": item.get("carpet_area"),
+                "price_including_all": item.get("price"),
+                "rate_per_sqft": item.get("rate_per_sqft"),
+                "negotiation": item.get("negotiable"),
+                "availability": item.get("availability") or "Available",
+            }
+            for item in (data.get("unit_configurations") or []) if isinstance(item, dict)
+        ],
+        "tower_details": [
+            {
+                "tower_name": data.get("tower_name") or data.get("wing"),
+                "total_floors": data.get("total_building_floors"),
+                "possession_date": data.get("possession_text"),
+            }
+        ] if data.get("total_building_floors") or data.get("tower_name") or data.get("wing") else [],
+    }
+    canonical = normalize_property_payload(master_payload, source=PropertyUpdateSource.WHATSAPP)
     validation_errors = validate_property_payload(canonical, is_create=False)
     if validation_errors:
         return RedirectResponse(
