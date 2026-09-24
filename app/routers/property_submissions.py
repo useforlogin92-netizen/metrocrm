@@ -541,7 +541,7 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
             for item in details if isinstance(item, dict) and item.get("tower")
         ],
     }
-    apply_property_master(
+    project, _ = apply_property_master(
         db, payload=master_payload, source=PropertyUpdateSource.SM_LINK, actor=actor,
         project_id=project.id if project else None, create=project is None,
     )
