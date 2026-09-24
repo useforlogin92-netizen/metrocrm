@@ -468,17 +468,7 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
         developer = db.get(__import__('app.models', fromlist=['Developer']).Developer, project.developer_id)
         if developer and data.get("contact_phone") and not developer.contact:
             developer.contact = data["contact_phone"]
-        for config in data.get("unit_configurations") or []:
-            key = f"CONFIG-{normalize_name(config.get('bhk'))}-{config.get('carpet_area')}"
-            unit = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == key))
-            if not unit: unit = Unit(project_id=project.id, unit_number=key)
-            unit.bhk = config.get("bhk"); unit.carpet_area = config.get("carpet_area"); unit.price = config.get("price")
-            unit.status = "CONFIGURATION"; unit.availability = "SOURCE_STATED"
-            if data.get("total_building_floors") and not unit.total_building_floors: unit.total_building_floors = data["total_building_floors"]
-            if data.get("possession_text") and not unit.possession: unit.possession = data["possession_text"]
-            unit.other_details = json.dumps({"source": "WHATSAPP_IMPORT", "source_line": config.get("source_line"), "wing": config.get("wing")}, ensure_ascii=False)
-            db.add(unit)
-        for attachment in data.get("attachments") or []:
+        # Configuration and tower data are stored only in the canonical Property Master JSON.\n        for attachment in data.get("attachments") or []:
             staged = Path(str(attachment.get("staged_path", ""))).resolve()
             if not staged.is_file() or staging_root not in staged.parents:
                 raise ValueError(f"Staged attachment is missing or outside the import staging area: {attachment.get('filename', 'unknown')}")
