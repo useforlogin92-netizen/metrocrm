@@ -190,7 +190,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
 
         master_headers = [str(x.value).strip() if x.value is not None else "" for x in master_ws[1]]
         cfg_headers = [str(x.value).strip() if x.value is not None else "" for x in cfg_ws[1]] if cfg_ws else []
-        master_allowed = {"property_id", "property_ref", "developer"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "negotiation"}}
+        master_allowed = {"property_id"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "tower_details"}}
         cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation", "availability"}
         if any(h not in master_allowed for h in master_headers if h):
             raise ValueError("Property Master contains unsupported columns")
@@ -198,6 +198,17 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
             raise ValueError("Property Configurations contains unsupported columns")
 
         config_by_ref = {}
+        tower_by_ref = {}
+        tower_ws = wb["Property Towers"] if "Property Towers" in wb.sheetnames else None
+        tower_headers = [str(x.value).strip() if x.value is not None else "" for x in tower_ws[1]] if tower_ws else []
+        for row_no, values in enumerate(tower_ws.iter_rows(min_row=2, values_only=True), start=2) if tower_ws else []:
+            raw = {tower_headers[i]: values[i] for i in range(min(len(tower_headers), len(values))) if tower_headers[i]}
+            if not any(v not in (None, "") for v in raw.values()): continue
+            keys = [str(raw.get(x) or "").strip() for x in ("property_id","property_ref") if str(raw.get(x) or "").strip()]
+            if not keys: raise ValueError(f"Property Towers row {row_no}: property_id or property_ref is required")
+            tower_row = {"tower_name": raw.get("tower_name"), "total_floors": raw.get("total_floors"), "possession_date": raw.get("possession_date")}
+            for key in keys: tower_by_ref.setdefault(key, []).append(dict(tower_row))
+
         for row_no, values in enumerate(cfg_ws.iter_rows(min_row=2, values_only=True), start=2) if cfg_ws else []:
             raw = {cfg_headers[i]: values[i] for i in range(min(len(cfg_headers), len(values))) if cfg_headers[i]}
             if not any(v not in (None, "") for v in raw.values()):
@@ -213,6 +224,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
                 "price_including_all": raw.get("price_including_all"),
                 "rate_per_sqft": raw.get("rate_per_sqft"),
                 "negotiation": raw.get("negotiation"),
+                "availability": raw.get("availability"),
             }
             for key in keys:
                 config_by_ref.setdefault(key, []).append(dict(config_row))
@@ -231,6 +243,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
             payload = {k: v for k, v in raw.items() if k not in {"property_id", "property_ref"}}
             payload["developer"] = raw.get("developer")
             payload["configurations"] = config_by_ref.get(key, [])
+            payload["tower_details"] = tower_by_ref.get(key, [])
             project, _ = apply_property_master(
                 db, payload=payload, source=PropertyUpdateSource.BULK, actor=actor,
                 project_id=int(property_id) if property_id else None, create=not bool(property_id)
@@ -244,7 +257,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
     except Exception as exc:
         db.rollback()
         return RedirectResponse("/admin/property-data?error=" + str(exc).replace(" ", "+")[:350], status_code=303)
-    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "canonical_property_master_v2"})))
+    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "canonical_property_master_v3"})))
     db.commit()
     return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+properties+using+Property+Master+format", status_code=303)
 
