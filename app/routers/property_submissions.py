@@ -497,20 +497,22 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
             Project.locality.ilike(str(payload.get("locality") or "")),
         ).limit(1)
     )
-    # Persist the SM-link submission through the canonical Property Master engine.
-    first_detail = (payload.get("configuration_details") or [{}])[0]
+    # Persist SM-link data through the same fresh canonical Property Master contract.
+    details = payload.get("configuration_details") or []
     master_payload = {
         "project_name": payload.get("project_name"),
         "property_type": payload.get("property_type"),
-        "configuration": first_detail.get("configuration") or (payload.get("configurations") or [None])[0],
-        "carpet_area": first_detail.get("carpet_area") or payload.get("carpet_area"),
-        "possession_date": payload.get("possession_date") or payload.get("possession_status"),
+        "city": payload.get("city"),
+        "locality": payload.get("locality"),
         "full_address": payload.get("address"),
         "pincode": payload.get("pincode"),
         "google_maps_link": payload.get("google_maps_url"),
         "nearby_connectivity": payload.get("nearby"),
-        "bsp": first_detail.get("bundle_price") or payload.get("starting_price"),
+        "project_status": payload.get("construction_status"),
+        "possession_date": payload.get("possession_date") or payload.get("possession_status"),
         "rera_registration_number": payload.get("rera_number"),
+        "approved_banks": payload.get("approved_banks"),
+        "facilities": payload.get("amenities", []),
         "site_flat_photos": payload.get("photos"),
         "floor_plan": payload.get("floor_plan_url"),
         "project_pdf_brochure": payload.get("brochure_url"),
@@ -519,48 +521,31 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
         "rm_contact": payload.get("sm_contact"),
         "site_visit_timings": payload.get("site_visit_timings"),
         "booking_process": payload.get("booking_process"),
+        "configurations": [
+            {
+                "configuration": item.get("configuration"),
+                "carpet_area": item.get("carpet_area"),
+                "price_including_all": item.get("bundle_price"),
+                "rate_per_sqft": item.get("rate_per_sqft"),
+                "negotiation": item.get("negotiable"),
+                "availability": item.get("inventory_status") or "Available",
+            }
+            for item in details if isinstance(item, dict)
+        ],
+        "tower_details": [
+            {
+                "tower_name": item.get("tower"),
+                "total_floors": item.get("total_building_floors"),
+                "possession_date": item.get("possession_date"),
+            }
+            for item in details if isinstance(item, dict) and item.get("tower")
+        ],
     }
     apply_property_master(
-        db,
-        payload=master_payload,
-        source=PropertyUpdateSource.SM_LINK,
-        actor=actor,
-        project_id=project.id,
-        create=False,
+        db, payload=master_payload, source=PropertyUpdateSource.SM_LINK, actor=actor,
+        project_id=project.id if project else None, create=project is None,
     )
 
-    sm_metadata = {"sm_name": payload.get("sm_name"), "sm_contact": payload.get("sm_contact"), "sm_visiting_card": payload.get("sm_visiting_card"), "sm_submission_id": submission.id}
-    if not project:
-        project_description = json.dumps({"highlights": payload.get("highlights") or "", "google_maps_url": payload.get("google_maps_url") or "", "sm_name": payload.get("sm_name") or "", "sm_contact": payload.get("sm_contact") or "", "sm_visiting_card": payload.get("sm_visiting_card") or "", "sm_submission_id": submission.id}, ensure_ascii=False)
-        project = Project(developer_id=developer.id, name=project_name, city=payload.get("city"), locality=payload.get("locality"), address=payload.get("address"), pincode=payload.get("pincode"), rera=payload.get("rera_number"), construction_status=payload.get("construction_status") or None, possession_date=None, amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), description=project_description)
-        db.add(project)
-        db.flush()
-    details = payload.get("configuration_details") or []
-    for index, item in enumerate(details, 1):
-        unit_number = str(item.get("unit_number") or "").strip()
-        tower_name = str(item.get("tower") or "").strip()
-        tower = None
-        if tower_name:
-            tower = db.scalar(select(Tower).where(Tower.project_id == project.id, Tower.name.ilike(tower_name)).limit(1))
-            if not tower:
-                tower = Tower(project_id=project.id, name=tower_name, floors=None, possession_date=None, details=json.dumps({"source":"SM submission","submission_id":submission.id}, ensure_ascii=False))
-                db.add(tower)
-                db.flush()
-        # A configuration without an explicit unit number is project/tower-level data only.
-        # Do not manufacture a fake Unit record.
-        if not unit_number:
-            continue
-        price = float(item["bundle_price"]) if str(item.get("bundle_price", "")).strip() else None
-        carpet = float(item["carpet_area"]) if str(item.get("carpet_area", "")).strip() else None
-        floor_value = str(item.get("floor", "")).strip()
-        floor_number = int(floor_value) if floor_value.isdigit() else None
-        existing = db.scalar(select(Unit).where(Unit.project_id == project.id, Unit.unit_number == unit_number).limit(1))
-        if existing:
-            continue
-        unit_description = {"rate_per_sqft": item.get("rate_per_sqft"), "negotiable": item.get("negotiable"), "available_units": item.get("available_units"), "tower": tower_name, "floor": item.get("floor"), "plan_video": item.get("plan_video"), **sm_metadata}
-        if payload.get("google_maps_url"):
-            unit_description["google_maps_url"] = payload.get("google_maps_url")
-        db.add(Unit(project_id=project.id, tower_id=tower.id if tower else None, unit_number=unit_number, bhk=item.get("configuration"), property_type=payload.get("property_type"), carpet_area=carpet, built_up_area=float(payload["built_up_area"]) if payload.get("built_up_area") else None, price=price, parking=item.get("parking") or payload.get("parking"), facing=payload.get("facing"), floor=floor_number, possession=payload.get("possession_status") or None, availability=item.get("inventory_status") or "Available", status="AVAILABLE", amenities_json=json.dumps(payload.get("amenities", []), ensure_ascii=False), brochure=payload.get("brochure_url") or None, floor_plan=item.get("plan_chart") or payload.get("floor_plan_url") or None, description=json.dumps(unit_description, ensure_ascii=False), other_details=json.dumps({"sm_name": payload.get("sm_name"), "sm_contact": payload.get("sm_contact"), "sm_visiting_card": payload.get("sm_visiting_card"), "sm_submission_id": submission.id}, ensure_ascii=False)))
     submission.status = "IMPORTED"
     submission.revoked = True
     submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
