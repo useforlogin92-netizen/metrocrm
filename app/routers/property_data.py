@@ -16,6 +16,8 @@ from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, SiteVisit, Token, Tower, Unit, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
+from app.property_master import PropertyUpdateSource
+from app.services.property_update_engine import apply_property_master
 from tools.seed_godrej_nest_test import seed_godrej_nest_test
 
 router = APIRouter(tags=["property-data"])
@@ -189,15 +191,17 @@ async def bulk_modify_property_data(request: Request, db: Session = Depends(get_
         if missing:
             raise ValueError("Property ID not found: " + ", ".join(missing[:10]))
         for row in rows:
+            apply_property_master(
+                db,
+                payload=supplied,
+                source=PropertyUpdateSource.BULK,
+                actor=actor,
+                project_id=row.id,
+                create=False,
+            )
             for field, value in supplied.items():
-                setattr(row, field, value)
-            db.add(AuditEvent(
-                actor_user_id=actor.id,
-                action="PROPERTY_RECORD_BULK_UPDATED",
-                entity_type="Projects",
-                entity_id=str(row.id),
-                details=json.dumps({"fields": list(supplied.keys()), "bulk_count": len(rows), "online_editor": True}),
-            ))
+                if field in {"city", "locality", "address", "rera"}:
+                    setattr(row, field, value)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -250,6 +254,19 @@ async def save_property_data(request: Request, db: Session = Depends(get_db)):
         obj = db.get(model, int(raw_id)) if raw_id else model()
         if raw_id and obj is None:
             raise ValueError("Record ID does not exist")
+        if entity == "Projects":
+            canonical_payload = {k: v for k, v in form.items() if k not in {"csrf_token", "entity", "id"}}
+            if any(k in canonical_payload for k in ("project_name", "property_type", "configuration", "carpet_area", "possession_date", "full_address", "bsp", "pincode", "rera_registration_number")):
+                obj, _ = apply_property_master(
+                    db,
+                    payload=canonical_payload,
+                    source=PropertyUpdateSource.INDIVIDUAL,
+                    actor=actor,
+                    project_id=int(raw_id) if raw_id else None,
+                    create=not bool(raw_id),
+                )
+                db.commit()
+                return RedirectResponse(f"/admin/property-data?entity=Projects&id={obj.id}&message=Property+Master+saved", status_code=303)
         columns = {column.name: column for column in model.__table__.columns}
         for field in fields:
             if field == "id" or field not in columns:

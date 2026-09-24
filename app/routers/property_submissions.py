@@ -18,6 +18,8 @@ from app.csrf import csrf_token, require_csrf
 from app.config import settings
 from app.database import get_db
 from app.models import AuditEvent, Developer, Project, Tower, Unit, User
+from app.property_master import PropertyUpdateSource
+from app.services.property_update_engine import apply_property_master
 from app.property_submission_models import PropertySubmission
 
 router = APIRouter(tags=["property-submissions"])
@@ -495,6 +497,38 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
             Project.locality.ilike(str(payload.get("locality") or "")),
         ).limit(1)
     )
+    # Persist the SM-link submission through the canonical Property Master engine.
+    first_detail = (payload.get("configuration_details") or [{}])[0]
+    master_payload = {
+        "project_name": payload.get("project_name"),
+        "property_type": payload.get("property_type"),
+        "configuration": first_detail.get("configuration") or (payload.get("configurations") or [None])[0],
+        "carpet_area": first_detail.get("carpet_area") or payload.get("carpet_area"),
+        "possession_date": payload.get("possession_date") or payload.get("possession_status"),
+        "full_address": payload.get("address"),
+        "pincode": payload.get("pincode"),
+        "google_maps_link": payload.get("google_maps_url"),
+        "nearby_connectivity": payload.get("nearby"),
+        "bsp": first_detail.get("bundle_price") or payload.get("starting_price"),
+        "rera_registration_number": payload.get("rera_number"),
+        "site_flat_photos": payload.get("photos"),
+        "floor_plan": payload.get("floor_plan_url"),
+        "project_pdf_brochure": payload.get("brochure_url"),
+        "walkthrough_video_link": payload.get("walkthrough_video_url"),
+        "rm_name": payload.get("sm_name"),
+        "rm_contact": payload.get("sm_contact"),
+        "site_visit_timings": payload.get("site_visit_timings"),
+        "booking_process": payload.get("booking_process"),
+    }
+    apply_property_master(
+        db,
+        payload=master_payload,
+        source=PropertyUpdateSource.SM_LINK,
+        actor=actor,
+        project_id=project.id,
+        create=False,
+    )
+
     sm_metadata = {"sm_name": payload.get("sm_name"), "sm_contact": payload.get("sm_contact"), "sm_visiting_card": payload.get("sm_visiting_card"), "sm_submission_id": submission.id}
     if not project:
         project_description = json.dumps({"highlights": payload.get("highlights") or "", "google_maps_url": payload.get("google_maps_url") or "", "sm_name": payload.get("sm_name") or "", "sm_contact": payload.get("sm_contact") or "", "sm_visiting_card": payload.get("sm_visiting_card") or "", "sm_submission_id": submission.id}, ensure_ascii=False)

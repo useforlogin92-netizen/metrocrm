@@ -30,6 +30,7 @@ from app.routers.advanced_reports import router as advanced_reports_router
 from app.routers.lead_import import router as lead_import_router
 from app.routers.property_social import router as property_social_router
 from app.routers.property_submissions import router as property_submissions_router
+from app.routers.property_update import router as property_update_router
 from app.routers.marketing import router as marketing_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from app.services.property_submission_schema import ensure_property_submission_schema
@@ -104,6 +105,7 @@ app.include_router(advanced_reports_router)
 app.include_router(lead_import_router)
 app.include_router(property_social_router)
 app.include_router(property_submissions_router)
+app.include_router(property_update_router)
 app.include_router(marketing_router)
 
 _super_admin_failures: dict[str, list[float]] = {}
