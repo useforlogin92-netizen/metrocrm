@@ -39,71 +39,44 @@ def _guard(request: Request, db: Session):
 
 
 def _property_workbook() -> BytesIO:
-    from app.property_master import PROPERTY_MASTER_FIELDS, CONFIGURATION_COLUMNS
-
+    from app.property_master import PROPERTY_MASTER_FIELDS, CONFIGURATION_COLUMNS, TOWER_COLUMNS
     wb = Workbook()
-    instructions = wb.active
-    instructions.title = "Instructions"
-    rows = [
-        ["MetroCRM Property Master Template"],
-        ["One exact Property Master format is used for Individual, Bulk, WhatsApp and SM Link updates."],
-        ["Property Master: one row per property. Use Property ID for update; leave it blank for a new property and provide a unique Property Ref."],
-        ["Property Configurations: add one row for every configuration/area combination. The same 1 BHK can have multiple carpet areas."],
-        ["Pricing: use only Total Price (Including All) OR Rate / Sq Ft. The system auto-calculates the other value using Carpet Area."],
-        ["Negotiation: Yes or No."],
-        ["Do not invent missing values. Optional fields may be blank."],
-        ["If a property is new, Property Ref links its Property Master row to all Configuration rows."],
-    ]
-    for row in rows:
-        instructions.append(row)
-    instructions.column_dimensions["A"].width = 110
-    instructions["A1"].font = Font(bold=True, size=16)
-
-    master_fields = ["property_id", "property_ref", "developer"] + [
-        field.key for field in PROPERTY_MASTER_FIELDS
-        if field.key not in {"configurations", "negotiation"}
-    ]
-    ws = wb.create_sheet("Property Master")
-    ws.append(master_fields)
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-        cell.alignment = Alignment(horizontal="center")
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-    for idx, field in enumerate(master_fields, 1):
-        ws.column_dimensions[get_column_letter(idx)].width = min(42, max(14, len(field) + 5))
-
-    cfg = wb.create_sheet("Property Configurations")
-    cfg_fields = ["property_id", "property_ref"] + [key for key, _ in CONFIGURATION_COLUMNS]
-    cfg.append(cfg_fields)
-    for cell in cfg[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-        cell.alignment = Alignment(horizontal="center")
-    cfg.freeze_panes = "A2"
-    cfg.auto_filter.ref = cfg.dimensions
-    for idx, field in enumerate(cfg_fields, 1):
-        cfg.column_dimensions[get_column_letter(idx)].width = min(34, max(16, len(field) + 5))
-
-    examples = wb.create_sheet("Examples")
-    examples.append(["Sheet", "Field", "Example"])
-    examples.append(["Property Master", "property_id", "Existing ID for update; blank for new"])
-    examples.append(["Property Master", "property_ref", "P-001"])
-    examples.append(["Property Master", "project_name", "Example Heights"])
-    examples.append(["Property Master", "configuration", "1 BHK"])
-    examples.append(["Property Configurations", "property_ref", "P-001"])
-    examples.append(["Property Configurations", "configuration", "1 BHK"])
-    examples.append(["Property Configurations", "carpet_area", "650"])
-    examples.append(["Property Configurations", "price_including_all", "8500000"])
-    examples.append(["Property Configurations", "rate_per_sqft", "13076.92"])
-    examples.append(["Property Configurations", "negotiation", "Yes"])
-    for cell in examples[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-    examples.column_dimensions["A"].width = 28
-    examples.column_dimensions["B"].width = 34
-    examples.column_dimensions["C"].width = 65
+    ws = wb.active
+    ws.title = "Instructions"
+    for row in [
+        ["MetroCRM Fresh Property Master V3"],
+        ["One canonical format: Individual, Bulk Excel, WhatsApp and SM Link."],
+        ["Property Master: one row per property. Existing property_id updates; property_ref identifies new properties."],
+        ["Property Configurations: one row per configuration + carpet area."],
+        ["Property Towers: one row per tower with total floors."],
+        ["Facilities: comma-separated ready-to-tick amenity names. Parking belongs here, not in configuration."],
+        ["Do not use unit number, floor, facing or furnishing in this Property Master."],
+    ]: ws.append(row)
+    ws.column_dimensions["A"].width = 115
+    ws["A1"].font = Font(bold=True, size=16)
+    master_fields = ["property_id"] + [f.key for f in PROPERTY_MASTER_FIELDS if f.key not in {"configurations","tower_details"}]
+    master = wb.create_sheet("Property Master"); master.append(master_fields)
+    cfg = wb.create_sheet("Property Configurations"); cfg.append(["property_id","property_ref"] + [k for k,_ in CONFIGURATION_COLUMNS])
+    towers = wb.create_sheet("Property Towers"); towers.append(["property_id","property_ref"] + [k for k,_ in TOWER_COLUMNS])
+    for sheet in (master,cfg,towers):
+        for cell in sheet[1]:
+            cell.font=Font(bold=True,color="FFFFFF")
+        sheet.freeze_panes="A2"; sheet.auto_filter.ref=sheet.dimensions
+    ex=wb.create_sheet("Examples")
+    for row in [
+        ["Sheet","Field","Example"],
+        ["Property Master","property_ref","P-001"],
+        ["Property Master","project_name","Example Heights"],
+        ["Property Master","facilities","Car Parking, Gym, Lift, CCTV"],
+        ["Property Configurations","configuration","2 BHK"],
+        ["Property Configurations","carpet_area","850"],
+        ["Property Configurations","price_including_all","12500000"],
+        ["Property Configurations","rate_per_sqft","14705.88"],
+        ["Property Configurations","negotiation","Yes"],
+        ["Property Configurations","availability","Available"],
+        ["Property Towers","tower_name","Tower A"],
+        ["Property Towers","total_floors","22"],
+    ]: ex.append(row)
     return _save_workbook(wb)
 
 
