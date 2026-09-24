@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -30,7 +32,14 @@ def property_update_page(request: Request, db: Session = Depends(get_db)):
         groups.setdefault(field.group, []).append(field)
     return templates.TemplateResponse(
         "property_update.html",
-        {"request": request, "groups": groups, "csrf_token": csrf_token(request), "property_id": request.query_params.get("property_id", ""), "error": request.query_params.get("error"), "message": request.query_params.get("message")},
+        {
+            "request": request,
+            "groups": groups,
+            "csrf_token": csrf_token(request),
+            "property_id": request.query_params.get("property_id", ""),
+            "error": request.query_params.get("error"),
+            "message": request.query_params.get("message"),
+        },
     )
 
 
@@ -43,6 +52,33 @@ async def property_update_submit(request: Request, db: Session = Depends(get_db)
     property_id = str(form.get("property_id") or "").strip()
     payload = {k: v for k, v in form.items() if k not in {"csrf_token", "property_id", "developer"}}
     payload["developer"] = form.get("developer")
+
+    configurations = []
+    index = 0
+    while True:
+        config = str(form.get(f"configurations[{index}][configuration]") or "").strip()
+        area = str(form.get(f"configurations[{index}][carpet_area]") or "").strip()
+        total = str(form.get(f"configurations[{index}][price_including_all]") or "").strip()
+        rate = str(form.get(f"configurations[{index}][rate_per_sqft]") or "").strip()
+        negotiation = str(form.get(f"configurations[{index}][negotiation]") or "").strip()
+        if not any((config, area, total, rate, negotiation)):
+            if index > 0:
+                break
+            index += 1
+            continue
+        configurations.append({
+            "configuration": config,
+            "carpet_area": area,
+            "price_including_all": total,
+            "rate_per_sqft": rate,
+            "negotiation": negotiation,
+        })
+        index += 1
+        if index > 100:
+            break
+    if configurations:
+        payload["configurations"] = configurations
+
     try:
         project, _ = apply_property_master(
             db,

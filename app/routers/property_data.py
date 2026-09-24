@@ -39,16 +39,72 @@ def _guard(request: Request, db: Session):
 
 
 def _property_workbook() -> BytesIO:
-    source = _template_workbook()
-    full = load_workbook(source)
-    keep = {"Instructions", "Examples", *PROPERTY_SHEETS}
-    for sheet in list(full.sheetnames):
-        if sheet not in keep:
-            del full[sheet]
-    ws = full["Instructions"]
-    ws.append(["Property-only workflow"])
-    ws.append(["Use Projects, Towers, Units and NearbyLocations for property inventory. Use an existing id to update; leave id blank for a new record."])
-    return _save_workbook(full)
+    from app.property_master import PROPERTY_MASTER_FIELDS, CONFIGURATION_COLUMNS
+
+    wb = Workbook()
+    instructions = wb.active
+    instructions.title = "Instructions"
+    rows = [
+        ["MetroCRM Property Master Template"],
+        ["One exact Property Master format is used for Individual, Bulk, WhatsApp and SM Link updates."],
+        ["Property Master: one row per property. Use Property ID for update; leave it blank for a new property and provide a unique Property Ref."],
+        ["Property Configurations: add one row for every configuration/area combination. The same 1 BHK can have multiple carpet areas."],
+        ["Pricing: use only Total Price (Including All) OR Rate / Sq Ft. The system auto-calculates the other value using Carpet Area."],
+        ["Negotiation: Yes or No."],
+        ["Do not invent missing values. Optional fields may be blank."],
+        ["If a property is new, Property Ref links its Property Master row to all Configuration rows."],
+    ]
+    for row in rows:
+        instructions.append(row)
+    instructions.column_dimensions["A"].width = 110
+    instructions["A1"].font = Font(bold=True, size=16)
+
+    master_fields = ["property_id", "property_ref", "developer"] + [
+        field.key for field in PROPERTY_MASTER_FIELDS
+        if field.key not in {"configurations", "negotiation"}
+    ]
+    ws = wb.create_sheet("Property Master")
+    ws.append(master_fields)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center")
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for idx, field in enumerate(master_fields, 1):
+        ws.column_dimensions[get_column_letter(idx)].width = min(42, max(14, len(field) + 5))
+
+    cfg = wb.create_sheet("Property Configurations")
+    cfg_fields = ["property_id", "property_ref"] + [key for key, _ in CONFIGURATION_COLUMNS]
+    cfg.append(cfg_fields)
+    for cell in cfg[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center")
+    cfg.freeze_panes = "A2"
+    cfg.auto_filter.ref = cfg.dimensions
+    for idx, field in enumerate(cfg_fields, 1):
+        cfg.column_dimensions[get_column_letter(idx)].width = min(34, max(16, len(field) + 5))
+
+    examples = wb.create_sheet("Examples")
+    examples.append(["Sheet", "Field", "Example"])
+    examples.append(["Property Master", "property_id", "Existing ID for update; blank for new"])
+    examples.append(["Property Master", "property_ref", "P-001"])
+    examples.append(["Property Master", "project_name", "Example Heights"])
+    examples.append(["Property Master", "configuration", "1 BHK"])
+    examples.append(["Property Configurations", "property_ref", "P-001"])
+    examples.append(["Property Configurations", "configuration", "1 BHK"])
+    examples.append(["Property Configurations", "carpet_area", "650"])
+    examples.append(["Property Configurations", "price_including_all", "8500000"])
+    examples.append(["Property Configurations", "rate_per_sqft", "13076.92"])
+    examples.append(["Property Configurations", "negotiation", "Yes"])
+    for cell in examples[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+    examples.column_dimensions["A"].width = 28
+    examples.column_dimensions["B"].width = 34
+    examples.column_dimensions["C"].width = 65
+    return _save_workbook(wb)
 
 
 def _display_value(value):
@@ -150,14 +206,74 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
     if not actor:
         return RedirectResponse("/", status_code=303)
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        return RedirectResponse("/admin/property-data?error=Only+Excel+.xlsx+files+are+supported", status_code=303)
+        return RedirectResponse("/admin/property-data?error=Only+.xlsx+files+are+supported", status_code=303)
     content = await file.read()
-    created, updated, errors = _import_workbook(content, db)
-    if errors:
-        return RedirectResponse("/admin/property-data?error=" + str(errors[0]).replace(" ", "+")[:350], status_code=303)
-    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyData", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated})))
+    try:
+        wb = load_workbook(BytesIO(content), data_only=True)
+        if "Property Master" not in wb.sheetnames:
+            raise ValueError("Property Master sheet is required")
+        master_ws = wb["Property Master"]
+        cfg_ws = wb["Property Configurations"] if "Property Configurations" in wb.sheetnames else None
+
+        master_headers = [str(x.value).strip() if x.value is not None else "" for x in master_ws[1]]
+        cfg_headers = [str(x.value).strip() if x.value is not None else "" for x in cfg_ws[1]] if cfg_ws else []
+        master_allowed = {"property_id", "property_ref", "developer"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "negotiation"}}
+        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation"}
+        if any(h not in master_allowed for h in master_headers if h):
+            raise ValueError("Property Master contains unsupported columns")
+        if cfg_ws and any(h not in cfg_allowed for h in cfg_headers if h):
+            raise ValueError("Property Configurations contains unsupported columns")
+
+        config_by_ref = {}
+        for row_no, values in enumerate(cfg_ws.iter_rows(min_row=2, values_only=True), start=2) if cfg_ws else []:
+            raw = {cfg_headers[i]: values[i] for i in range(min(len(cfg_headers), len(values))) if cfg_headers[i]}
+            if not any(v not in (None, "") for v in raw.values()):
+                continue
+            ref = str(raw.get("property_ref") or "").strip()
+            pid = str(raw.get("property_id") or "").strip()
+            keys = [x for x in (pid, ref) if x]
+            if not keys:
+                raise ValueError(f"Property Configurations row {row_no}: property_id or property_ref is required")
+            config_row = {
+                "configuration": raw.get("configuration"),
+                "carpet_area": raw.get("carpet_area"),
+                "price_including_all": raw.get("price_including_all"),
+                "rate_per_sqft": raw.get("rate_per_sqft"),
+                "negotiation": raw.get("negotiation"),
+            }
+            for key in keys:
+                config_by_ref.setdefault(key, []).append(dict(config_row))
+
+        created = updated = 0
+        refs_to_ids = {}
+        for row_no, values in enumerate(master_ws.iter_rows(min_row=2, values_only=True), start=2):
+            raw = {master_headers[i]: values[i] for i in range(min(len(master_headers), len(values))) if master_headers[i]}
+            if not any(v not in (None, "") for v in raw.values()):
+                continue
+            property_id = str(raw.get("property_id") or "").strip()
+            property_ref = str(raw.get("property_ref") or "").strip()
+            if not property_id and not property_ref:
+                raise ValueError(f"Property Master row {row_no}: property_id or property_ref is required")
+            key = property_id or property_ref
+            payload = {k: v for k, v in raw.items() if k not in {"property_id", "property_ref"}}
+            payload["developer"] = raw.get("developer")
+            payload["configurations"] = config_by_ref.get(key, [])
+            project, _ = apply_property_master(
+                db, payload=payload, source=PropertyUpdateSource.BULK, actor=actor,
+                project_id=int(property_id) if property_id else None, create=not bool(property_id)
+            )
+            refs_to_ids[property_ref] = project.id if property_ref else project.id
+            if property_id:
+                updated += 1
+            else:
+                created += 1
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return RedirectResponse("/admin/property-data?error=" + str(exc).replace(" ", "+")[:350], status_code=303)
+    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "canonical_property_master_v2"})))
     db.commit()
-    return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+property+records", status_code=303)
+    return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+properties+using+Property+Master+format", status_code=303)
 
 
 @router.post("/admin/property-data/bulk-modify", dependencies=[Depends(require_csrf)])
