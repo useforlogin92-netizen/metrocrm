@@ -512,23 +512,33 @@ def super_property_submission_approve(submission_id: int, request: Request, db: 
     return RedirectResponse("/super-admin/property-submissions", status_code=303)
 
 
-def _request_correction(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str, reason: str):
+def _request_correction(request: Request, db: Session, actor: User, submission: PropertySubmission, role: str, reason: str, admin_updates: dict | None = None):
     if submission.status != "SUBMITTED" or submission.revoked or not reason:
-        return
+        return None
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    payload = json.loads(submission.payload_json or "{}")
+    if admin_updates:
+        for key, value in admin_updates.items():
+            if key in BASE_FORM and key not in {"sm_name", "sm_contact"} and value not in (None, ""):
+                payload[key] = value
+    requests = payload.get("correction_requests") or []
+    requests.append({"requested_by": role, "requested_by_user_id": actor.id, "requested_at": now.isoformat(), "reason": reason, "admin_filled_fields": sorted(list(admin_updates.keys())) if admin_updates else []})
+    payload["correction_requests"] = requests
+    payload["latest_correction_request"] = reason
+    payload["admin_filled_fields"] = sorted(list(admin_updates.keys())) if admin_updates else []
+    submission.payload_json = json.dumps(payload, ensure_ascii=False)
     submission.status = "CORRECTION_REQUESTED"
     submission.admin_approved_by = None
     submission.admin_approved_at = None
     submission.super_admin_approved_by = None
     submission.super_admin_approved_at = None
-    submission.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    payload = json.loads(submission.payload_json or "{}")
-    requests = payload.get("correction_requests") or []
-    requests.append({"requested_by": role, "requested_by_user_id": actor.id, "requested_at": submission.updated_at.isoformat(), "reason": reason})
-    payload["correction_requests"] = requests
-    payload["latest_correction_request"] = reason
-    submission.payload_json = json.dumps(payload, ensure_ascii=False)
-    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_CORRECTION_REQUESTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"role": role, "reason": reason})))
+    # The previously submitted token is invalidated. A fresh token is generated for the correction round.
+    new_token = secrets.token_urlsafe(32)
+    submission.token_hash = _token_hash(new_token)
+    submission.updated_at = now
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_CORRECTION_REQUESTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"role": role, "reason": reason, "admin_filled_fields": sorted(list(admin_updates.keys())) if admin_updates else []})))
     db.commit()
+    return new_token
 
 
 @router.post("/admin/property-submissions/{submission_id}/request-correction", dependencies=[Depends(require_csrf)])
@@ -539,7 +549,11 @@ async def admin_property_submission_request_correction(submission_id: int, reque
     form = await request.form()
     row = db.get(PropertySubmission, submission_id)
     if row:
-        _request_correction(request, db, actor, row, "admin", str(form.get("correction_reason", "")).strip())
+        updates = {key: str(form.get(key, "")).strip() for key in ("developer","project_name","city","locality","address","pincode","rera_number","construction_status","possession_date","starting_price","rate_per_sqft","bundle_price","maintenance_charges","gst_charges","registration_charges","payment_plan","nearby","highlights","other_details") if str(form.get(key, "")).strip()}
+        token = _request_correction(request, db, actor, row, "admin", str(form.get("correction_reason", "")).strip(), updates)
+        if token:
+            share = _share_text(str(request.base_url).rstrip("/"), token, row.recipient_name)
+            return templates.TemplateResponse("property_submission_share.html", {"request": request, "actor": actor, "submission": row, **share, "correction": True, "admin_filled_fields": sorted(list(updates.keys()))})
     return RedirectResponse("/admin/property-submissions", status_code=303)
 
 
@@ -551,7 +565,11 @@ async def super_property_submission_request_correction(submission_id: int, reque
     form = await request.form()
     row = db.get(PropertySubmission, submission_id)
     if row:
-        _request_correction(request, db, actor, row, "super-admin", str(form.get("correction_reason", "")).strip())
+        updates = {key: str(form.get(key, "")).strip() for key in ("developer","project_name","city","locality","address","pincode","rera_number","construction_status","possession_date","starting_price","rate_per_sqft","bundle_price","maintenance_charges","gst_charges","registration_charges","payment_plan","nearby","highlights","other_details") if str(form.get(key, "")).strip()}
+        token = _request_correction(request, db, actor, row, "super-admin", str(form.get("correction_reason", "")).strip(), updates)
+        if token:
+            share = _share_text(str(request.base_url).rstrip("/"), token, row.recipient_name)
+            return templates.TemplateResponse("property_submission_share.html", {"request": request, "actor": actor, "submission": row, **share, "correction": True, "admin_filled_fields": sorted(list(updates.keys()))})
     return RedirectResponse("/super-admin/property-submissions", status_code=303)
 
 
