@@ -31,7 +31,7 @@ ALLOWED_PLAN_VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/quicktime"
 ALLOWED_SM_VISITING_CARD_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 
 BASE_FORM = {
-    "sm_name": "", "sm_contact": "", "sm_visiting_card": "",
+    "sm_name": "", "sm_contact": "", "sm_visiting_card": "", "company_name": "", "designation": "",
     "project_name": "", "developer": "", "property_type": "Apartment", "city": "Mumbai", "locality": "",
     "address": "", "google_maps_url": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "Under Construction",
     "possession_status": "", "possession_date": "", "configuration_details": [], "configurations": [],
@@ -453,7 +453,7 @@ async def _create_submission(request: Request, db: Session, actor: User):
     except (TypeError, ValueError):
         days = 7
     token = secrets.token_urlsafe(32)
-    submission = PropertySubmission(token_hash=_token_hash(token), token_encrypted=_encrypt_token(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=mobile, recipient_email=str(form.get("recipient_email", "")).strip() or None, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
+    submission = PropertySubmission(token_hash=_token_hash(token), token_encrypted=_encrypt_token(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=mobile, recipient_email=str(form.get("recipient_email", "")).strip() or None, payload_json=json.dumps({"company_name":str(form.get("company_name","")).strip(),"designation":str(form.get("designation","")).strip(),"developer":str(form.get("developer","")).strip(),"project_name":str(form.get("project_name","")).strip()},ensure_ascii=False), expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
     db.add(submission)
     db.flush()
     db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_CREATED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": name, "expires_days": days, "contact_verified_required": True})))
