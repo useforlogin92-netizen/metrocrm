@@ -1,103 +1,100 @@
 {% extends "base.html" %}
-{% block title %}MetroCRM | Property Update{% endblock %}
-{% block header_title %}Property Update{% endblock %}
-{% block breadcrumb %}Property Update{% endblock %}
+{% block title %}MetroCRM | Property Master{% endblock %}
+{% block header_title %}Property Master{% endblock %}
+{% block breadcrumb %}Property Master{% endblock %}
 {% block content %}
 <style>
-.pm{max-width:1150px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:16px}
+.pm{max-width:1180px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:16px}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}.wide{grid-column:1/-1}
 label{display:block;font-size:11px;font-weight:800;color:#475569;margin:8px 0 5px}
 input,select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #dbe3ef;border-radius:9px}
-textarea{min-height:80px;resize:vertical}.btn{border:0;border-radius:9px;padding:11px 16px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer}
-.btn.secondary{background:#0f766e}.muted{font-size:12px;color:#64748b}.config-row{border:1px solid #dbe3ef;border-radius:12px;padding:14px;margin-top:10px;background:#f8fafc}
-.config-grid{display:grid;grid-template-columns:1.1fr .9fr 1.2fr 1fr .8fr auto;gap:8px;align-items:end}.remove{background:#b91c1c;padding:9px 10px}
-@media(max-width:900px){.grid,.config-grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+textarea{min-height:80px;resize:vertical}.btn{border:0;border-radius:9px;padding:10px 15px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer}
+.btn.secondary{background:#0f766e}.btn.danger{background:#b91c1c}.muted{font-size:12px;color:#64748b}
+.repeat{border:1px solid #dbe3ef;border-radius:12px;padding:14px;margin-top:10px;background:#f8fafc}.repeat-grid{display:grid;grid-template-columns:1.1fr .8fr 1fr 1fr .8fr .9fr auto;gap:8px;align-items:end}
+.check-group{border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin:10px 0}.checks{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.check{display:flex;gap:7px;align-items:center;font-size:12px}.check input{width:auto}
+@media(max-width:900px){.grid,.repeat-grid,.checks{grid-template-columns:1fr}.wide{grid-column:auto}}
 </style>
 <div class="pm">
 {% if message %}<div class="card" style="background:#ecfdf3;color:#166534">✓ {{ message }}</div>{% endif %}
 {% if error %}<div class="card" style="background:#fff1f2;color:#b42318">{{ error }}</div>{% endif %}
-
 <div class="card">
-<h2 style="margin-top:0">Property Master — Individual Update</h2>
-<p class="muted">This exact Property Master structure is shared by Individual, Bulk Excel, WhatsApp and SM Link updates. Optional fields can remain blank. No value is invented.</p>
+<h2 style="margin-top:0">Fresh Property Master — Individual Update</h2>
+<p class="muted">This is the single canonical format for Individual, Bulk Excel, WhatsApp and SM Link. Old duplicate listing fields are intentionally not part of this form.</p>
 <form method="post" action="/admin/property-update">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<div class="grid">
+<h3>Identification</h3><div class="grid">
 <div><label>Property ID (blank = new)</label><input name="property_id" value="{{ property_id or '' }}"></div>
-<div><label>Developer</label><input name="developer"></div>
+<div><label>Property Ref</label><input name="property_ref"></div>
+<div><label>Developer / Builder</label><input name="developer"></div>
+<div><label>Project Name *</label><input name="project_name" required></div>
+<div><label>Property Type *</label><input name="property_type" required placeholder="Residential / Commercial"></div>
+<div><label>Listing Status</label><select name="listing_status"><option value="">Select</option><option>Active</option><option>Inactive</option><option>Draft</option></select></div>
+<div><label>Availability Status</label><select name="availability_status"><option value="">Select</option><option>Available</option><option>Limited</option><option>Sold Out</option><option>On Hold</option></select></div>
 </div>
+<h3>Location</h3><div class="grid">
+<div class="wide"><label>Full Address *</label><textarea name="full_address" required></textarea></div>
+<div><label>City *</label><input name="city" required></div><div><label>Locality / Area *</label><input name="locality" required></div>
+<div><label>Pincode *</label><input name="pincode" inputmode="numeric" maxlength="6" required></div>
+<div><label>Google Maps Link</label><input name="google_maps_link" type="url"></div>
+<div class="wide"><label>Nearby Connectivity / Landmarks</label><textarea name="nearby_connectivity"></textarea></div>
+</div>
+<h3>Project Details</h3><div class="grid">
+<div><label>Project Status</label><select name="project_status"><option value="">Select</option><option>New Launch</option><option>Under Construction</option><option>Ready to Move</option><option>Completed</option></select></div>
+<div><label>Possession Date</label><input name="possession_date" type="date"></div>
+<div><label>Total Towers</label><input name="total_towers" type="number" min="1"></div>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:15px"><div><h4 style="margin:0">Tower Details</h4><p class="muted">Example: Tower A — 22 floors; Tower B — 25 floors.</p></div><button type="button" class="btn secondary" onclick="addTower()">+ Add Tower</button></div>
+<div id="towers"></div>
+<template id="tower-template"><div class="repeat"><div class="grid">
+<div><label>Tower Name</label><input data-name="tower_name" placeholder="Tower A"></div><div><label>Total Floors</label><input data-name="total_floors" type="number" min="1"></div><div><label>Possession Date</label><input data-name="possession_date" type="date"></div>
+<div style="align-self:end"><button type="button" class="btn danger" onclick="this.closest('.repeat').remove()">Remove</button></div></div></div></template>
 
-{% for group, fields in groups.items() %}
-{% if group == "Financial" %}
-<div style="margin-top:18px"><h3>Financial</h3>
-<div class="grid">
-<div><label>Base Selling Price (BSP) *</label><input id="bsp" name="bsp" inputmode="decimal" placeholder="Starting / base price"></div>
-<div><label>Additional / Government Charges</label><input name="additional_government_charges"></div>
-<div class="wide"><label>Payment Plan</label><textarea name="payment_plan"></textarea></div>
-<div><label>CP Commission %</label><input name="cp_commission_percent" inputmode="decimal"></div>
-<div><label>Negotiation (overall)</label><select name="negotiation"><option value="">Select</option><option>Yes</option><option>No</option></select></div>
-</div>
-
-<div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center">
-<div><h4 style="margin:0">Configuration-wise Carpet Area & Pricing</h4><p class="muted">Same property can have multiple carpet areas for the same 1/2/3 BHK. Add as many rows as required.</p></div>
-<button class="btn secondary" type="button" onclick="addConfigRow()">+ Add Configuration</button>
-</div>
-<div id="configurations"></div>
-<template id="config-template">
-<div class="config-row">
-<div class="config-grid">
-<div><label>Configuration</label><input data-name="configuration" placeholder="1 BHK / 2 BHK / 3 BHK"></div>
-<div><label>Carpet Area (Sq Ft)</label><input data-name="carpet_area" inputmode="decimal" oninput="syncPrice(this)"></div>
-<div><label>Total Price (Including All)</label><input data-name="price_including_all" inputmode="decimal" oninput="syncPrice(this)"></div>
-<div><label>Rate / Sq Ft</label><input data-name="rate_per_sqft" inputmode="decimal" oninput="syncPrice(this)"></div>
+<h3>Configuration & Pricing</h3><p class="muted">Only required property-selling information: Configuration, Carpet Area, Total Price Including All, Rate/Sq Ft, Negotiation and Availability. No unit number, floor, facing, furnishing or parking here.</p>
+<button type="button" class="btn secondary" onclick="addConfig()">+ Add Configuration</button><div id="configs"></div>
+<template id="config-template"><div class="repeat"><div class="repeat-grid">
+<div><label>Configuration</label><input data-name="configuration" placeholder="2 BHK"></div>
+<div><label>Carpet Area</label><input data-name="carpet_area" type="number" step="0.01" oninput="sync(this)"></div>
+<div><label>Total Price (Including All)</label><input data-name="price_including_all" type="number" step="0.01" oninput="sync(this)"></div>
+<div><label>Rate / Sq Ft</label><input data-name="rate_per_sqft" type="number" step="0.01" oninput="sync(this)"></div>
 <div><label>Negotiation</label><select data-name="negotiation"><option value="">Select</option><option>Yes</option><option>No</option></select></div>
-<button class="btn remove" type="button" onclick="this.closest('.config-row').remove()">Remove</button>
-</div>
-</div>
-</template>
-</div>
-{% else %}
-<div style="margin-top:18px"><h3>{{ group }}</h3><div class="grid">
-{% for field in fields %}
-{% if field.key not in ["bsp","configurations","negotiation"] %}
-<div class="{% if field.group in ['Location','Media'] %}wide{% endif %}">
-<label>{{ field.label }}{% if field.required_on_create %} *{% endif %}</label>
-{% if field.field_type == "date" %}<input name="{{ field.key }}" type="date">
-{% elif field.key in ["payment_plan","nearby_connectivity","booking_process"] %}<textarea name="{{ field.key }}"></textarea>
-{% else %}<input name="{{ field.key }}" type="text">{% endif %}
-</div>
-{% endif %}
-{% endfor %}
-</div></div>
-{% endif %}
-{% endfor %}
-<div style="margin-top:18px"><button class="btn" type="submit">Save Property</button></div>
-</form></div></div>
+<div><label>Availability</label><select data-name="availability"><option>Available</option><option>Limited</option><option>Sold Out</option><option>On Hold</option></select></div>
+<button type="button" class="btn danger" onclick="this.closest('.repeat').remove()">Remove</button>
+</div></div></template>
 
+<h3>Financial</h3><div class="grid">
+<div><label>Additional / Government Charges</label><input name="additional_government_charges"></div>
+<div><label>CP Commission %</label><input name="cp_commission_percent" type="number" min="0" max="100" step="0.01"></div>
+<div class="wide"><label>Payment Plan</label><textarea name="payment_plan"></textarea></div>
+</div>
+<h3>Legal</h3><div class="grid">
+<div><label>RERA Registration Number</label><input name="rera_registration_number"></div>
+<div><label>Approved Banks List</label><input name="approved_banks"></div>
+<div><label>Title Deed Type</label><input name="title_deed_type"></div>
+</div>
+
+<h3>Amenities & Facilities</h3><p class="muted">Ready-to-tick only. Parking is maintained here as a project amenity, not inside configuration.</p>
+<div style="margin-bottom:10px"><button type="button" class="btn secondary" onclick="setAll(true)">Select All</button> <button type="button" class="btn" onclick="setAll(false)">Clear All</button></div>
+{% for group, options in facility_groups.items() %}<div class="check-group"><strong>{{ group }}</strong><div class="checks">{% for option in options %}<label class="check"><input type="checkbox" name="facilities" value="{{ option }}"> {{ option }}</label>{% endfor %}</div></div>{% endfor %}
+<div class="grid"><div class="wide"><label>Other Facility</label><textarea name="other_facility"></textarea></div></div>
+
+<h3>Media</h3><div class="grid">
+<div class="wide"><label>High-Res Site / Flat Photos</label><textarea name="site_flat_photos"></textarea></div>
+<div><label>Floor Plan</label><input name="floor_plan"></div><div><label>Master Layout</label><input name="master_layout"></div>
+<div><label>Project PDF Brochure</label><input name="project_pdf_brochure"></div><div><label>Walkthrough Video Link</label><input name="walkthrough_video_link" type="url"></div>
+</div>
+<h3>CP / Sales</h3><div class="grid">
+<div><label>RM Name</label><input name="rm_name"></div><div><label>RM Contact Info</label><input name="rm_contact"></div>
+<div><label>Site Visit Timings</label><input name="site_visit_timings"></div><div><label>Booking Process</label><textarea name="booking_process"></textarea></div>
+</div>
+<div style="margin-top:18px"><button class="btn" type="submit">Save Property Master</button></div>
+</form></div></div>
 <script>
-let configIndex = 0;
-function addConfigRow(values={}) {
-  const node = document.getElementById('config-template').content.cloneNode(true);
-  const row = node.querySelector('.config-row');
-  row.querySelectorAll('[data-name]').forEach(el => {
-    const key = el.dataset.name;
-    el.name = 'configurations[' + configIndex + '][' + key + ']';
-    if (values[key] !== undefined) el.value = values[key];
-  });
-  document.getElementById('configurations').appendChild(node);
-  configIndex++;
-}
-function syncPrice(el) {
-  const row = el.closest('.config-row');
-  const area = parseFloat(row.querySelector('[data-name="carpet_area"]').value);
-  const totalEl = row.querySelector('[data-name="price_including_all"]');
-  const rateEl = row.querySelector('[data-name="rate_per_sqft"]');
-  if (!area || area <= 0) return;
-  const total = parseFloat(totalEl.value);
-  const rate = parseFloat(rateEl.value);
-  if (el === totalEl && !Number.isNaN(total)) rateEl.value = (total / area).toFixed(2);
-  if (el === rateEl && !Number.isNaN(rate)) totalEl.value = (rate * area).toFixed(2);
-}
-addConfigRow();
+let ci=0,ti=0;
+function addConfig(){const n=document.getElementById('config-template').content.cloneNode(true),r=n.querySelector('.repeat');r.querySelectorAll('[data-name]').forEach(e=>e.name='configurations['+ci+']['+e.dataset.name+']');document.getElementById('configs').appendChild(n);ci++}
+function addTower(){const n=document.getElementById('tower-template').content.cloneNode(true),r=n.querySelector('.repeat');r.querySelectorAll('[data-name]').forEach(e=>e.name='tower_details['+ti+']['+e.dataset.name+']');document.getElementById('towers').appendChild(n);ti++}
+function sync(el){const r=el.closest('.repeat'),a=parseFloat(r.querySelector('[data-name="carpet_area"]').value),t=r.querySelector('[data-name="price_including_all"]'),q=r.querySelector('[data-name="rate_per_sqft"]');if(!a||a<=0)return;const tv=parseFloat(t.value),qv=parseFloat(q.value);if(el===t&&!Number.isNaN(tv))q.value=(tv/a).toFixed(2);if(el===q&&!Number.isNaN(qv))t.value=(qv*a).toFixed(2)}
+function setAll(v){document.querySelectorAll('input[name="facilities"]').forEach(e=>e.checked=v)}
+addConfig();
 </script>
 {% endblock %}
