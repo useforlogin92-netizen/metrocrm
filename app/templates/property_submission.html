@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0, private">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>MetroCRM | SM Property Details Submission Form</title>
+<title>Metro Property | SM Property Details Submission Form</title>
 <style>
 :root{--primary:#2563eb;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--bg:#f4f7fb;--card:#fff}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
@@ -17,11 +17,11 @@
 </style>
 </head>
 <body>
-<header class="public-header"><div class="public-brand">MetroCRM<small>Secure Sales Manager Property Submission</small></div></header>
+<header class="public-header"><div class="public-brand">Metro Property<small>Secure Sales Manager Property Submission</small></div></header>
 <div class="submit-wrap">
-<div class="hero"><div class="brand">MetroCRM</div><h1>SM Property Details Submission Form</h1><p>Secure form for Sales Managers to submit complete property details for CRM review.</p>{% if demo %}<span class="demo">SAMPLE / DEMO FORM</span>{% endif %}</div>
+<div class="hero"><div class="brand">Metro Property</div><h1>SM Property Details Submission Form</h1><p>Secure form for Sales Managers to submit complete property details for CRM review.</p>{% if demo %}<span class="demo">SAMPLE / DEMO FORM</span>{% endif %}</div>
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
-<form method="post" action="/property-submission/{{ token }}" enctype="multipart/form-data">
+<form method="post" action="/sm/property/{{ token }}" enctype="multipart/form-data">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <div class="card verify-card"><h2>1. SM Identity Verification</h2><p class="sub">Before the property is submitted, re-enter the Sales Manager's name and contact number. They must match the details registered for this secure link.</p><div class="grid">
 <div><label>SM Name <span class="required">*</span></label><input name="sm_name" value="{{ payload.get('sm_name', submission.recipient_name or '') }}" placeholder="Enter your full name" required autocomplete="name"></div>
@@ -40,8 +40,8 @@
 <div class="card"><h2>3. RERA & Construction</h2><p class="sub">If a detail is not available, select the appropriate option instead of guessing.</p><div class="grid">
 <div><label>RERA Status <span class="required">*</span></label><select name="rera_status"><option>Registered</option><option>Applied</option><option>Not Applicable</option><option>Not Provided</option></select></div>
 <div><label>RERA Number</label><input name="rera_number" value="{{ payload.get('rera_number','') }}"></div>
-<div><label>Construction Status <span class="required">*</span></label><select name="construction_status" required>{% for x in ['New Launch','Pre-Launch','Under Construction','Ready to Move','Completed','Resale','Other'] %}<option {% if payload.get('construction_status','Under Construction')==x %}selected{% endif %}>{{x}}</option>{% endfor %}</select></div>
-<div><label>Possession Status <span class="required">*</span></label><select name="possession_status" required><option value="">Select</option><option>Immediate</option><option>Expected</option><option>Ready to Move</option><option>Not Provided</option></select></div>
+<div><label>Construction Status <span class="required">*</span></label><select name="construction_status" required><option value="" {% if not payload.get('construction_status') %}selected{% endif %}>Not Provided</option>{% for x in ['Ready to Move','Under Construction','Upcoming','Sold Out'] %}<option {% if payload.get('construction_status')==x %}selected{% endif %}>{{x}}</option>{% endfor %}</select></div>
+<div><label>Possession Status</label><select name="possession_status"><option value="">Not Provided</option><option>Immediate</option><option>Expected</option><option>Ready to Move</option><option>Not Provided</option></select></div>
 <div><label>Expected Possession Date</label><input type="date" name="possession_date" value="{{ payload.get('possession_date','') }}"></div>
 </div></div>
 <div class="card"><h2>4. Configuration & Inventory</h2><p class="sub">Fill one complete configuration card at a time. Click <b>+ Add More</b> below the card to add another configuration; the same BHK can be selected again for another carpet area, rate or price.</p>
