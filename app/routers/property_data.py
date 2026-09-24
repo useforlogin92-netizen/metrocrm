@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Font
 from sqlalchemy import String, cast, or_, select
 from sqlalchemy.orm import Session
 
