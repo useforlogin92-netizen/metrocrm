@@ -107,7 +107,7 @@ ALIASES: dict[str, str] = {
 
 
 def _key(value: Any) -> str:
-    return re.sub(r"\\s+", " ", str(value or "").strip().lower().replace("_", " "))
+    return re.sub(r"\s+", " ", str(value or "").strip().lower().replace("_", " "))
 
 
 def canonicalize_key(value: Any) -> str | None:
