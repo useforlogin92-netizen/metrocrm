@@ -29,7 +29,7 @@ def test_sm_submission_pages_are_standalone_and_not_crm_navigation_shells():
 
 def test_sm_form_has_only_token_submission_endpoint_and_no_crm_destination():
     form = (ROOT / "app" / "templates" / "property_submission.html").read_text(encoding="utf-8")
-    assert '<form method="post" action="/property-submission/{{ token }}"' in form
+    assert '<form method="post" action="/sm/property/{{ token }}"' in form
     assert "/dashboard" not in form
     assert "/admin/" not in form
     assert "/super-admin/" not in form

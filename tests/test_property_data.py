@@ -6,10 +6,12 @@ from app.routers.property_data import PROPERTY_SHEETS, _property_workbook
 
 def test_property_template_contains_only_property_sheets():
     workbook = load_workbook(_property_workbook(), data_only=True)
-    assert workbook.sheetnames == ["Instructions", "Developers", "Projects", "Towers", "Units", "NearbyLocations", "Examples"]
-    assert workbook["Projects"]["A1"].value == "id"
-    assert workbook["Units"]["D1"].value == "unit_number"
-    assert workbook["NearbyLocations"]["B1"].value == "project_id"
+    assert workbook.sheetnames == ["Instructions", "Property Master", "Property Configurations", "Property Towers", "Examples"]
+    assert workbook["Property Master"]["A1"].value == "property_id"
+    assert workbook["Property Configurations"]["C1"].value == "configuration"
+    assert workbook["Property Towers"]["C1"].value == "tower_name"
+    assert "unit_number" not in [cell.value for cell in workbook["Property Master"][1]]
+    assert "floor" not in [cell.value for cell in workbook["Property Master"][1]]
     assert set(PROPERTY_SHEETS) == {"Developers", "Projects", "Towers", "Units", "NearbyLocations"}
 
 
