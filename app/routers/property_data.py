@@ -231,16 +231,18 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
                 continue
             ref = str(raw.get("property_ref") or "").strip()
             pid = str(raw.get("property_id") or "").strip()
-            key = pid or ref
-            if not key:
+            keys = [x for x in (pid, ref) if x]
+            if not keys:
                 raise ValueError(f"Property Configurations row {row_no}: property_id or property_ref is required")
-            config_by_ref.setdefault(key, []).append({
+            config_row = {
                 "configuration": raw.get("configuration"),
                 "carpet_area": raw.get("carpet_area"),
                 "price_including_all": raw.get("price_including_all"),
                 "rate_per_sqft": raw.get("rate_per_sqft"),
                 "negotiation": raw.get("negotiation"),
-            })
+            }
+            for key in keys:
+                config_by_ref.setdefault(key, []).append(dict(config_row))
 
         created = updated = 0
         refs_to_ids = {}
