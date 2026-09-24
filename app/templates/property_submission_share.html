@@ -1,23 +1,23 @@
 {% extends "base.html" %}
-{% block title %}MetroCRM | Share Property Link{% endblock %}
+{% block title %}Metro Property | Share Property Link{% endblock %}
 {% block header_title %}Share Property Submission Link{% endblock %}
 {% block breadcrumb %}Share Link{% endblock %}
 {% block content %}
 <div style="max-width:900px;margin:0 auto">
   <div style="background:#ecfdf3;border:1px solid #bbf7d0;border-radius:16px;padding:22px;margin-bottom:16px">
     <h2 style="margin:0 0 6px">Secure link created successfully</h2>
-    <p style="margin:0;color:#166534">{% if correction %}Admin updates have been saved and the previous submitted link has been invalidated. Share this fresh correction link with {{ submission.recipient_name }} so the SM can complete the requested missing details.{% else %}Share this link with {{ submission.recipient_name }}. It expires automatically on {{ submission.expires_at }}.{% endif %}</p>{% if admin_filled_fields %}<div style="margin-top:10px;font-size:12px;color:#166534"><strong>Admin-filled fields:</strong> {{ admin_filled_fields|join(", ") }}</div>{% endif %}
+    <p style="margin:0;color:#166534">{% if correction %}Admin updates have been saved. The SAME secure link is open again for correction by {{ submission.recipient_name }} so the SM can complete the requested missing details.{% else %}Share this link with {{ submission.recipient_name }}. It expires automatically on {{ submission.expires_at }}.{% endif %}</p>{% if admin_filled_fields %}<div style="margin-top:10px;font-size:12px;color:#166534"><strong>Admin-filled fields:</strong> {{ admin_filled_fields|join(", ") }}</div>{% endif %}
   </div>
   <div style="background:#fff;border:1px solid var(--line);border-radius:15px;padding:22px;margin-bottom:14px">
     <label style="font-size:12px;font-weight:800">Secure submission link</label>
     <input id="submissionLink" readonly value="{{ link }}" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccd4e0;border-radius:9px;margin-top:6px" onclick="this.select()">
-    <p style="font-size:11px;color:#667085">Each SM receives a unique secure link. The buttons below open the selected sharing method with the link already included.</p>
+    <p style="font-size:11px;color:#667085">Each SM receives one secure link. After a correction request, the exact same URL is reopened; no new token is generated.</p>
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
     <a id="whatsappShare" data-recipient-mobile="{{ submission.recipient_mobile or '' }}" href="https://wa.me/?text={{ whatsapp|urlencode }}" target="_blank" rel="noopener noreferrer" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
       <div style="font-size:42px" aria-hidden="true">💬</div><h3 style="margin:8px 0 4px">WhatsApp</h3><div style="font-size:12px;color:#667085">Share directly with {{ submission.recipient_name }}</div>
     </a>
-    <a href="mailto:{{ submission.recipient_email or '' }}?subject={{ 'MetroCRM – Property Details Submission'|urlencode }}&body={{ email|urlencode }}" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
+    <a href="mailto:{{ submission.recipient_email or '' }}?subject={{ 'Metro Property – Property Details Submission'|urlencode }}&body={{ email|urlencode }}" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
       <div style="font-size:42px" aria-hidden="true">✉️</div><h3 style="margin:8px 0 4px">Email</h3><div style="font-size:12px;color:#667085">Open your email app</div>
     </a>
     <a href="sms:{{ submission.recipient_mobile or '' }}?body={{ sms|urlencode }}" style="display:block;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:20px;text-decoration:none;color:inherit;text-align:center">
