@@ -3,20 +3,101 @@
 {% block header_title %}Property Update{% endblock %}
 {% block breadcrumb %}Property Update{% endblock %}
 {% block content %}
-<style>.pm{max-width:1050px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}.wide{grid-column:1/-1}label{display:block;font-size:11px;font-weight:800;color:#475569;margin:8px 0 5px}input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #dbe3ef;border-radius:9px}.btn{border:0;border-radius:9px;padding:11px 16px;background:#2563eb;color:#fff;font-weight:800}.muted{font-size:12px;color:#64748b}@media(max-width:800px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}}</style>
+<style>
+.pm{max-width:1150px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}.wide{grid-column:1/-1}
+label{display:block;font-size:11px;font-weight:800;color:#475569;margin:8px 0 5px}
+input,select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #dbe3ef;border-radius:9px}
+textarea{min-height:80px;resize:vertical}.btn{border:0;border-radius:9px;padding:11px 16px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer}
+.btn.secondary{background:#0f766e}.muted{font-size:12px;color:#64748b}.config-row{border:1px solid #dbe3ef;border-radius:12px;padding:14px;margin-top:10px;background:#f8fafc}
+.config-grid{display:grid;grid-template-columns:1.1fr .9fr 1.2fr 1fr .8fr auto;gap:8px;align-items:end}.remove{background:#b91c1c;padding:9px 10px}
+@media(max-width:900px){.grid,.config-grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+</style>
 <div class="pm">
 {% if message %}<div class="card" style="background:#ecfdf3;color:#166534">✓ {{ message }}</div>{% endif %}
 {% if error %}<div class="card" style="background:#fff1f2;color:#b42318">{{ error }}</div>{% endif %}
-<div class="card"><h2 style="margin-top:0">Property Master — Individual Update</h2><p class="muted">This is the canonical property form. Bulk, WhatsApp and SM Link updates use the same Property Master fields and validation engine.</p>
+
+<div class="card">
+<h2 style="margin-top:0">Property Master — Individual Update</h2>
+<p class="muted">This exact Property Master structure is shared by Individual, Bulk Excel, WhatsApp and SM Link updates. Optional fields can remain blank. No value is invented.</p>
 <form method="post" action="/admin/property-update">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<div class="grid"><div><label>Property ID (blank = new)</label><input name="property_id" value="{{ property_id or '' }}"></div><div><label>Developer</label><input name="developer"></div></div>
+<div class="grid">
+<div><label>Property ID (blank = new)</label><input name="property_id" value="{{ property_id or '' }}"></div>
+<div><label>Developer</label><input name="developer"></div>
+</div>
+
 {% for group, fields in groups.items() %}
+{% if group == "Financial" %}
+<div style="margin-top:18px"><h3>Financial</h3>
+<div class="grid">
+<div><label>Base Selling Price (BSP) *</label><input id="bsp" name="bsp" inputmode="decimal" placeholder="Starting / base price"></div>
+<div><label>Additional / Government Charges</label><input name="additional_government_charges"></div>
+<div class="wide"><label>Payment Plan</label><textarea name="payment_plan"></textarea></div>
+<div><label>CP Commission %</label><input name="cp_commission_percent" inputmode="decimal"></div>
+<div><label>Negotiation (overall)</label><select name="negotiation"><option value="">Select</option><option>Yes</option><option>No</option></select></div>
+</div>
+
+<div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center">
+<div><h4 style="margin:0">Configuration-wise Carpet Area & Pricing</h4><p class="muted">Same property can have multiple carpet areas for the same 1/2/3 BHK. Add as many rows as required.</p></div>
+<button class="btn secondary" type="button" onclick="addConfigRow()">+ Add Configuration</button>
+</div>
+<div id="configurations"></div>
+<template id="config-template">
+<div class="config-row">
+<div class="config-grid">
+<div><label>Configuration</label><input data-name="configuration" placeholder="1 BHK / 2 BHK / 3 BHK"></div>
+<div><label>Carpet Area (Sq Ft)</label><input data-name="carpet_area" inputmode="decimal" oninput="syncPrice(this)"></div>
+<div><label>Total Price (Including All)</label><input data-name="price_including_all" inputmode="decimal" oninput="syncPrice(this)"></div>
+<div><label>Rate / Sq Ft</label><input data-name="rate_per_sqft" inputmode="decimal" oninput="syncPrice(this)"></div>
+<div><label>Negotiation</label><select data-name="negotiation"><option value="">Select</option><option>Yes</option><option>No</option></select></div>
+<button class="btn remove" type="button" onclick="this.closest('.config-row').remove()">Remove</button>
+</div>
+</div>
+</template>
+</div>
+{% else %}
 <div style="margin-top:18px"><h3>{{ group }}</h3><div class="grid">
-{% for field in fields %}<div class="{% if field.group == 'Location' and field.key == 'nearby_connectivity' %}wide{% endif %}"><label>{{ field.label }}{% if field.required_on_create %} *{% endif %}</label><input name="{{ field.key }}" {% if field.field_type == 'date' %}type="date"{% else %}type="text"{% endif %}></div>{% endfor %}
+{% for field in fields %}
+{% if field.key not in ["bsp","configurations","negotiation"] %}
+<div class="{% if field.group in ['Location','Media'] %}wide{% endif %}">
+<label>{{ field.label }}{% if field.required_on_create %} *{% endif %}</label>
+{% if field.field_type == "date" %}<input name="{{ field.key }}" type="date">
+{% elif field.key in ["payment_plan","nearby_connectivity","booking_process"] %}<textarea name="{{ field.key }}"></textarea>
+{% else %}<input name="{{ field.key }}" type="text">{% endif %}
+</div>
+{% endif %}
+{% endfor %}
 </div></div>
+{% endif %}
 {% endfor %}
 <div style="margin-top:18px"><button class="btn" type="submit">Save Property</button></div>
-</form></div>
-</div>
+</form></div></div>
+
+<script>
+let configIndex = 0;
+function addConfigRow(values={}) {
+  const node = document.getElementById('config-template').content.cloneNode(true);
+  const row = node.querySelector('.config-row');
+  row.querySelectorAll('[data-name]').forEach(el => {
+    const key = el.dataset.name;
+    el.name = 'configurations[' + configIndex + '][' + key + ']';
+    if (values[key] !== undefined) el.value = values[key];
+  });
+  document.getElementById('configurations').appendChild(node);
+  configIndex++;
+}
+function syncPrice(el) {
+  const row = el.closest('.config-row');
+  const area = parseFloat(row.querySelector('[data-name="carpet_area"]').value);
+  const totalEl = row.querySelector('[data-name="price_including_all"]');
+  const rateEl = row.querySelector('[data-name="rate_per_sqft"]');
+  if (!area || area <= 0) return;
+  const total = parseFloat(totalEl.value);
+  const rate = parseFloat(rateEl.value);
+  if (el === totalEl && !Number.isNaN(total)) rateEl.value = (total / area).toFixed(2);
+  if (el === rateEl && !Number.isNaN(rate)) totalEl.value = (rate * area).toFixed(2);
+}
+addConfigRow();
+</script>
 {% endblock %}
