@@ -8,7 +8,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from sqlalchemy import String, cast, or_, select
 from sqlalchemy.orm import Session
 
@@ -39,71 +39,44 @@ def _guard(request: Request, db: Session):
 
 
 def _property_workbook() -> BytesIO:
-    from app.property_master import PROPERTY_MASTER_FIELDS, CONFIGURATION_COLUMNS
-
+    from app.property_master import PROPERTY_MASTER_FIELDS, CONFIGURATION_COLUMNS, TOWER_COLUMNS
     wb = Workbook()
-    instructions = wb.active
-    instructions.title = "Instructions"
-    rows = [
-        ["MetroCRM Property Master Template"],
-        ["One exact Property Master format is used for Individual, Bulk, WhatsApp and SM Link updates."],
-        ["Property Master: one row per property. Use Property ID for update; leave it blank for a new property and provide a unique Property Ref."],
-        ["Property Configurations: add one row for every configuration/area combination. The same 1 BHK can have multiple carpet areas."],
-        ["Pricing: use only Total Price (Including All) OR Rate / Sq Ft. The system auto-calculates the other value using Carpet Area."],
-        ["Negotiation: Yes or No."],
-        ["Do not invent missing values. Optional fields may be blank."],
-        ["If a property is new, Property Ref links its Property Master row to all Configuration rows."],
-    ]
-    for row in rows:
-        instructions.append(row)
-    instructions.column_dimensions["A"].width = 110
-    instructions["A1"].font = Font(bold=True, size=16)
-
-    master_fields = ["property_id", "property_ref", "developer"] + [
-        field.key for field in PROPERTY_MASTER_FIELDS
-        if field.key not in {"configurations", "negotiation"}
-    ]
-    ws = wb.create_sheet("Property Master")
-    ws.append(master_fields)
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-        cell.alignment = Alignment(horizontal="center")
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-    for idx, field in enumerate(master_fields, 1):
-        ws.column_dimensions[get_column_letter(idx)].width = min(42, max(14, len(field) + 5))
-
-    cfg = wb.create_sheet("Property Configurations")
-    cfg_fields = ["property_id", "property_ref"] + [key for key, _ in CONFIGURATION_COLUMNS]
-    cfg.append(cfg_fields)
-    for cell in cfg[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-        cell.alignment = Alignment(horizontal="center")
-    cfg.freeze_panes = "A2"
-    cfg.auto_filter.ref = cfg.dimensions
-    for idx, field in enumerate(cfg_fields, 1):
-        cfg.column_dimensions[get_column_letter(idx)].width = min(34, max(16, len(field) + 5))
-
-    examples = wb.create_sheet("Examples")
-    examples.append(["Sheet", "Field", "Example"])
-    examples.append(["Property Master", "property_id", "Existing ID for update; blank for new"])
-    examples.append(["Property Master", "property_ref", "P-001"])
-    examples.append(["Property Master", "project_name", "Example Heights"])
-    examples.append(["Property Master", "configuration", "1 BHK"])
-    examples.append(["Property Configurations", "property_ref", "P-001"])
-    examples.append(["Property Configurations", "configuration", "1 BHK"])
-    examples.append(["Property Configurations", "carpet_area", "650"])
-    examples.append(["Property Configurations", "price_including_all", "8500000"])
-    examples.append(["Property Configurations", "rate_per_sqft", "13076.92"])
-    examples.append(["Property Configurations", "negotiation", "Yes"])
-    for cell in examples[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-    examples.column_dimensions["A"].width = 28
-    examples.column_dimensions["B"].width = 34
-    examples.column_dimensions["C"].width = 65
+    ws = wb.active
+    ws.title = "Instructions"
+    for row in [
+        ["MetroCRM Fresh Property Master V3"],
+        ["One canonical format: Individual, Bulk Excel, WhatsApp and SM Link."],
+        ["Property Master: one row per property. Existing property_id updates; property_ref identifies new properties."],
+        ["Property Configurations: one row per configuration + carpet area."],
+        ["Property Towers: one row per tower with total floors."],
+        ["Facilities: comma-separated ready-to-tick amenity names. Parking belongs here, not in configuration."],
+        ["Do not use unit number, floor, facing or furnishing in this Property Master."],
+    ]: ws.append(row)
+    ws.column_dimensions["A"].width = 115
+    ws["A1"].font = Font(bold=True, size=16)
+    master_fields = ["property_id"] + [f.key for f in PROPERTY_MASTER_FIELDS if f.key not in {"configurations","tower_details"}]
+    master = wb.create_sheet("Property Master"); master.append(master_fields)
+    cfg = wb.create_sheet("Property Configurations"); cfg.append(["property_id","property_ref"] + [k for k,_ in CONFIGURATION_COLUMNS])
+    towers = wb.create_sheet("Property Towers"); towers.append(["property_id","property_ref"] + [k for k,_ in TOWER_COLUMNS])
+    for sheet in (master,cfg,towers):
+        for cell in sheet[1]:
+            cell.font=Font(bold=True,color="FFFFFF")
+        sheet.freeze_panes="A2"; sheet.auto_filter.ref=sheet.dimensions
+    ex=wb.create_sheet("Examples")
+    for row in [
+        ["Sheet","Field","Example"],
+        ["Property Master","property_ref","P-001"],
+        ["Property Master","project_name","Example Heights"],
+        ["Property Master","facilities","Car Parking, Gym, Lift, CCTV"],
+        ["Property Configurations","configuration","2 BHK"],
+        ["Property Configurations","carpet_area","850"],
+        ["Property Configurations","price_including_all","12500000"],
+        ["Property Configurations","rate_per_sqft","14705.88"],
+        ["Property Configurations","negotiation","Yes"],
+        ["Property Configurations","availability","Available"],
+        ["Property Towers","tower_name","Tower A"],
+        ["Property Towers","total_floors","22"],
+    ]: ex.append(row)
     return _save_workbook(wb)
 
 
@@ -217,14 +190,25 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
 
         master_headers = [str(x.value).strip() if x.value is not None else "" for x in master_ws[1]]
         cfg_headers = [str(x.value).strip() if x.value is not None else "" for x in cfg_ws[1]] if cfg_ws else []
-        master_allowed = {"property_id", "property_ref", "developer"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "negotiation"}}
-        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation"}
+        master_allowed = {"property_id"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "tower_details"}}
+        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation", "availability"}
         if any(h not in master_allowed for h in master_headers if h):
             raise ValueError("Property Master contains unsupported columns")
         if cfg_ws and any(h not in cfg_allowed for h in cfg_headers if h):
             raise ValueError("Property Configurations contains unsupported columns")
 
         config_by_ref = {}
+        tower_by_ref = {}
+        tower_ws = wb["Property Towers"] if "Property Towers" in wb.sheetnames else None
+        tower_headers = [str(x.value).strip() if x.value is not None else "" for x in tower_ws[1]] if tower_ws else []
+        for row_no, values in enumerate(tower_ws.iter_rows(min_row=2, values_only=True), start=2) if tower_ws else []:
+            raw = {tower_headers[i]: values[i] for i in range(min(len(tower_headers), len(values))) if tower_headers[i]}
+            if not any(v not in (None, "") for v in raw.values()): continue
+            keys = [str(raw.get(x) or "").strip() for x in ("property_id","property_ref") if str(raw.get(x) or "").strip()]
+            if not keys: raise ValueError(f"Property Towers row {row_no}: property_id or property_ref is required")
+            tower_row = {"tower_name": raw.get("tower_name"), "total_floors": raw.get("total_floors"), "possession_date": raw.get("possession_date")}
+            for key in keys: tower_by_ref.setdefault(key, []).append(dict(tower_row))
+
         for row_no, values in enumerate(cfg_ws.iter_rows(min_row=2, values_only=True), start=2) if cfg_ws else []:
             raw = {cfg_headers[i]: values[i] for i in range(min(len(cfg_headers), len(values))) if cfg_headers[i]}
             if not any(v not in (None, "") for v in raw.values()):
@@ -240,6 +224,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
                 "price_including_all": raw.get("price_including_all"),
                 "rate_per_sqft": raw.get("rate_per_sqft"),
                 "negotiation": raw.get("negotiation"),
+                "availability": raw.get("availability"),
             }
             for key in keys:
                 config_by_ref.setdefault(key, []).append(dict(config_row))
@@ -258,6 +243,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
             payload = {k: v for k, v in raw.items() if k not in {"property_id", "property_ref"}}
             payload["developer"] = raw.get("developer")
             payload["configurations"] = config_by_ref.get(key, [])
+            payload["tower_details"] = tower_by_ref.get(key, [])
             project, _ = apply_property_master(
                 db, payload=payload, source=PropertyUpdateSource.BULK, actor=actor,
                 project_id=int(property_id) if property_id else None, create=not bool(property_id)
@@ -271,7 +257,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
     except Exception as exc:
         db.rollback()
         return RedirectResponse("/admin/property-data?error=" + str(exc).replace(" ", "+")[:350], status_code=303)
-    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "canonical_property_master_v2"})))
+    db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "canonical_property_master_v3"})))
     db.commit()
     return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+properties+using+Property+Master+format", status_code=303)
 
