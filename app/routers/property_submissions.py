@@ -32,8 +32,8 @@ ALLOWED_SM_VISITING_CARD_CONTENT_TYPES = {"application/pdf", "image/jpeg", "imag
 
 BASE_FORM = {
     "sm_name": "", "sm_contact": "", "sm_visiting_card": "", "company_name": "", "designation": "",
-    "project_name": "", "developer": "", "property_type": "Apartment", "city": "Mumbai", "locality": "",
-    "address": "", "google_maps_url": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "Under Construction",
+    "project_name": "", "developer": "", "property_type": "", "city": "", "locality": "",
+    "address": "", "google_maps_url": "", "pincode": "", "rera_status": "Not Provided", "rera_number": "", "construction_status": "",
     "possession_status": "", "possession_date": "", "configuration_details": [], "configurations": [],
     "starting_price": "", "price_type": "All Inclusive", "price_negotiable": "No", "carpet_area": "",
     "rate_per_sqft": "", "bundle_price": "", "built_up_area": "", "parking": "", "facing": "", "floor": "",
