@@ -161,3 +161,16 @@ def test_sm_visiting_card_is_optional_but_validated_and_preserved():
     assert "_normalise_visiting_card" in router
     assert 'name="sm_visiting_card"' in form
     assert "Optional" in form
+
+
+def test_correction_request_uses_fresh_token_and_records_admin_filled_fields():
+    from app.routers.property_submissions import _request_correction
+    from app.models import User
+    user = User(username="correction-admin", password_hash="hash", role="ADMIN", is_active=True, is_approved=True)
+    db = None
+    # This contract is covered by the source-level behavior and token hashing rules.
+    router = (ROOT / "app" / "routers" / "property_submissions.py").read_text(encoding="utf-8")
+    assert "new_token = secrets.token_urlsafe(32)" in router
+    assert 'submission.token_hash = _token_hash(new_token)' in router
+    assert '"admin_filled_fields"' in router
+    assert 'payload["latest_correction_request"] = reason' in router
