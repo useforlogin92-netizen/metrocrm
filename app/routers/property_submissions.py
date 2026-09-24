@@ -12,8 +12,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.csrf import csrf_token, require_csrf
+from app.config import settings
 from app.database import get_db
 from app.models import AuditEvent, Developer, Project, Unit, User
 from app.property_submission_models import PropertySubmission
@@ -49,6 +51,26 @@ def _actor(request: Request, db: Session) -> User | None:
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+def _token_cipher() -> Fernet:
+    # Derive a stable encryption key from the server secret. The raw submission token
+    # remains out of the database while Admin can still re-share the exact same URL.
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.secret_key.encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def _encrypt_token(token: str) -> str:
+    return _token_cipher().encrypt(token.encode("utf-8")).decode("ascii")
+
+
+def _decrypt_token(ciphertext: str | None) -> str | None:
+    if not ciphertext:
+        return None
+    try:
+        return _token_cipher().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, TypeError):
+        return None
+
+
 
 def _find_submission(db: Session, token: str) -> PropertySubmission | None:
     return db.scalar(select(PropertySubmission).where(PropertySubmission.token_hash == _token_hash(token)))
@@ -71,12 +93,12 @@ def _super_role(actor: User | None) -> bool:
 
 
 def _share_text(base_url: str, token: str, name: str) -> dict[str, str]:
-    link = f"{base_url.rstrip('/')}/property-submission/{token}"
+    link = f"{base_url.rstrip('/')}/sm/property/{token}"
     return {
         "link": link,
-        "whatsapp": f"Hello {name},\n\nMetroCRM has shared a secure Property Details Submission link with you. Please open the link and submit the property/project information available with you.\n\nProperty Details Form:\n{link}\n\nThank you,\nMetroCRM",
-        "email": f"Subject: MetroCRM – Property Details Submission\n\nHello {name},\n\nPlease use the secure MetroCRM link below to submit the property/project details available with you.\n\n{link}\n\nYour submission will be reviewed by one authorized MetroCRM Admin or Super Admin before it is added to the CRM database.\n\nRegards,\nMetroCRM",
-        "sms": f"MetroCRM Property Details Form: {link} Please submit the property/project details available with you.",
+        "whatsapp": f"Hello {name},\n\nMetro Property has shared a secure Property Details Submission link with you. Please open the link and submit the property/project information available with you.\n\nProperty Details Form:\n{link}\n\nThank you,\nMetro Property",
+        "email": f"Subject: Metro Property – Property Details Submission\n\nHello {name},\n\nPlease use the secure Metro Property link below to submit the property/project details available with you.\n\n{link}\n\nYour submission will be reviewed by one authorized Metro Property Admin or Super Admin before it is added to the CRM database.\n\nRegards,\nMetro Property",
+        "sms": f"Metro Property Property Details Form: {link} Please submit the property/project details available with you.",
     }
 
 
@@ -333,6 +355,18 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     return templates.TemplateResponse("property_submission_success.html", {"request": request, "submission": submission})
 
 
+@router.get("/sm/property/{token}", response_class=HTMLResponse)
+def sm_property_submission_form(token: str, request: Request, db: Session = Depends(get_db)):
+    """Canonical Metro Property public SM route."""
+    return property_submission_form(token, request, db)
+
+
+@router.post("/sm/property/{token}", dependencies=[Depends(require_csrf)])
+async def sm_property_submission_submit(token: str, request: Request, db: Session = Depends(get_db)):
+    """Canonical Metro Property public SM submission endpoint."""
+    return await property_submission_submit(token, request, db)
+
+
 def _management_page(request: Request, db: Session, actor: User, portal: str):
     rows = db.scalars(select(PropertySubmission).order_by(PropertySubmission.id.desc()).limit(100)).all()
     new_count = sum(1 for row in rows if row.status == "SUBMITTED")
@@ -417,7 +451,7 @@ async def _create_submission(request: Request, db: Session, actor: User):
     except (TypeError, ValueError):
         days = 7
     token = secrets.token_urlsafe(32)
-    submission = PropertySubmission(token_hash=_token_hash(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=mobile, recipient_email=str(form.get("recipient_email", "")).strip() or None, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
+    submission = PropertySubmission(token_hash=_token_hash(token), token_encrypted=_encrypt_token(token), created_by_id=actor.id, recipient_name=name, recipient_mobile=mobile, recipient_email=str(form.get("recipient_email", "")).strip() or None, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days))
     db.add(submission)
     db.flush()
     db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_LINK_CREATED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"recipient": name, "expires_days": days, "contact_verified_required": True})))
@@ -532,13 +566,16 @@ def _request_correction(request: Request, db: Session, actor: User, submission: 
     submission.admin_approved_at = None
     submission.super_admin_approved_by = None
     submission.super_admin_approved_at = None
-    # The previously submitted token is invalidated. A fresh token is generated for the correction round.
-    new_token = secrets.token_urlsafe(32)
-    submission.token_hash = _token_hash(new_token)
+    # Correction re-opens the exact same secure URL. The raw token is recovered only
+    # server-side from encrypted storage; the database never stores it in plaintext.
+    token = _decrypt_token(submission.token_encrypted)
+    if not token:
+        db.rollback()
+        return None
     submission.updated_at = now
-    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_CORRECTION_REQUESTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"role": role, "reason": reason, "admin_filled_fields": sorted(list(admin_updates.keys())) if admin_updates else []})))
+    db.add(AuditEvent(actor_user_id=actor.id, action="SM_PROPERTY_CORRECTION_REQUESTED", entity_type="PropertySubmission", entity_id=str(submission.id), details=json.dumps({"role": role, "reason": reason, "admin_filled_fields": sorted(list(admin_updates.keys())) if admin_updates else [], "same_link": True})))
     db.commit()
-    return new_token
+    return token
 
 
 @router.post("/admin/property-submissions/{submission_id}/request-correction", dependencies=[Depends(require_csrf)])
