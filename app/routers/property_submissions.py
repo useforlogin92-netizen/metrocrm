@@ -198,19 +198,21 @@ async def _normalise_plan_videos(files) -> list[str]:
     return videos
 
 
-def _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units, towers=None, floors=None, parkings=None, custom_configurations=None, plan_charts=None, plan_videos=None):
-    values = [configurations or [], carpet_areas or [], rates or [], bundle_prices or [], negotiable or [], inventory_statuses or [], available_units or [], towers or [], floors or [], parkings or [], custom_configurations or [], plan_charts or [], plan_videos or []]
+def _normalise_configuration_details(configurations, carpet_areas, rates, bundle_prices, negotiable, inventory_statuses, available_units, towers=None, floors=None, parkings=None, custom_configurations=None, plan_charts=None, plan_videos=None, unit_numbers=None, unit_numbers=None):
+    values = [configurations or [], carpet_areas or [], rates or [], bundle_prices or [], negotiable or [], inventory_statuses or [], available_units or [], towers or [], floors or [], parkings or [], custom_configurations or [], plan_charts or [], plan_videos or [], unit_numbers or []]
     count = max((len(x) for x in values), default=0)
     details = []
     for i in range(count):
         selected = str(values[0][i] if i < len(values[0]) else "").strip()
         custom = str(values[10][i] if i < len(values[10]) else "").strip()
+        unit_number = str(values[13][i] if i < len(values[13]) else "").strip()
         config = custom if selected == "Other" and custom else selected
-        if not config:
+        if not config and not any(str(values[j][i] if i < len(values[j]) else "").strip() for j in range(1, 14)):
             continue
         details.append({
             "configuration": config,
             "custom_configuration": custom,
+            "unit_number": unit_number,
             "carpet_area": str(values[1][i] if i < len(values[1]) else "").strip(),
             "rate_per_sqft": str(values[2][i] if i < len(values[2]) else "").strip(),
             "bundle_price": str(values[3][i] if i < len(values[3]) else "").strip(),
@@ -278,11 +280,11 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     configurations = form.getlist("configurations")
     try:
         plan_charts = await _normalise_plan_uploads(form.getlist("configuration_plan_chart"))
-        plan_videos = await _normalise_plan_videos(form.getlist("configuration_plan_video"))
+        plan_videos = await _normalise_plan_videos(form.getlist("configuration_plan_video"), form.getlist("configuration_unit_number"))
         visiting_card = await _normalise_visiting_card(form.get("sm_visiting_card"))
     except ValueError as exc:
         payload = dict(BASE_FORM)
-        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "sm_visiting_card", "amenities"}})
+        payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "configuration_unit_number", "sm_visiting_card", "amenities"}})
         payload["configurations"] = configurations
         payload["amenities"] = form.getlist("amenities")
         old_payload = json.loads(submission.payload_json or "{}")
@@ -292,12 +294,11 @@ async def property_submission_submit(token: str, request: Request, db: Session =
     if not visiting_card:
         visiting_card = old_payload.get("sm_visiting_card", "")
     details = _normalise_configuration_details(configurations, form.getlist("carpet_areas"), form.getlist("rate_per_sqft"), form.getlist("bundle_prices"), form.getlist("configuration_negotiable"), form.getlist("configuration_inventory_status"), form.getlist("configuration_available_units"), form.getlist("configuration_tower"), form.getlist("configuration_floor"), form.getlist("configuration_parking"), form.getlist("custom_configuration"), plan_charts, plan_videos)
-    required = {"project_name", "developer", "property_type", "city", "locality", "construction_status", "possession_status"}
+    required = {"project_name", "developer", "property_type", "city"}
     missing = [field for field in required if not str(form.get(field, "")).strip()]
-    if not details:
-        missing.append("configuration")
-    if any(not item["carpet_area"] or not item["rate_per_sqft"] or not item["bundle_price"] for item in details):
-        missing.append("configuration pricing")
+    # Project-only submissions are valid. Configuration/unit/pricing data is added only when supplied by the SM.
+    if details and any(not item.get("configuration") for item in details):
+        missing.append("configuration name")
     if missing:
         payload = dict(BASE_FORM)
         payload.update({k: str(v) for k, v in form.items() if k not in {"csrf_token", "configurations", "carpet_areas", "rate_per_sqft", "bundle_prices", "configuration_negotiable", "configuration_inventory_status", "configuration_available_units", "configuration_tower", "configuration_floor", "configuration_parking", "custom_configuration", "configuration_plan_chart", "configuration_plan_video", "sm_visiting_card", "amenities"}})
