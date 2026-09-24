@@ -13,6 +13,9 @@ class PropertySubmission(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Reversible server-side ciphertext lets Admin re-share the exact same secure URL after correction.
+    # The raw token is never stored; only its hash and encrypted form are persisted.
+    token_encrypted: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     recipient_name: Mapped[str] = mapped_column(String(200))
     recipient_mobile: Mapped[str | None] = mapped_column(String(30))
