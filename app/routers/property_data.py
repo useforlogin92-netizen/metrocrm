@@ -8,7 +8,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from sqlalchemy import String, cast, or_, select
 from sqlalchemy.orm import Session
 
@@ -218,7 +218,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
         master_headers = [str(x.value).strip() if x.value is not None else "" for x in master_ws[1]]
         cfg_headers = [str(x.value).strip() if x.value is not None else "" for x in cfg_ws[1]] if cfg_ws else []
         master_allowed = {"property_id", "property_ref", "developer"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "negotiation"}}
-        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation"}
+        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation", "availability"}
         if any(h not in master_allowed for h in master_headers if h):
             raise ValueError("Property Master contains unsupported columns")
         if cfg_ws and any(h not in cfg_allowed for h in cfg_headers if h):
