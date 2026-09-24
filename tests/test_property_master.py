@@ -61,3 +61,20 @@ def test_invalid_pincode_and_commission_are_rejected():
     errors = validate_property_payload(payload)
     assert "Pincode must be a 6-digit Indian PIN" in errors
     assert "CP Commission % must be between 0 and 100" in errors
+
+
+def test_configuration_pricing_auto_calculates_missing_side():
+    payload = normalize_property_payload(
+        {
+            "Project Name": "Sample",
+            "Property Type": "Residential",
+            "Configuration Details": [
+                {"configuration": "1 BHK", "carpet_area": 650, "price_including_all": 8450000, "negotiation": "Yes"},
+                {"configuration": "1 BHK", "carpet_area": 700, "rate_per_sqft": 14000, "negotiation": "No"},
+            ],
+        },
+        source="BULK",
+    )
+    rows = payload["configurations"]
+    assert rows[0]["rate_per_sqft"] == round(8450000 / 650, 2)
+    assert rows[1]["price_including_all"] == 9800000.0
