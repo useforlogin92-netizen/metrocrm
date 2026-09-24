@@ -90,10 +90,12 @@ def test_safe_extract_rejects_member_count_limit(monkeypatch, tmp_path):
     payload.seek(0)
     with zipfile.ZipFile(payload) as archive:
         with pytest.raises(RuntimeError, match="too many members"):
-            backup_restore._safe_extract(archive, tmp_path / "extract")
+            _safe_extract(archive, tmp_path / "extract")
 
 
 def test_safe_extract_rejects_total_size_limit(monkeypatch, tmp_path):
+    from app.services import backup_restore
+
     monkeypatch.setattr(backup_restore, "_MAX_TOTAL_UNCOMPRESSED_BYTES", 3)
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, "w") as archive:
