@@ -1,13 +1,12 @@
-"""Canonical Property Master schema and normalization pipeline.
+"""Fresh canonical Metro Property Master contract.
 
-All property intake/update channels must normalize into this contract before
-persistence: individual edit, bulk import, WhatsApp intake, and SM secure-link.
-The schema deliberately keeps optional marketing/media fields optional.
+One canonical structure for Individual, Bulk, WhatsApp and SM secure-link intake.
+The UI deliberately excludes unit/floor/facing/furnishing/parking-at-unit fields.
+Parking is a project-level amenity.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from enum import StrEnum
 import re
 from typing import Any, Mapping
@@ -30,24 +29,31 @@ class PropertyField:
 
 
 PROPERTY_MASTER_FIELDS: tuple[PropertyField, ...] = (
-    PropertyField("project_name", "Project Name", "Basic", True),
-    PropertyField("property_type", "Property Type", "Basic", True),
-    PropertyField("configuration", "Configuration", "Basic", True),
-    PropertyField("carpet_area", "Carpet Area", "Basic"),
-    PropertyField("possession_date", "Possession Date", "Basic", True, "date"),
+    PropertyField("property_ref", "Property Ref", "Identification"),
+    PropertyField("developer", "Developer / Builder", "Identification"),
+    PropertyField("project_name", "Project Name", "Identification", True),
+    PropertyField("property_type", "Property Type", "Identification", True),
+    PropertyField("listing_status", "Listing Status", "Identification"),
+    PropertyField("availability_status", "Availability Status", "Identification"),
     PropertyField("full_address", "Full Address", "Location", True),
+    PropertyField("city", "City", "Location", True),
+    PropertyField("locality", "Locality / Area", "Location", True),
     PropertyField("pincode", "Pincode", "Location", True),
     PropertyField("google_maps_link", "Google Maps Link", "Location"),
     PropertyField("nearby_connectivity", "Nearby Connectivity / Landmarks", "Location"),
-    PropertyField("bsp", "Base Selling Price (BSP)", "Financial", True),
-    PropertyField("configurations", "Configuration Details", "Financial", field_type="repeater"),
-    PropertyField("negotiation", "Negotiation", "Financial"),
-    PropertyField("additional_government_charges", "Additional / Government Charges", "Financial"),
-    PropertyField("payment_plan", "Payment Plan", "Financial"),
-    PropertyField("cp_commission_percent", "CP Commission %", "Financial"),
+    PropertyField("project_status", "Project Status", "Project Details"),
+    PropertyField("possession_date", "Possession Date", "Project Details", field_type="date"),
+    PropertyField("total_towers", "Total Towers", "Project Details", field_type="number"),
+    PropertyField("tower_details", "Tower Details", "Project Details", field_type="repeater"),
     PropertyField("rera_registration_number", "RERA Registration Number", "Legal"),
     PropertyField("approved_banks", "Approved Banks List", "Legal"),
     PropertyField("title_deed_type", "Title Deed Type", "Legal"),
+    PropertyField("configurations", "Configuration Details", "Configuration", True, "repeater"),
+    PropertyField("additional_government_charges", "Additional / Government Charges", "Financial"),
+    PropertyField("payment_plan", "Payment Plan", "Financial"),
+    PropertyField("cp_commission_percent", "CP Commission %", "Financial"),
+    PropertyField("facilities", "Amenities & Facilities", "Amenities", field_type="checkboxes"),
+    PropertyField("other_facility", "Other Facility", "Amenities"),
     PropertyField("site_flat_photos", "High-Res Site / Flat Photos", "Media", field_type="media"),
     PropertyField("floor_plan", "Floor Plan", "Media", field_type="media"),
     PropertyField("master_layout", "Master Layout", "Media", field_type="media"),
@@ -60,55 +66,72 @@ PROPERTY_MASTER_FIELDS: tuple[PropertyField, ...] = (
 )
 
 
+FACILITY_GROUPS: dict[str, tuple[str, ...]] = {
+    "Parking": (
+        "Car Parking", "Covered Car Parking", "Open Car Parking",
+        "Visitor Parking", "Two-Wheeler Parking", "EV Charging",
+    ),
+    "Security & Safety": (
+        "24x7 Security", "CCTV", "Gated Community", "Security Intercom",
+        "Video Door Phone", "Visitor Management", "Fire Safety System", "Access Control",
+    ),
+    "Fitness & Wellness": (
+        "Gym", "Swimming Pool", "Jogging Track", "Walking Track",
+        "Yoga / Meditation Area", "Sports Room", "Indoor Games",
+    ),
+    "Kids & Family": (
+        "Children's Play Area", "Creche / Day Care", "Senior Citizen Area", "Kids Pool",
+    ),
+    "Sports": (
+        "Badminton Court", "Basketball Court", "Tennis Court",
+        "Cricket Practice Area", "Football Area", "Table Tennis", "Outdoor Games",
+    ),
+    "Club & Social": (
+        "Club House", "Multipurpose Hall", "Party Hall", "Community Hall",
+        "Library", "Lounge", "Cafeteria",
+    ),
+    "Green & Outdoor": (
+        "Garden", "Landscaped Garden", "Rooftop Garden", "Terrace", "Pet Area",
+    ),
+    "Building & Utilities": (
+        "Lift", "Power Backup", "Water Supply", "Rainwater Harvesting",
+        "Solar Power", "Sewage Treatment Plant", "Waste Management",
+    ),
+    "Convenience": (
+        "Convenience Store", "ATM", "Pharmacy", "Laundry", "Car Wash",
+        "Parcel / Delivery Room", "Guest Rooms",
+    ),
+}
+
+
 ALIASES: dict[str, str] = {
-    "project": "project_name",
-    "project name": "project_name",
-    "project_name": "project_name",
-    "type": "property_type",
-    "property type": "property_type",
-    "property_type": "property_type",
-    "bhk": "configuration",
-    "configuration": "configuration",
-    "carpet": "carpet_area",
-    "carpet area": "carpet_area",
-    "carpet_area": "carpet_area",
-    "possession": "possession_date",
-    "possession date": "possession_date",
-    "possession_date": "possession_date",
-    "address": "full_address",
-    "full address": "full_address",
-    "full_address": "full_address",
-    "pin": "pincode",
-    "pin code": "pincode",
-    "pincode": "pincode",
-    "google maps": "google_maps_link",
-    "google maps link": "google_maps_link",
-    "maps link": "google_maps_link",
-    "bsp": "bsp",
-    "configuration details": "configurations",
-    "configurations": "configurations",
-    "configuration details json": "configurations",
-    "negotiation": "negotiation",
-    "base selling price": "bsp",
-    "base selling price (bsp)": "bsp",
-    "charges": "additional_government_charges",
-    "additional charges": "additional_government_charges",
-    "government charges": "additional_government_charges",
-    "payment plan": "payment_plan",
-    "cp commission": "cp_commission_percent",
-    "cp commission %": "cp_commission_percent",
-    "rera": "rera_registration_number",
-    "rera number": "rera_registration_number",
+    "property ref": "property_ref", "property_ref": "property_ref",
+    "developer": "developer", "builder": "developer", "developer / builder": "developer",
+    "project": "project_name", "project name": "project_name", "project_name": "project_name",
+    "type": "property_type", "property type": "property_type", "property_type": "property_type",
+    "listing status": "listing_status", "availability status": "availability_status",
+    "address": "full_address", "full address": "full_address", "full_address": "full_address",
+    "city": "city", "locality": "locality", "locality / area": "locality",
+    "pin": "pincode", "pin code": "pincode", "pincode": "pincode",
+    "google maps": "google_maps_link", "google maps link": "google_maps_link", "maps link": "google_maps_link",
+    "nearby": "nearby_connectivity", "nearby connectivity": "nearby_connectivity",
+    "project status": "project_status", "possession": "possession_date", "possession date": "possession_date",
+    "possession_date": "possession_date", "total towers": "total_towers", "tower details": "tower_details",
+    "towers": "tower_details",
+    "rera": "rera_registration_number", "rera number": "rera_registration_number",
     "rera registration number": "rera_registration_number",
-    "approved banks": "approved_banks",
-    "approved banks list": "approved_banks",
-    "title deed": "title_deed_type",
-    "title deed type": "title_deed_type",
-    "rm": "rm_name",
-    "rm name": "rm_name",
-    "rm contact": "rm_contact",
-    "site visit timings": "site_visit_timings",
-    "booking process": "booking_process",
+    "approved banks": "approved_banks", "approved banks list": "approved_banks",
+    "title deed": "title_deed_type", "title deed type": "title_deed_type",
+    "configuration": "configurations", "configurations": "configurations",
+    "configuration details": "configurations", "configuration details json": "configurations",
+    "charges": "additional_government_charges", "additional charges": "additional_government_charges",
+    "government charges": "additional_government_charges",
+    "payment plan": "payment_plan", "cp commission": "cp_commission_percent",
+    "cp commission %": "cp_commission_percent",
+    "amenities": "facilities", "amenities & facilities": "facilities", "facilities": "facilities",
+    "other facility": "other_facility",
+    "rm": "rm_name", "rm name": "rm_name", "rm contact": "rm_contact",
+    "site visit timings": "site_visit_timings", "booking process": "booking_process",
 }
 
 
@@ -120,8 +143,8 @@ def canonicalize_key(value: Any) -> str | None:
     normalized = _key(value)
     if normalized in ALIASES:
         return ALIASES[normalized]
-    valid = {field.key for field in PROPERTY_MASTER_FIELDS}
-    return normalized.replace(" ", "_") if normalized.replace(" ", "_") in valid else None
+    key = normalized.replace(" ", "_")
+    return key if key in {f.key for f in PROPERTY_MASTER_FIELDS} else None
 
 
 def _clean(value: Any) -> Any:
@@ -133,12 +156,17 @@ def _clean(value: Any) -> Any:
     return value
 
 
-def normalize_property_payload(
-    payload: Mapping[str, Any],
-    *,
-    source: PropertyUpdateSource | str,
-) -> dict[str, Any]:
-    """Map any supported intake payload into the canonical Property Master keys."""
+def _listify(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = value
+    else:
+        raw = re.split(r"[,;|\n]+", str(value))
+    return [str(v).strip() for v in raw if str(v).strip()]
+
+
+def normalize_property_payload(payload: Mapping[str, Any], *, source: PropertyUpdateSource | str) -> dict[str, Any]:
     source_value = PropertyUpdateSource(str(source).upper()).value
     result: dict[str, Any] = {}
     for raw_key, raw_value in payload.items():
@@ -149,47 +177,56 @@ def normalize_property_payload(
         if value is not None:
             result[key] = value
 
-    if "configurations" in result and isinstance(result["configurations"], list):
+    rows = result.get("configurations")
+    if isinstance(rows, list):
         normalized_rows = []
-        for row in result["configurations"]:
+        for row in rows:
             if not isinstance(row, Mapping):
                 continue
             item = {str(k): v for k, v in row.items() if v not in (None, "")}
+            for number_key in ("carpet_area", "price_including_all", "rate_per_sqft"):
+                try:
+                    if item.get(number_key) not in (None, ""):
+                        item[number_key] = float(item[number_key])
+                except (TypeError, ValueError):
+                    pass
             area = item.get("carpet_area")
             total = item.get("price_including_all")
             rate = item.get("rate_per_sqft")
-            try:
-                area_n = float(area) if area is not None else None
-                total_n = float(total) if total is not None else None
-                rate_n = float(rate) if rate is not None else None
-                if total_n is None and rate_n is not None and area_n:
-                    total_n = round(area_n * rate_n, 2)
-                elif rate_n is None and total_n is not None and area_n:
-                    rate_n = round(total_n / area_n, 2)
-                if area_n is not None:
-                    item["carpet_area"] = area_n
-                if total_n is not None:
-                    item["price_including_all"] = total_n
-                if rate_n is not None:
-                    item["rate_per_sqft"] = rate_n
-            except (TypeError, ValueError, ZeroDivisionError):
-                pass
+            if total is None and rate is not None and area:
+                item["price_including_all"] = round(float(area) * float(rate), 2)
+            elif rate is None and total is not None and area:
+                item["rate_per_sqft"] = round(float(total) / float(area), 2)
             if "negotiation" in item:
                 item["negotiation"] = str(item["negotiation"]).strip().upper()
+            if "availability" in item:
+                item["availability"] = str(item["availability"]).strip()
             normalized_rows.append(item)
         result["configurations"] = normalized_rows
 
-    # Keep source as system metadata, not user-editable property content.
+    towers = result.get("tower_details")
+    if isinstance(towers, list):
+        clean_towers = []
+        for row in towers:
+            if not isinstance(row, Mapping):
+                continue
+            item = {str(k): v for k, v in row.items() if v not in (None, "")}
+            if item.get("total_floors") not in (None, ""):
+                try:
+                    item["total_floors"] = int(item["total_floors"])
+                except (TypeError, ValueError):
+                    pass
+            clean_towers.append(item)
+        result["tower_details"] = clean_towers
+
+    if "facilities" in result:
+        result["facilities"] = _listify(result["facilities"])
+
     result["_update_source"] = source_value
     return result
 
 
-def validate_property_payload(
-    payload: Mapping[str, Any],
-    *,
-    is_create: bool = True,
-) -> list[str]:
-    """Return validation errors without rejecting optional/unknown source data."""
+def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = True) -> list[str]:
     errors: list[str] = []
     if is_create:
         for field in PROPERTY_MASTER_FIELDS:
@@ -209,33 +246,33 @@ def validate_property_payload(
         except ValueError:
             errors.append("CP Commission % must be numeric")
 
-    configurations = payload.get("configurations")
-    if configurations is not None:
-        if not isinstance(configurations, list):
-            errors.append("Configuration Details must be a list")
-        else:
-            for index, row in enumerate(configurations, start=1):
-                if not isinstance(row, Mapping):
-                    errors.append(f"Configuration row {index} is invalid")
-                    continue
-                config = _clean(row.get("configuration"))
-                area = _clean(row.get("carpet_area"))
-                total = _clean(row.get("price_including_all"))
-                rate = _clean(row.get("rate_per_sqft"))
-                if not config:
-                    errors.append(f"Configuration row {index}: Configuration is required")
-                if area is None:
-                    errors.append(f"Configuration row {index}: Carpet Area is required")
-                if total is None and rate is None:
-                    errors.append(f"Configuration row {index}: enter Total Price (Including All) or Rate / Sq Ft")
-                negotiation = row.get("negotiation")
-                if negotiation is not None and str(negotiation).upper() not in {"YES", "NO"}:
-                    errors.append(f"Configuration row {index}: Negotiation must be Yes or No")
+    for i, row in enumerate(payload.get("configurations") or [], 1):
+        if not isinstance(row, Mapping):
+            errors.append(f"Configuration row {i} is invalid")
+            continue
+        if not _clean(row.get("configuration")):
+            errors.append(f"Configuration row {i}: Configuration is required")
+        if _clean(row.get("carpet_area")) is None:
+            errors.append(f"Configuration row {i}: Carpet Area is required")
+        if _clean(row.get("price_including_all")) is None and _clean(row.get("rate_per_sqft")) is None:
+            errors.append(f"Configuration row {i}: enter Total Price (Including All) or Rate / Sq Ft")
+        if str(row.get("negotiation", "")).upper() not in {"", "YES", "NO"}:
+            errors.append(f"Configuration row {i}: Negotiation must be Yes or No")
 
-    maps_link = _clean(payload.get("google_maps_link"))
-    if maps_link is not None and not str(maps_link).lower().startswith(("http://", "https://")):
+    for i, row in enumerate(payload.get("tower_details") or [], 1):
+        if not _clean(row.get("tower_name")):
+            errors.append(f"Tower row {i}: Tower Name is required")
+        floors = row.get("total_floors")
+        if floors not in (None, ""):
+            try:
+                if int(floors) < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors.append(f"Tower row {i}: Total Floors must be a positive number")
+
+    maps = _clean(payload.get("google_maps_link"))
+    if maps and not str(maps).lower().startswith(("http://", "https://")):
         errors.append("Google Maps Link must be a valid HTTP/HTTPS URL")
-
     return errors
 
 
@@ -243,13 +280,20 @@ def property_field_groups() -> dict[str, tuple[PropertyField, ...]]:
     groups: dict[str, list[PropertyField]] = {}
     for field in PROPERTY_MASTER_FIELDS:
         groups.setdefault(field.group, []).append(field)
-    return {group: tuple(fields) for group, fields in groups.items()}
+    return {k: tuple(v) for k, v in groups.items()}
 
 
-CONFIGURATION_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("configuration", "Configuration (e.g. 1 BHK)"),
+CONFIGURATION_COLUMNS = (
+    ("configuration", "Configuration"),
     ("carpet_area", "Carpet Area (Sq Ft)"),
     ("price_including_all", "Total Price (Including All)"),
     ("rate_per_sqft", "Rate / Sq Ft"),
     ("negotiation", "Negotiation (Yes/No)"),
+    ("availability", "Availability"),
+)
+
+TOWER_COLUMNS = (
+    ("tower_name", "Tower Name"),
+    ("total_floors", "Total Floors"),
+    ("possession_date", "Possession Date"),
 )
