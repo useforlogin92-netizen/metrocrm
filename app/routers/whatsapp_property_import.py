@@ -19,6 +19,8 @@ from app.catalog_models import PropertyMedia, SalesPropertySubmission
 from app.config import settings
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
+from app.property_master import PropertyUpdateSource, normalize_property_payload, validate_property_payload
+from app.services.property_update_engine import apply_property_master
 from app.models import AuditEvent, Project, Unit
 from app.services.whatsapp_property_import import (
     MAX_ATTACHMENT_BYTES,
@@ -370,6 +372,17 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     candidates = data.get("project_candidates") or []
     project = db.get(Project, project_id)
     if not project: return RedirectResponse(f"{_index(role)}/{row.id}?error=Target+project+not+found", status_code=303)
+
+    # Normalize WhatsApp data through the same Property Master contract used by
+    # Individual/Bulk/SM-link updates. Missing optional fields are preserved;
+    # nothing is invented from the source.
+    canonical = normalize_property_payload(data, source=PropertyUpdateSource.WHATSAPP)
+    validation_errors = validate_property_payload(canonical, is_create=False)
+    if validation_errors:
+        return RedirectResponse(
+            f"{_index(role)}/{row.id}?error=" + "+".join(validation_errors)[:350],
+            status_code=303,
+        )
     if not candidates or normalize_name(project.name) not in {normalize_name(x) for x in candidates}:
         return RedirectResponse(f"{_index(role)}/{row.id}?error=Target+project+does+not+match+the+detected+project+identity", status_code=303)
     conflicts = detect_field_conflicts(project, data)
@@ -378,6 +391,14 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
     created_destinations: list[Path] = []
     staging_root = _root("property-import-staging").resolve()
     try:
+        apply_property_master(
+            db,
+            payload=canonical,
+            source=PropertyUpdateSource.WHATSAPP,
+            actor=actor,
+            project_id=project.id,
+            create=False,
+        )
         if data.get("state") and not project.state: project.state = data["state"]
         if data.get("district") and not project.district: project.district = data["district"]
         if data.get("pincode") and not project.pincode: project.pincode = data["pincode"]
