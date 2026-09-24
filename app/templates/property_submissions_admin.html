@@ -36,7 +36,6 @@
           <form method="post" action="/admin/property-submissions/{{row.id}}/approve"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button>Approve &amp; Process</button></form>
           <details style="width:100%;margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px">
             <summary style="cursor:pointer;font-weight:800">Fill Missing Details + Re-request SM</summary>
-            {% set p = row.payload_json|from_json if false else none %}
             <div class="admin-correction-form" data-payload="{{ row.payload_json|e }}"></div>
             <form method="post" action="/admin/property-submissions/{{row.id}}/request-correction" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:8px">
               <input type="hidden" name="csrf_token" value="{{csrf_token}}">
