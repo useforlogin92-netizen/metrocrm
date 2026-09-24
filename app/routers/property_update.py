@@ -1,47 +1,30 @@
 from __future__ import annotations
-
-import json
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import User
-from app.property_master import PROPERTY_MASTER_FIELDS, PropertyUpdateSource
+from app.property_master import FACILITY_GROUPS, property_field_groups, PropertyUpdateSource
 from app.services.property_update_engine import apply_property_master
 
 router = APIRouter(tags=["property-update"])
 templates = Jinja2Templates(directory="app/templates")
 
-
 def _actor(request: Request, db: Session):
     from app.main import _current_user
     return _current_user(request, db)
-
 
 @router.get("/admin/property-update", response_class=HTMLResponse)
 def property_update_page(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
     if not actor or actor.role not in {"ADMIN", "SUPER_ADMIN"}:
         return RedirectResponse("/", status_code=303)
-    groups = {}
-    for field in PROPERTY_MASTER_FIELDS:
-        groups.setdefault(field.group, []).append(field)
-    return templates.TemplateResponse(
-        "property_update.html",
-        {
-            "request": request,
-            "groups": groups,
-            "csrf_token": csrf_token(request),
-            "property_id": request.query_params.get("property_id", ""),
-            "error": request.query_params.get("error"),
-            "message": request.query_params.get("message"),
-        },
-    )
-
+    return templates.TemplateResponse("property_update.html", {
+        "request": request, "groups": property_field_groups(), "facility_groups": FACILITY_GROUPS,
+        "csrf_token": csrf_token(request), "property_id": request.query_params.get("property_id", ""),
+        "error": request.query_params.get("error"), "message": request.query_params.get("message"),
+    })
 
 @router.post("/admin/property-update", dependencies=[Depends(require_csrf)])
 async def property_update_submit(request: Request, db: Session = Depends(get_db)):
@@ -50,46 +33,36 @@ async def property_update_submit(request: Request, db: Session = Depends(get_db)
         return RedirectResponse("/", status_code=303)
     form = await request.form()
     property_id = str(form.get("property_id") or "").strip()
-    payload = {k: v for k, v in form.items() if k not in {"csrf_token", "property_id", "developer"}}
-    payload["developer"] = form.get("developer")
-
-    configurations = []
-    index = 0
-    while True:
-        config = str(form.get(f"configurations[{index}][configuration]") or "").strip()
-        area = str(form.get(f"configurations[{index}][carpet_area]") or "").strip()
-        total = str(form.get(f"configurations[{index}][price_including_all]") or "").strip()
-        rate = str(form.get(f"configurations[{index}][rate_per_sqft]") or "").strip()
-        negotiation = str(form.get(f"configurations[{index}][negotiation]") or "").strip()
-        if not any((config, area, total, rate, negotiation)):
-            if index > 0:
-                break
-            index += 1
-            continue
-        configurations.append({
-            "configuration": config,
-            "carpet_area": area,
-            "price_including_all": total,
-            "rate_per_sqft": rate,
-            "negotiation": negotiation,
-        })
-        index += 1
-        if index > 100:
+    payload = {k:v for k,v in form.items() if k not in {"csrf_token","property_id"}}
+    configs = []
+    i = 0
+    while i <= 100:
+        keys = [f"configurations[{i}][{x}]" for x in ("configuration","carpet_area","price_including_all","rate_per_sqft","negotiation","availability")]
+        vals = [str(form.get(k) or "").strip() for k in keys]
+        if not any(vals):
+            if i == 0: i += 1; continue
             break
-    if configurations:
-        payload["configurations"] = configurations
-
+        configs.append(dict(zip(("configuration","carpet_area","price_including_all","rate_per_sqft","negotiation","availability"), vals)))
+        i += 1
+    if configs: payload["configurations"] = configs
+    towers = []
+    i = 0
+    while i <= 50:
+        keys = [f"tower_details[{i}][{x}]" for x in ("tower_name","total_floors","possession_date")]
+        vals = [str(form.get(k) or "").strip() for k in keys]
+        if not any(vals):
+            if i == 0: i += 1; continue
+            break
+        towers.append(dict(zip(("tower_name","total_floors","possession_date"), vals)))
+        i += 1
+    if towers: payload["tower_details"] = towers
+    payload["facilities"] = form.getlist("facilities")
     try:
-        project, _ = apply_property_master(
-            db,
-            payload=payload,
-            source=PropertyUpdateSource.INDIVIDUAL,
-            actor=actor,
-            project_id=int(property_id) if property_id else None,
-            create=not bool(property_id),
-        )
+        project, _ = apply_property_master(db, payload=payload, source=PropertyUpdateSource.INDIVIDUAL,
+                                           actor=actor, project_id=int(property_id) if property_id else None,
+                                           create=not bool(property_id))
         db.commit()
     except Exception as exc:
         db.rollback()
-        return RedirectResponse("/admin/property-update?error=" + str(exc).replace(" ", "+")[:350], status_code=303)
-    return RedirectResponse("/admin/property-update?property_id=" + str(project.id) + "&message=Property+" + str(project.id) + "+saved+successfully", status_code=303)
+        return RedirectResponse("/admin/property-update?error=" + str(exc).replace(" ","+")[:350], status_code=303)
+    return RedirectResponse(f"/admin/property-update?property_id={project.id}&message=Property+{project.id}+saved+successfully", status_code=303)
