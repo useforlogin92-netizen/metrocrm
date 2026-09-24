@@ -40,6 +40,8 @@ PROPERTY_MASTER_FIELDS: tuple[PropertyField, ...] = (
     PropertyField("google_maps_link", "Google Maps Link", "Location"),
     PropertyField("nearby_connectivity", "Nearby Connectivity / Landmarks", "Location"),
     PropertyField("bsp", "Base Selling Price (BSP)", "Financial", True),
+    PropertyField("configurations", "Configuration Details", "Financial", field_type="repeater"),
+    PropertyField("negotiation", "Negotiation", "Financial"),
     PropertyField("additional_government_charges", "Additional / Government Charges", "Financial"),
     PropertyField("payment_plan", "Payment Plan", "Financial"),
     PropertyField("cp_commission_percent", "CP Commission %", "Financial"),
@@ -83,6 +85,10 @@ ALIASES: dict[str, str] = {
     "google maps link": "google_maps_link",
     "maps link": "google_maps_link",
     "bsp": "bsp",
+    "configuration details": "configurations",
+    "configurations": "configurations",
+    "configuration details json": "configurations",
+    "negotiation": "negotiation",
     "base selling price": "bsp",
     "base selling price (bsp)": "bsp",
     "charges": "additional_government_charges",
@@ -143,6 +149,36 @@ def normalize_property_payload(
         if value is not None:
             result[key] = value
 
+    if "configurations" in result and isinstance(result["configurations"], list):
+        normalized_rows = []
+        for row in result["configurations"]:
+            if not isinstance(row, Mapping):
+                continue
+            item = {str(k): v for k, v in row.items() if v not in (None, "")}
+            area = item.get("carpet_area")
+            total = item.get("price_including_all")
+            rate = item.get("rate_per_sqft")
+            try:
+                area_n = float(area) if area is not None else None
+                total_n = float(total) if total is not None else None
+                rate_n = float(rate) if rate is not None else None
+                if total_n is None and rate_n is not None and area_n:
+                    total_n = round(area_n * rate_n, 2)
+                elif rate_n is None and total_n is not None and area_n:
+                    rate_n = round(total_n / area_n, 2)
+                if area_n is not None:
+                    item["carpet_area"] = area_n
+                if total_n is not None:
+                    item["price_including_all"] = total_n
+                if rate_n is not None:
+                    item["rate_per_sqft"] = rate_n
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+            if "negotiation" in item:
+                item["negotiation"] = str(item["negotiation"]).strip().upper()
+            normalized_rows.append(item)
+        result["configurations"] = normalized_rows
+
     # Keep source as system metadata, not user-editable property content.
     result["_update_source"] = source_value
     return result
@@ -173,6 +209,29 @@ def validate_property_payload(
         except ValueError:
             errors.append("CP Commission % must be numeric")
 
+    configurations = payload.get("configurations")
+    if configurations is not None:
+        if not isinstance(configurations, list):
+            errors.append("Configuration Details must be a list")
+        else:
+            for index, row in enumerate(configurations, start=1):
+                if not isinstance(row, Mapping):
+                    errors.append(f"Configuration row {index} is invalid")
+                    continue
+                config = _clean(row.get("configuration"))
+                area = _clean(row.get("carpet_area"))
+                total = _clean(row.get("price_including_all"))
+                rate = _clean(row.get("rate_per_sqft"))
+                if not config:
+                    errors.append(f"Configuration row {index}: Configuration is required")
+                if area is None:
+                    errors.append(f"Configuration row {index}: Carpet Area is required")
+                if total is None and rate is None:
+                    errors.append(f"Configuration row {index}: enter Total Price (Including All) or Rate / Sq Ft")
+                negotiation = row.get("negotiation")
+                if negotiation is not None and str(negotiation).upper() not in {"YES", "NO"}:
+                    errors.append(f"Configuration row {index}: Negotiation must be Yes or No")
+
     maps_link = _clean(payload.get("google_maps_link"))
     if maps_link is not None and not str(maps_link).lower().startswith(("http://", "https://")):
         errors.append("Google Maps Link must be a valid HTTP/HTTPS URL")
@@ -185,3 +244,12 @@ def property_field_groups() -> dict[str, tuple[PropertyField, ...]]:
     for field in PROPERTY_MASTER_FIELDS:
         groups.setdefault(field.group, []).append(field)
     return {group: tuple(fields) for group, fields in groups.items()}
+
+
+CONFIGURATION_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("configuration", "Configuration (e.g. 1 BHK)"),
+    ("carpet_area", "Carpet Area (Sq Ft)"),
+    ("price_including_all", "Total Price (Including All)"),
+    ("rate_per_sqft", "Rate / Sq Ft"),
+    ("negotiation", "Negotiation (Yes/No)"),
+)
