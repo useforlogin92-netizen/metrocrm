@@ -55,6 +55,9 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
                           actor: User | None = None, project_id: int | None = None,
                           create: bool = False) -> tuple[Project, dict[str, Any]]:
     canonical = normalize_property_payload(payload, source=source)
+    if canonical.get("_update_source") == PropertyUpdateSource.BULK.value:
+        canonical["_allow_incomplete_master"] = True
+
     errors = validate_property_payload(
         canonical,
         is_create=create,
@@ -90,6 +93,10 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
     master["last_updated_at"] = now_iso
     master["last_updated_by"] = actor.id if actor else None
     master["update_source"] = canonical["_update_source"]
+    if canonical.get("last_updated_date") is not None:
+        master["last_updated_date"] = canonical["last_updated_date"]
+    if canonical.get("data_source") is not None:
+        master["data_source"] = canonical["data_source"]
     existing["property_master"] = master
     _sync_project_children(db, project, canonical)
     project.description = json.dumps(existing, ensure_ascii=False)
