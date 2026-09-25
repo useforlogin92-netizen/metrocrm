@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
@@ -80,6 +81,78 @@ def _property_workbook() -> BytesIO:
     ]: ex.append(row)
     return _save_workbook(wb)
 
+
+def _split_source_values(value) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r"\s*/\s*", text) if part.strip()]
+
+
+def _parse_source_area(value):
+    text = str(value or "").strip().replace(",", "")
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    return float(match.group()) if match else None
+
+
+def _parse_source_price(value) -> tuple[float | None, float | None]:
+    text = str(value or "").strip().lower().replace(",", "")
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return None, None
+    number = float(match.group())
+    if re.search(r"\b(?:cr|crore)\b", text):
+        return number * 10000000, None
+    if re.search(r"\b(?:lakh|lac)\b", text):
+        return number * 100000, None
+    if "psf" in text or re.search(r"\d+(?:\.\d+)?\s*k\b", text):
+        return None, number * 1000 if "k" in text else number
+    return None, None
+
+
+def _source_configuration_rows(raw_config: dict, availability: str | None) -> list[dict]:
+    configuration = str(raw_config.get("Configuration") or raw_config.get("BHK") or "").strip()
+    if not configuration:
+        return []
+    areas = _split_source_values(raw_config.get("Carpet Area"))
+    prices = _split_source_values(raw_config.get("Bundle Price"))
+    if len(areas) == len(prices) and areas:
+        pairs = list(zip(areas, prices))
+    elif len(areas) > 1:
+        pairs = [(area, prices[0] if len(prices) == 1 else None) for area in areas]
+    elif len(prices) > 1:
+        pairs = [(areas[0] if areas else None, None) for _ in prices]
+    else:
+        pairs = [(areas[0] if areas else None, prices[0] if prices else None)]
+    rows = []
+    for area_text, price_text in pairs:
+        price, rate = _parse_source_price(price_text)
+        rows.append({
+            "configuration": configuration,
+            "carpet_area": _parse_source_area(area_text),
+            "price_including_all": price,
+            "rate_per_sqft": rate,
+            "negotiation": "YES" if "negotiat" in str(price_text or "").lower() else None,
+            "availability": str(availability or "").strip() or None,
+            "_source_details": raw_config,
+        })
+    return rows
+
+
+def _source_tower_rows(configurations: list[dict]) -> list[dict]:
+    seen = set()
+    towers = []
+    for raw in configurations:
+        structure = str(raw.get("Tower/Wing / Structure") or "").strip()
+        if not structure or structure in seen:
+            continue
+        seen.add(structure)
+        towers.append({
+            "tower_name": structure,
+            "total_floors": None,
+            "possession_date": raw.get("Possession"),
+        })
+    return towers
 
 def _display_value(value):
     if isinstance(value, (datetime, date)):
