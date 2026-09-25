@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, SiteVisit, Token, Tower, Unit, User
+from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, PropertyConfiguration, SiteVisit, Token, Tower, Unit, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
 from app.property_master import PropertyUpdateSource
 from app.services.property_update_engine import apply_property_master
@@ -471,6 +471,7 @@ def _delete_single_property_data(project_id: int, actor: User, db: Session):
             db.query(Booking).filter(Booking.unit_id.in_(unit_ids)).update({Booking.unit_id: None}, synchronize_session=False)
         db.query(Unit).filter(Unit.project_id == project_id).delete(synchronize_session=False)
         db.query(Tower).filter(Tower.project_id == project_id).delete(synchronize_session=False)
+        db.query(PropertyConfiguration).filter(PropertyConfiguration.project_id == project_id).delete(synchronize_session=False)
         db.query(Project).filter(Project.id == project_id).delete(synchronize_session=False)
         db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_RECORD_DELETED", entity_type="Projects", entity_id=str(project_id), details=json.dumps({"property_only_records": True})))
         db.commit()

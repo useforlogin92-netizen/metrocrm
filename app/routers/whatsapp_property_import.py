@@ -397,24 +397,31 @@ def _commit(submission_id: int, request: Request, project_id: int, db: Session, 
         "walkthrough_video_link": data.get("walkthrough_video_url"),
         "rm_name": data.get("rm_name") or data.get("contact_name"),
         "rm_contact": data.get("contact_phone"),
-        "configurations": [
-            {
-                "configuration": item.get("bhk"),
-                "carpet_area": item.get("carpet_area"),
-                "price_including_all": item.get("price"),
-                "rate_per_sqft": item.get("rate_per_sqft"),
-                "negotiation": item.get("negotiable"),
-                "availability": item.get("availability") or "Available",
-            }
-            for item in (data.get("unit_configurations") or []) if isinstance(item, dict)
-        ],
-        "tower_details": [
-            {
-                "tower_name": data.get("tower_name") or data.get("wing"),
-                "total_floors": data.get("total_building_floors"),
-                "possession_date": data.get("possession_text"),
-            }
-        ] if data.get("total_building_floors") or data.get("tower_name") or data.get("wing") else [],
+        # Source imports are partial when the incoming message does not contain
+        # configuration/tower data. Only include child collections when the
+        # source actually supplied them, so existing CRM children are preserved.
+        **({
+            "configurations": [
+                {
+                    "configuration": item.get("bhk"),
+                    "carpet_area": item.get("carpet_area"),
+                    "price_including_all": item.get("price"),
+                    "rate_per_sqft": item.get("rate_per_sqft"),
+                    "negotiation": item.get("negotiable"),
+                    "availability": item.get("availability") or "Available",
+                }
+                for item in (data.get("unit_configurations") or []) if isinstance(item, dict)
+            ]
+        } if data.get("unit_configurations") else {}),
+        **({
+            "tower_details": [
+                {
+                    "tower_name": data.get("tower_name") or data.get("wing"),
+                    "total_floors": data.get("total_building_floors"),
+                    "possession_date": data.get("possession_text"),
+                }
+            ]
+        } if data.get("total_building_floors") or data.get("tower_name") or data.get("wing") else {}),
     }
     canonical = normalize_property_payload(master_payload, source=PropertyUpdateSource.WHATSAPP)
     validation_errors = validate_property_payload(canonical, is_create=False)
