@@ -194,7 +194,7 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
             "amenities": _json_list(unit.amenities_json) + _json_list(project.amenities_json), "photos": photos, "floor_plan": unit.floor_plan,
             "brochure": unit.brochure or project.brochure, "description": unit.description or project.description,
         })
-    configuration_rows = _configuration_rows(db, city)
+    configuration_rows = [row for row in _configuration_rows(db, city) if row["project"] not in {item["project"] for item in rows}]
     rows.extend(configuration_rows)
     configured_project_names = {row["project"] for row in configuration_rows}
     for project_row in _project_level_rows(db, city):
