@@ -31,12 +31,13 @@ def _sync_project_children(db: Session, project: Project, canonical: Mapping[str
             db.add(PropertyConfiguration(
                 project_id=project.id,
                 configuration=str(row.get("configuration") or "").strip(),
-                carpet_area=Decimal(str(row.get("carpet_area"))),
+                carpet_area=Decimal(str(row["carpet_area"])) if row.get("carpet_area") is not None else None,
                 price_including_all=Decimal(str(row["price_including_all"])) if row.get("price_including_all") is not None else None,
                 rate_per_sqft=Decimal(str(row["rate_per_sqft"])) if row.get("rate_per_sqft") is not None else None,
                 negotiation=str(row.get("negotiation") or "").strip().upper() or None,
                 availability=str(row.get("availability") or "").strip() or None,
                 sort_order=index,
+                source_details=json.dumps(row.get("_source_details") or {}, ensure_ascii=False) if row.get("_source_details") else None,
             ))
     if "tower_details" in canonical:
         db.query(Tower).filter(Tower.project_id == project.id).delete(synchronize_session=False)
@@ -54,7 +55,11 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
                           actor: User | None = None, project_id: int | None = None,
                           create: bool = False) -> tuple[Project, dict[str, Any]]:
     canonical = normalize_property_payload(payload, source=source)
-    errors = validate_property_payload(canonical, is_create=create)
+    errors = validate_property_payload(
+        canonical,
+        is_create=create,
+        allow_incomplete_configurations=canonical.get("_update_source") == PropertyUpdateSource.BULK.value,
+    )
     if errors: raise ValueError("; ".join(errors))
     project = db.get(Project, project_id) if project_id else None
     if project_id and not project: raise ValueError("Property ID not found")
