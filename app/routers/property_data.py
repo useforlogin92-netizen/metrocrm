@@ -319,7 +319,8 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
                 db.commit()
                 db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "metro_properties_32_field_master"})))
                 db.commit()
-                return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+Metro+Properties+records", status_code=303)        wb = load_workbook(BytesIO(content), data_only=True)
+                return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+Metro+Properties+records", status_code=303)
+        wb = load_workbook(BytesIO(content), data_only=True)
         if "Property Master" not in wb.sheetnames:
             raise ValueError("Property Master sheet is required")
         master_ws = wb["Property Master"]
