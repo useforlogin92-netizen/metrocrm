@@ -63,6 +63,8 @@ PROPERTY_MASTER_FIELDS: tuple[PropertyField, ...] = (
     PropertyField("rm_contact", "RM Contact Info", "CP / Sales"),
     PropertyField("site_visit_timings", "Site Visit Timings", "CP / Sales"),
     PropertyField("booking_process", "Booking Process", "CP / Sales"),
+    PropertyField("last_updated_date", "Last Updated Date", "Source Tracking", field_type="date"),
+    PropertyField("data_source", "Data Source", "Source Tracking"),
 )
 
 
@@ -229,8 +231,9 @@ def normalize_property_payload(payload: Mapping[str, Any], *, source: PropertyUp
 def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = True, allow_incomplete_configurations: bool = False) -> list[str]:
     errors: list[str] = []
     if is_create:
+        allow_incomplete_master = bool(payload.get("_allow_incomplete_master"))
         for field in PROPERTY_MASTER_FIELDS:
-            if field.required_on_create and not _clean(payload.get(field.key)):
+            if field.required_on_create and not _clean(payload.get(field.key)) and not allow_incomplete_master:
                 errors.append(f"{field.label} is required")
 
     pincode = _clean(payload.get("pincode"))
