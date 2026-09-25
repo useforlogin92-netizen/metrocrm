@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any, Mapping
 from sqlalchemy.orm import Session
-from app.models import AuditEvent, Developer, Project, User
+from app.models import AuditEvent, Developer, Project, PropertyConfiguration, Tower, User
 from app.property_master import PropertyUpdateSource, normalize_property_payload, validate_property_payload
 
 def _parse_date(value: Any):
@@ -14,6 +14,40 @@ def _parse_date(value: Any):
         try: return datetime.strptime(str(value).strip(), fmt)
         except ValueError: pass
     return None
+
+
+def _sync_project_children(db: Session, project: Project, canonical: Mapping[str, Any]) -> None:
+    """Persist project configurations/towers as relational children.
+
+    Child collections are authoritative only when the source payload includes the
+    corresponding key, so partial individual updates do not erase existing data.
+    """
+    if "configurations" in canonical:
+        db.query(PropertyConfiguration).filter(PropertyConfiguration.project_id == project.id).delete(
+            synchronize_session=False
+        )
+        for index, row in enumerate(canonical.get("configurations") or []):
+            db.add(PropertyConfiguration(
+                project_id=project.id,
+                configuration=str(row.get("configuration") or "").strip(),
+                carpet_area=Decimal(str(row.get("carpet_area"))),
+                price_including_all=Decimal(str(row["price_including_all"])) if row.get("price_including_all") is not None else None,
+                rate_per_sqft=Decimal(str(row["rate_per_sqft"])) if row.get("rate_per_sqft") is not None else None,
+                negotiation=str(row.get("negotiation") or "").strip().upper() or None,
+                availability=str(row.get("availability") or "").strip() or None,
+                sort_order=index,
+            ))
+    if "tower_details" in canonical:
+        db.query(Tower).filter(Tower.project_id == project.id).delete(synchronize_session=False)
+        for row in canonical.get("tower_details") or []:
+            possession = _parse_date(row.get("possession_date"))
+            db.add(Tower(
+                project_id=project.id,
+                name=str(row.get("tower_name") or "").strip(),
+                floors=int(row["total_floors"]) if row.get("total_floors") not in (None, "") else None,
+                possession_date=possession,
+                details=json.dumps({k: v for k, v in row.items() if k not in {"tower_name", "total_floors", "possession_date"}}, ensure_ascii=False),
+            ))
 
 def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: PropertyUpdateSource | str,
                           actor: User | None = None, project_id: int | None = None,
@@ -50,6 +84,7 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
     master["last_updated_by"] = actor.id if actor else None
     master["update_source"] = canonical["_update_source"]
     existing["property_master"] = master
+    _sync_project_children(db, project, canonical)
     project.description = json.dumps(existing, ensure_ascii=False)
     # Project-level amenities are kept in the dedicated model column when available.
     if hasattr(project, "amenities_json") and "facilities" in master:
