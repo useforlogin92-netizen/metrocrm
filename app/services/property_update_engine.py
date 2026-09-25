@@ -1,7 +1,7 @@
 """Single persistence engine for the fresh canonical Metro Property Master."""
 from __future__ import annotations
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping
 from sqlalchemy.orm import Session
@@ -80,8 +80,9 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
     # Fresh Property Master replaces the old master object instead of merging stale fields.
     old_master = existing.get("property_master")
     master = {k: v for k, v in canonical.items() if not k.startswith("_")}
-    master["first_entry_at"] = (old_master or {}).get("first_entry_at") or datetime.utcnow().isoformat()
-    master["last_updated_at"] = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    master["first_entry_at"] = (old_master or {}).get("first_entry_at") or now_iso
+    master["last_updated_at"] = now_iso
     master["last_updated_by"] = actor.id if actor else None
     master["update_source"] = canonical["_update_source"]
     existing["property_master"] = master
