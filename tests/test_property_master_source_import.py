@@ -29,6 +29,7 @@ def test_bulk_engine_accepts_source_incomplete_configuration(db_session):
             "City": "Mumbai",
             "Locality / Area": "Kandivali East",
             "Full Address": "Source address",
+            "Pincode": "400101",
             "configurations": [
                 {
                     "configuration": "2 BHK",
