@@ -69,6 +69,9 @@ def test_safe_extract_rejects_duplicate_members(tmp_path):
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, "w") as archive:
         archive.writestr("database/database.snapshot", b"one")
+        # Build a deliberately malformed duplicate-member archive without
+        # triggering zipfile's own duplicate-name warning.
+        archive.NameToInfo.pop("database/database.snapshot", None)
         archive.writestr("database/database.snapshot", b"two")
     payload.seek(0)
     with zipfile.ZipFile(payload) as archive:
