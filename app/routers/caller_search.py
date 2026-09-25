@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.catalog_models import PropertyMedia
 from app.database import get_db
-from app.models import Project, Tower, Unit, User
+from app.models import Project, PropertyConfiguration, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
 from app.services.caller_search import BHK_OPTIONS, BUDGET_SLABS, CONSTRUCTION_OPTIONS, JODI_OPTIONS, SIDE_OPTIONS, filter_and_rank_properties
 from app.services.property_pricing import format_property_value, format_rate_per_sqft
@@ -110,6 +110,64 @@ def _project_level_rows(db: Session, city: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _configuration_rows(db: Session, city: str) -> list[dict[str, Any]]:
+    stmt = (
+        select(PropertyConfiguration, Project)
+        .join(Project, PropertyConfiguration.project_id == Project.id)
+        .order_by(Project.id.desc(), PropertyConfiguration.sort_order.asc(), PropertyConfiguration.id.asc())
+    )
+    if city:
+        stmt = stmt.where(Project.city.ilike(city.strip()))
+    rows: list[dict[str, Any]] = []
+    for config, project in db.execute(stmt).all():
+        station, corridor = _station_metadata(" ".join(filter(None, [project.locality, project.address, project.sector])))
+        location_text = " ".join(filter(None, [project.locality, project.sector, project.address]))
+        lowered = location_text.casefold()
+        side = "West" if " west" in lowered or lowered.endswith("west") else "East" if " east" in lowered or lowered.endswith("east") else "Both"
+        photos = _project_media(db, project.id) or _json_list(project.photos_json)
+        rows.append({
+            "id": -config.id,
+            "configuration_id": config.id,
+            "title": f"{project.name} - {config.configuration}",
+            "project": project.name,
+            "developer_id": project.developer_id,
+            "tower": None,
+            "unit_number": None,
+            "city": project.city,
+            "district": project.district,
+            "state": project.state,
+            "locality": project.locality,
+            "location": location_text,
+            "sector": project.sector,
+            "pincode": project.pincode,
+            "station": station,
+            "railway_station": station,
+            "corridor": corridor,
+            "side": side,
+            "bhk": config.configuration,
+            "property_type": "Configuration",
+            "carpet_area": _decimal(config.carpet_area),
+            "price": _decimal(config.price_including_all),
+            "price_per_sqft": _decimal(config.rate_per_sqft),
+            "construction_status": project.construction_status or config.availability,
+            "possession": project.possession_date,
+            "possession_date": project.possession_date,
+            "rera_possession_date": project.possession_date,
+            "rera": project.rera,
+            "parking": None,
+            "facing": None,
+            "furnishing": None,
+            "amenities": _json_list(project.amenities_json),
+            "photos": photos,
+            "floor_plan": None,
+            "brochure": project.brochure,
+            "description": project.description,
+            "availability": config.availability,
+            "negotiation": config.negotiation,
+        })
+    return rows
+
+
 def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
     stmt = select(Unit, Project, Tower).join(Project, Unit.project_id == Project.id).outerjoin(Tower, Unit.tower_id == Tower.id)
     if city:
@@ -136,8 +194,11 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
             "amenities": _json_list(unit.amenities_json) + _json_list(project.amenities_json), "photos": photos, "floor_plan": unit.floor_plan,
             "brochure": unit.brochure or project.brochure, "description": unit.description or project.description,
         })
+    configuration_rows = _configuration_rows(db, city)
+    rows.extend(configuration_rows)
+    configured_project_names = {row["project"] for row in configuration_rows}
     for project_row in _project_level_rows(db, city):
-        if project_row["id"] not in project_ids_with_units:
+        if project_row["id"] not in project_ids_with_units and project_row["project"] not in configured_project_names:
             rows.append(project_row)
     return rows
 
