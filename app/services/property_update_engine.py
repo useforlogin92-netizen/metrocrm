@@ -31,17 +31,36 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
             developer = Developer(name=developer_name); db.add(developer); db.flush()
         project = Project(developer_id=developer.id, name=canonical["project_name"]); db.add(project); db.flush()
     project.name = canonical.get("project_name") or project.name
-    for attr, key in (("address","full_address"),("pincode","pincode"),("rera","rera_registration_number")):
+
+    # Keep searchable Project columns synchronized with the canonical master.
+    column_mappings = (
+        ("city", "city"),
+        ("locality", "locality"),
+        ("address", "full_address"),
+        ("pincode", "pincode"),
+        ("rera", "rera_registration_number"),
+        ("construction_status", "project_status"),
+    )
+    for attr, key in column_mappings:
         value = canonical.get(key)
-        if value is not None: setattr(project, attr, str(value))
+        if value is not None:
+            setattr(project, attr, str(value))
+
+    if canonical.get("property_type") is not None:
+        project.sector = str(canonical["property_type"])
+
     parsed = _parse_date(canonical.get("possession_date"))
-    if parsed: project.possession_date = parsed
-    if canonical.get("property_type") is not None: project.sector = str(canonical["property_type"])
+    if parsed:
+        project.possession_date = parsed
+
     existing = {}
     try:
         existing = json.loads(project.description or "{}")
-        if not isinstance(existing, dict): existing = {}
-    except (TypeError, ValueError): existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+    except (TypeError, ValueError):
+        existing = {}
+
     # Fresh Property Master replaces the old master object instead of merging stale fields.
     old_master = existing.get("property_master")
     master = {k: v for k, v in canonical.items() if not k.startswith("_")}
@@ -51,11 +70,18 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
     master["update_source"] = canonical["_update_source"]
     existing["property_master"] = master
     project.description = json.dumps(existing, ensure_ascii=False)
-    # Project-level amenities are kept in the dedicated model column when available.
+
     if hasattr(project, "amenities_json") and "facilities" in master:
         project.amenities_json = json.dumps(master.get("facilities") or [], ensure_ascii=False)
-    db.add(AuditEvent(actor_user_id=actor.id if actor else None,
+
+    db.add(AuditEvent(
+        actor_user_id=actor.id if actor else None,
         action="PROPERTY_MASTER_UPDATED" if project_id else "PROPERTY_MASTER_CREATED",
-        entity_type="Projects", entity_id=str(project.id),
-        details=json.dumps({"source": canonical["_update_source"], "fields": sorted(k for k in canonical if not k.startswith("_"))})))
+        entity_type="Projects",
+        entity_id=str(project.id),
+        details=json.dumps({
+            "source": canonical["_update_source"],
+            "fields": sorted(k for k in canonical if not k.startswith("_")),
+        }),
+    ))
     return project, canonical
