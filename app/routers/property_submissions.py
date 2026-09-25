@@ -521,25 +521,31 @@ def _import_submission(db: Session, actor: User, submission: PropertySubmission,
         "rm_contact": payload.get("sm_contact"),
         "site_visit_timings": payload.get("site_visit_timings"),
         "booking_process": payload.get("booking_process"),
-        "configurations": [
-            {
-                "configuration": item.get("configuration"),
-                "carpet_area": item.get("carpet_area"),
-                "price_including_all": item.get("bundle_price"),
-                "rate_per_sqft": item.get("rate_per_sqft"),
-                "negotiation": item.get("negotiable"),
-                "availability": item.get("inventory_status") or "Available",
-            }
-            for item in details if isinstance(item, dict)
-        ],
-        "tower_details": [
-            {
-                "tower_name": item.get("tower"),
-                "total_floors": item.get("total_building_floors"),
-                "possession_date": item.get("possession_date"),
-            }
-            for item in details if isinstance(item, dict) and item.get("tower")
-        ],
+        # SM submissions may be project-only. Preserve existing child data
+        # unless the SM actually supplied configuration/tower rows.
+        **({
+            "configurations": [
+                {
+                    "configuration": item.get("configuration"),
+                    "carpet_area": item.get("carpet_area"),
+                    "price_including_all": item.get("bundle_price"),
+                    "rate_per_sqft": item.get("rate_per_sqft"),
+                    "negotiation": item.get("negotiable"),
+                    "availability": item.get("inventory_status") or "Available",
+                }
+                for item in details if isinstance(item, dict)
+            ]
+        } if details else {}),
+        **({
+            "tower_details": [
+                {
+                    "tower_name": item.get("tower"),
+                    "total_floors": item.get("total_building_floors"),
+                    "possession_date": item.get("possession_date"),
+                }
+                for item in details if isinstance(item, dict) and item.get("tower")
+            ]
+        } if any(isinstance(item, dict) and item.get("tower") for item in details) else {}),
     }
     project, _ = apply_property_master(
         db, payload=master_payload, source=PropertyUpdateSource.SM_LINK, actor=actor,
