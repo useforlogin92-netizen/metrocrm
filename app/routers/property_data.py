@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, SiteVisit, Token, Tower, Unit, User
+from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, PropertyConfiguration, SiteVisit, Token, Tower, Unit, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
 from app.property_master import PropertyUpdateSource
 from app.services.property_update_engine import apply_property_master
