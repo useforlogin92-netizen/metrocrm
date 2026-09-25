@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Mapping
 from sqlalchemy.orm import Session
 from app.models import AuditEvent, Developer, Project, PropertyConfiguration, Tower, User
