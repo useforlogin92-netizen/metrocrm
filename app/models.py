@@ -171,6 +171,22 @@ class Unit(Base):
     description: Mapped[str | None] = mapped_column(Text)
     other_details: Mapped[str | None] = mapped_column(Text)
 
+class PropertyConfiguration(Base):
+    """Project-level saleable configuration; one row per configuration/area combination."""
+    __tablename__ = "property_configurations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    configuration: Mapped[str] = mapped_column(String(50), index=True)
+    carpet_area: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    price_including_all: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    rate_per_sqft: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    negotiation: Mapped[str | None] = mapped_column(String(10))
+    availability: Mapped[str | None] = mapped_column(String(50), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
 class NearbyLocation(Base):
     __tablename__ = "nearby_locations"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
