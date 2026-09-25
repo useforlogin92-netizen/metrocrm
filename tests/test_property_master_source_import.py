@@ -1,3 +1,4 @@
+import json
 from app.routers.property_data import _source_configuration_rows, _source_tower_rows
 from app.services.property_update_engine import apply_property_master
 
@@ -46,3 +47,34 @@ def test_bulk_engine_accepts_source_incomplete_configuration(db_session):
     db_session.commit()
     assert project.id is not None
     assert project.description is not None
+
+
+def test_bulk_source_allows_verified_blank_location_fields_and_preserves_source_tracking(db_session):
+    project, _ = apply_property_master(
+        db_session,
+        payload={
+            "Project ID": "MP-SOURCE-001",
+            "Project Name": "Source Blank Location Project",
+            "Property Type": "Residential",
+            "Full Address": "Verified source address",
+            "Pincode": None,
+            "City": None,
+            "Locality / Area": None,
+            "configurations": [
+                {
+                    "configuration": "2 BHK",
+                    "carpet_area": 850,
+                    "price_including_all": None,
+                    "rate_per_sqft": 15000,
+                }
+            ],
+            "Last Updated Date": "2026-09-25",
+            "Data Source": "Project Sheet / Residence Data",
+        },
+        source="BULK",
+        create=True,
+    )
+    db_session.commit()
+    stored = json.loads(project.description or "{}")["property_master"]
+    assert stored["data_source"] == "Project Sheet / Residence Data"
+    assert stored["last_updated_date"] == "2026-09-25"
