@@ -308,6 +308,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
                         "project_pdf_brochure": raw.get("Project PDF Brochure"), "walkthrough_video_link": raw.get("Walkthrough Video Link"),
                         "rm_name": raw.get("RM Name"), "rm_contact": " | ".join(rm_parts) or None,
                         "site_visit_timings": raw.get("Site Visit Timings"), "booking_process": raw.get("Booking Process"),
+                        "last_updated_date": raw.get("Last Updated Date"), "data_source": raw.get("Data Source"),
                     }
                     project_id = existing_by_ref.get(ref)
                     project, _ = apply_property_master(db, payload=payload, source=PropertyUpdateSource.BULK, actor=actor, project_id=project_id, create=project_id is None)
