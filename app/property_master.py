@@ -63,6 +63,8 @@ PROPERTY_MASTER_FIELDS: tuple[PropertyField, ...] = (
     PropertyField("rm_contact", "RM Contact Info", "CP / Sales"),
     PropertyField("site_visit_timings", "Site Visit Timings", "CP / Sales"),
     PropertyField("booking_process", "Booking Process", "CP / Sales"),
+    PropertyField("last_updated_date", "Last Updated Date", "Source Tracking", field_type="date"),
+    PropertyField("data_source", "Data Source", "Source Tracking"),
 )
 
 
@@ -226,11 +228,12 @@ def normalize_property_payload(payload: Mapping[str, Any], *, source: PropertyUp
     return result
 
 
-def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = True) -> list[str]:
+def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = True, allow_incomplete_configurations: bool = False) -> list[str]:
     errors: list[str] = []
     if is_create:
+        allow_incomplete_master = bool(payload.get("_allow_incomplete_master"))
         for field in PROPERTY_MASTER_FIELDS:
-            if field.required_on_create and not _clean(payload.get(field.key)):
+            if field.required_on_create and not _clean(payload.get(field.key)) and not allow_incomplete_master:
                 errors.append(f"{field.label} is required")
 
     pincode = _clean(payload.get("pincode"))
@@ -252,10 +255,11 @@ def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = T
             continue
         if not _clean(row.get("configuration")):
             errors.append(f"Configuration row {i}: Configuration is required")
-        if _clean(row.get("carpet_area")) is None:
-            errors.append(f"Configuration row {i}: Carpet Area is required")
-        if _clean(row.get("price_including_all")) is None and _clean(row.get("rate_per_sqft")) is None:
-            errors.append(f"Configuration row {i}: enter Total Price (Including All) or Rate / Sq Ft")
+        if not allow_incomplete_configurations:
+            if _clean(row.get("carpet_area")) is None:
+                errors.append(f"Configuration row {i}: Carpet Area is required")
+            if _clean(row.get("price_including_all")) is None and _clean(row.get("rate_per_sqft")) is None:
+                errors.append(f"Configuration row {i}: enter Total Price (Including All) or Rate / Sq Ft")
         if str(row.get("negotiation", "")).upper() not in {"", "YES", "NO"}:
             errors.append(f"Configuration row {i}: Negotiation must be Yes or No")
 

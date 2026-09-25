@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
@@ -80,6 +81,78 @@ def _property_workbook() -> BytesIO:
     ]: ex.append(row)
     return _save_workbook(wb)
 
+
+def _split_source_values(value) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r"\s*/\s*", text) if part.strip()]
+
+
+def _parse_source_area(value):
+    text = str(value or "").strip().replace(",", "")
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    return float(match.group()) if match else None
+
+
+def _parse_source_price(value) -> tuple[float | None, float | None]:
+    text = str(value or "").strip().lower().replace(",", "")
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return None, None
+    number = float(match.group())
+    if re.search(r"\b(?:cr|crore)\b", text):
+        return number * 10000000, None
+    if re.search(r"\b(?:lakh|lac)\b", text):
+        return number * 100000, None
+    if "psf" in text or re.search(r"\d+(?:\.\d+)?\s*k\b", text):
+        return None, number * 1000 if "k" in text else number
+    return None, None
+
+
+def _source_configuration_rows(raw_config: dict, availability: str | None) -> list[dict]:
+    configuration = str(raw_config.get("Configuration") or raw_config.get("BHK") or "").strip()
+    if not configuration:
+        return []
+    areas = _split_source_values(raw_config.get("Carpet Area"))
+    prices = _split_source_values(raw_config.get("Bundle Price"))
+    if len(areas) == len(prices) and areas:
+        pairs = list(zip(areas, prices))
+    elif len(areas) > 1:
+        pairs = [(area, prices[0] if len(prices) == 1 else None) for area in areas]
+    elif len(prices) > 1:
+        pairs = [(areas[0] if areas else None, None) for _ in prices]
+    else:
+        pairs = [(areas[0] if areas else None, prices[0] if prices else None)]
+    rows = []
+    for area_text, price_text in pairs:
+        price, rate = _parse_source_price(price_text)
+        rows.append({
+            "configuration": configuration,
+            "carpet_area": _parse_source_area(area_text),
+            "price_including_all": price,
+            "rate_per_sqft": rate,
+            "negotiation": "YES" if "negotiat" in str(price_text or "").lower() else None,
+            "availability": str(availability or "").strip() or None,
+            "_source_details": raw_config,
+        })
+    return rows
+
+
+def _source_tower_rows(configurations: list[dict]) -> list[dict]:
+    seen = set()
+    towers = []
+    for raw in configurations:
+        structure = str(raw.get("Tower/Wing / Structure") or "").strip()
+        if not structure or structure in seen:
+            continue
+        seen.add(structure)
+        towers.append({
+            "tower_name": structure,
+            "total_floors": None,
+            "possession_date": raw.get("Possession"),
+        })
+    return towers
 
 def _display_value(value):
     if isinstance(value, (datetime, date)):
@@ -183,6 +256,71 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
         return RedirectResponse("/admin/property-data?error=Only+.xlsx+files+are+supported", status_code=303)
     content = await file.read()
     try:
+        wb = load_workbook(BytesIO(content), data_only=True)
+        if "Property Master" in wb.sheetnames:
+            source_ws = wb["Property Master"]
+            source_headers = [str(x.value).strip() if x.value is not None else "" for x in source_ws[1]]
+            if "Project ID" in source_headers and "Configurations / Inventory" in source_headers:
+                from app.models import Project
+                existing_by_ref = {}
+                for existing_project in db.scalars(select(Project)).all():
+                    try:
+                        desc = json.loads(existing_project.description or "{}")
+                        ref = str((desc.get("property_master") or {}).get("property_ref") or "").strip()
+                        if ref:
+                            existing_by_ref[ref] = existing_project.id
+                    except (TypeError, ValueError):
+                        continue
+                created = updated = 0
+                for row_no, values in enumerate(source_ws.iter_rows(min_row=2, values_only=True), start=2):
+                    raw = {source_headers[i]: values[i] for i in range(min(len(source_headers), len(values))) if source_headers[i]}
+                    if not any(v not in (None, "") for v in raw.values()):
+                        continue
+                    ref = str(raw.get("Project ID") or "").strip()
+                    if not ref:
+                        raise ValueError(f"Property Master row {row_no}: Project ID is required")
+                    raw_configs = json.loads(raw.get("Configurations / Inventory") or "[]")
+                    if not isinstance(raw_configs, list):
+                        raise ValueError(f"Property Master row {row_no}: Configurations / Inventory must be a JSON list")
+                    configs = []
+                    for config in raw_configs:
+                        if isinstance(config, dict):
+                            configs.extend(_source_configuration_rows(config, raw.get("Availability")))
+                    tower_rows = _source_tower_rows(raw_configs)
+                    rm_parts = []
+                    for label in ("RM Mobile", "RM WhatsApp", "RM Email"):
+                        value = str(raw.get(label) or "").strip()
+                        if value:
+                            rm_parts.append(f"{label}: {value}")
+                    payload = {
+                        "property_ref": ref, "developer": raw.get("Developer / Builder"),
+                        "project_name": raw.get("Project Name"), "property_type": raw.get("Property Type"),
+                        "availability_status": raw.get("Availability"), "full_address": raw.get("Full Address"),
+                        "city": raw.get("City"), "locality": raw.get("Locality / Area"), "pincode": raw.get("Pincode"),
+                        "google_maps_link": raw.get("Google Maps Link"), "nearby_connectivity": raw.get("Nearby Connectivity / Landmarks"),
+                        "project_status": raw.get("Project Status"), "possession_date": raw.get("Possession Date"),
+                        "total_towers": len(tower_rows) or None, "tower_details": tower_rows,
+                        "rera_registration_number": raw.get("RERA Registration Number"), "approved_banks": raw.get("Approved Banks List"),
+                        "title_deed_type": raw.get("Title Deed Type"), "configurations": configs,
+                        "additional_government_charges": raw.get("Additional / Government Charges"), "payment_plan": raw.get("Payment Plan"),
+                        "cp_commission_percent": raw.get("CP Commission %"), "site_flat_photos": raw.get("High-Res Site / Flat Photos"),
+                        "floor_plan": raw.get("Floor Plan / Master Layout"), "master_layout": raw.get("Floor Plan / Master Layout"),
+                        "project_pdf_brochure": raw.get("Project PDF Brochure"), "walkthrough_video_link": raw.get("Walkthrough Video Link"),
+                        "rm_name": raw.get("RM Name"), "rm_contact": " | ".join(rm_parts) or None,
+                        "site_visit_timings": raw.get("Site Visit Timings"), "booking_process": raw.get("Booking Process"),
+                        "last_updated_date": raw.get("Last Updated Date"), "data_source": raw.get("Data Source"),
+                    }
+                    project_id = existing_by_ref.get(ref)
+                    project, _ = apply_property_master(db, payload=payload, source=PropertyUpdateSource.BULK, actor=actor, project_id=project_id, create=project_id is None)
+                    if project_id is None:
+                        created += 1
+                    else:
+                        updated += 1
+                    existing_by_ref[ref] = project.id
+                db.commit()
+                db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_DATA_IMPORTED", entity_type="PropertyMaster", entity_id=None, details=json.dumps({"filename": file.filename, "created": created, "updated": updated, "format": "metro_properties_32_field_master"})))
+                db.commit()
+                return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+Metro+Properties+records", status_code=303)
         wb = load_workbook(BytesIO(content), data_only=True)
         if "Property Master" not in wb.sheetnames:
             raise ValueError("Property Master sheet is required")
