@@ -471,6 +471,7 @@ def _delete_single_property_data(project_id: int, actor: User, db: Session):
             db.query(Booking).filter(Booking.unit_id.in_(unit_ids)).update({Booking.unit_id: None}, synchronize_session=False)
         db.query(Unit).filter(Unit.project_id == project_id).delete(synchronize_session=False)
         db.query(Tower).filter(Tower.project_id == project_id).delete(synchronize_session=False)
+        db.query(PropertyConfiguration).filter(PropertyConfiguration.project_id == project_id).delete(synchronize_session=False)
         db.query(Project).filter(Project.id == project_id).delete(synchronize_session=False)
         db.add(AuditEvent(actor_user_id=actor.id, action="PROPERTY_RECORD_DELETED", entity_type="Projects", entity_id=str(project_id), details=json.dumps({"property_only_records": True})))
         db.commit()
