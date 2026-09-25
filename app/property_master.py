@@ -226,7 +226,7 @@ def normalize_property_payload(payload: Mapping[str, Any], *, source: PropertyUp
     return result
 
 
-def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = True) -> list[str]:
+def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = True, allow_incomplete_configurations: bool = False) -> list[str]:
     errors: list[str] = []
     if is_create:
         for field in PROPERTY_MASTER_FIELDS:
@@ -252,10 +252,11 @@ def validate_property_payload(payload: Mapping[str, Any], *, is_create: bool = T
             continue
         if not _clean(row.get("configuration")):
             errors.append(f"Configuration row {i}: Configuration is required")
-        if _clean(row.get("carpet_area")) is None:
-            errors.append(f"Configuration row {i}: Carpet Area is required")
-        if _clean(row.get("price_including_all")) is None and _clean(row.get("rate_per_sqft")) is None:
-            errors.append(f"Configuration row {i}: enter Total Price (Including All) or Rate / Sq Ft")
+        if not allow_incomplete_configurations:
+            if _clean(row.get("carpet_area")) is None:
+                errors.append(f"Configuration row {i}: Carpet Area is required")
+            if _clean(row.get("price_including_all")) is None and _clean(row.get("rate_per_sqft")) is None:
+                errors.append(f"Configuration row {i}: enter Total Price (Including All) or Rate / Sq Ft")
         if str(row.get("negotiation", "")).upper() not in {"", "YES", "NO"}:
             errors.append(f"Configuration row {i}: Negotiation must be Yes or No")
 
