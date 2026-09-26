@@ -3,6 +3,7 @@ from app import main
 from app import setup_security  # noqa: F401,E402
 from app import portal  # noqa: F401,E402
 from app import portal_boundary  # noqa: F401,E402
+from app import trusted_device  # noqa: F401,E402
 from app import property_portal_fix  # noqa: F401,E402
 from app.language_support import install_language_support
 from app.session_compat import install_session_compatibility
