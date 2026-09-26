@@ -33,7 +33,7 @@ from app.routers.property_submissions import router as property_submissions_rout
 from app.routers.property_update import router as property_update_router
 from app.routers.marketing import router as marketing_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
-from app.services.property_submission_schema import ensure_property_submission_schema
+from app.services.property_submission_schema import ensure_property_submission_schema, ensure_property_master_schema
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
 import app.catalog_models  # noqa: F401
@@ -47,6 +47,7 @@ import app.marketing_models  # noqa: F401
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_property_submission_schema()
+    ensure_property_master_schema()
     start_backup_scheduler()
     try:
         yield
