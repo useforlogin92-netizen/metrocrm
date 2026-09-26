@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MetroCRM | Restricted Super Admin Console</title>
+<style>
+body{margin:0;background:#f4f7fb;color:#10213f;font-family:Inter,Arial,sans-serif}
+.wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{max-width:620px;width:100%;background:#fff;border-radius:20px;padding:34px;box-shadow:0 12px 40px #00000012}
+.badge{display:inline-block;padding:7px 11px;border-radius:999px;background:#eef5ff;color:#1456c8;font-weight:800;font-size:12px}
+h1{margin:18px 0 8px;font-size:30px}
+p{color:#5f6f86;line-height:1.55}
+.panel{margin-top:22px;padding:18px;border:1px solid #dce5f2;border-radius:14px;background:#f9fbfe}
+label{display:block;font-weight:700;margin-bottom:7px}
+input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd6e5;border-radius:9px;font-size:15px}
+button{margin-top:12px;border:0;border-radius:9px;padding:12px 16px;background:#1463e8;color:white;font-weight:800;cursor:pointer}
+button.secondary{background:#eef3f9;color:#193354}
+.status{margin-top:15px;padding:12px;border-radius:9px;background:#f4f7fb;white-space:pre-wrap}
+.ok{background:#edf9f1;color:#166534}.error{background:#fff1f1;color:#991b1b}
+.small{font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+<span class="badge">SUPER ADMIN • DEVICE SECURITY</span>
+<h1>Restricted Super Admin Console</h1>
+<p><strong>This console can be viewed only from the authorized Satyapal Yadav PC.</strong></p>
+<p class="small">Your account is authenticated, but this browser/device has not yet proved possession of the registered security key. Super Admin data and actions remain blocked until device verification succeeds.</p>
+
+<div class="panel">
+  <strong>Authorized device</strong>
+  <p><span id="deviceName">{{ device_name }}</span></p>
+  <button id="verifyBtn">Verify this authorized PC</button>
+</div>
+
+{% if enrollment_configured %}
+<div class="panel">
+  <strong>First-time registration on the authorized PC</strong>
+  <p class="small">Use the one-time enrollment code configured in the MetroCRM deployment. Keep this code private.</p>
+  <label for="enrollmentCode">Enrollment code</label>
+  <input id="enrollmentCode" type="password" autocomplete="off">
+  <button id="registerBtn" class="secondary">Register this PC</button>
+</div>
+{% endif %}
+
+<div id="status" class="status">Waiting for device verification.</div>
+<p class="small"><a href="/auth/logout">Sign out</a></p>
+</div></div>
+
+<script>
+const csrfToken = {{ csrf_token|tojson }};
+const DB_NAME = "metrocrm-trusted-device";
+const STORE = "keys";
+const KEY_ID = "super-admin-device-key";
+
+function b64url(bytes){
+  let binary="";
+  const data=new Uint8Array(bytes);
+  for(const b of data) binary+=String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function openDb(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(DB_NAME,1);
+    req.onupgradeneeded=()=>req.result.createObjectStore(STORE);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function saveKeys(record){
+  const db=await openDb();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(STORE,"readwrite");
+    tx.objectStore(STORE).put(record,KEY_ID);
+    tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+  });
+}
+async function loadKeys(){
+  const db=await openDb();
+  return await new Promise((resolve,reject)=>{
+    const tx=db.transaction(STORE,"readonly");
+    const req=tx.objectStore(STORE).get(KEY_ID);
+    req.onsuccess=()=>resolve(req.result||null);
+    req.onerror=()=>reject(req.error);
+  });
+}
+function status(message, ok=false){
+  const el=document.getElementById("status");
+  el.textContent=message;
+  el.className="status "+(ok?"ok":"error");
+}
+async function postJson(url, body){
+  const response=await fetch(url,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-CSRF-Token":csrfToken},
+    credentials:"same-origin",
+    body:JSON.stringify(body)
+  });
+  const data=await response.json().catch(()=>({error:"invalid_server_response"}));
+  if(!response.ok) throw new Error(data.error||("HTTP "+response.status));
+  return data;
+}
+async function createKeyPair(){
+  const pair=await crypto.subtle.generateKey(
+    {name:"ECDSA",namedCurve:"P-256"},
+    false,
+    ["sign","verify"]
+  );
+  const publicKey=await crypto.subtle.exportKey("jwk",pair.publicKey);
+  publicKey.alg="ES256";
+  publicKey.key_ops=["verify"];
+  await saveKeys({privateKey:pair.privateKey,publicKey});
+  return {privateKey:pair.privateKey,publicKey};
+}
+async function getOrCreateKeys(){
+  const saved=await loadKeys();
+  if(saved && saved.privateKey && saved.publicKey) return saved;
+  return createKeyPair();
+}
+async function verify(){
+  status("Checking the registered security key…");
+  try{
+    const keys=await getOrCreateKeys();
+    const challengeResponse=await fetch("/super-admin/device/challenge",{credentials:"same-origin"});
+    const challengeData=await challengeResponse.json();
+    const signature=await crypto.subtle.sign(
+      {name:"ECDSA",hash:"SHA-256"},
+      keys.privateKey,
+      new TextEncoder().encode(challengeData.challenge)
+    );
+    const deviceId=(keys.deviceId||"");
+    if(!deviceId){
+      status("This browser has no registered device ID. Register this PC first.");
+      return;
+    }
+    await postJson("/super-admin/device/verify",{
+      device_id:Number(deviceId),
+      signature:b64url(signature)
+    });
+    status("Device verified. Opening Super Admin console…",true);
+    window.location.href="/super-admin/users";
+  }catch(error){
+    status("Device verification failed: "+error.message);
+  }
+}
+async function registerDevice(){
+  const code=document.getElementById("enrollmentCode").value.trim();
+  if(!code){status("Enter the deployment enrollment code.");return;}
+  status("Generating the non-exportable device key and registering this PC…");
+  try{
+    const keys=await createKeyPair();
+    const data=await postJson("/super-admin/device/register",{
+      enrollment_code:code,
+      public_key:keys.publicKey
+    });
+    keys.deviceId=data.device_id;
+    await saveKeys(keys);
+    status("This browser is now registered as "+data.device_name+". Verifying…",true);
+    await verify();
+  }catch(error){
+    status("Registration failed: "+error.message);
+  }
+}
+document.getElementById("verifyBtn").addEventListener("click",verify);
+const registerButton=document.getElementById("registerBtn");
+if(registerButton) registerButton.addEventListener("click",registerDevice);
+</script>
+</body>
+</html>
