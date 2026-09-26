@@ -40,6 +40,7 @@ button.secondary{background:#eef3f9;color:#193354}
   <p class="small">Use the one-time enrollment code configured in the MetroCRM deployment. Keep this code private.</p>
   <label for="enrollmentCode">Enrollment code</label>
   <input id="enrollmentCode" type="password" autocomplete="off">
+  <label style="margin-top:12px;font-weight:500"><input id="replaceExisting" type="checkbox" style="width:auto;margin-right:7px"> Replace an existing registered device (recovery)</label>
   <button id="registerBtn" class="secondary">Register this PC</button>
 </div>
 {% endif %}
@@ -152,7 +153,8 @@ async function registerDevice(){
     const keys=await createKeyPair();
     const data=await postJson("/super-admin/device/register",{
       enrollment_code:code,
-      public_key:keys.publicKey
+      public_key:keys.publicKey,
+      replace_existing:document.getElementById("replaceExisting")?.checked === true
     });
     keys.deviceId=data.device_id;
     await saveKeys(keys);
