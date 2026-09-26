@@ -84,6 +84,16 @@ async def enforce_idle_session(request: Request, call_next):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+
+    # Disclosure hardening: authenticated CRM responses must not be indexed,
+    # embedded by other sites, MIME-sniffed, or used to reveal a referrer path.
+    # This does not alter application data or business logic.
+    if request.session.get("user_id"):
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return response
 
 # SessionMiddleware is declared after idle enforcement because Starlette's
@@ -430,4 +440,3 @@ def logout(request: Request, db: Session = Depends(get_db)):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
-
