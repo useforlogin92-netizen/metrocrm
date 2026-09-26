@@ -78,7 +78,11 @@ def test_trusted_device_is_bound_to_the_super_admin_user(db_session):
 
     class SessionStub:
         def get(self, key):
-            return device.id if key == "trusted_device_id" else None
+            return {
+                "user_id": user.id,
+                "session_version": user.session_version,
+                "trusted_device_id": device.id,
+            }.get(key)
 
     class RequestStub:
         session = SessionStub()
