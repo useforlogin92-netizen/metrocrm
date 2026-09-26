@@ -180,6 +180,7 @@ class PropertyConfiguration(Base):
     carpet_area: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     price_including_all: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     rate_per_sqft: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    bundle_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     negotiation: Mapped[str | None] = mapped_column(String(10))
     availability: Mapped[str | None] = mapped_column(String(50), index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
