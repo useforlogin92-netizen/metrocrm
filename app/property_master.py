@@ -186,7 +186,7 @@ def normalize_property_payload(payload: Mapping[str, Any], *, source: PropertyUp
             if not isinstance(row, Mapping):
                 continue
             item = {str(k): v for k, v in row.items() if v not in (None, "")}
-            for number_key in ("carpet_area", "price_including_all", "rate_per_sqft"):
+            for number_key in ("carpet_area", "price_including_all", "rate_per_sqft", "bundle_rate"):
                 try:
                     if item.get(number_key) not in (None, ""):
                         item[number_key] = float(item[number_key])
@@ -195,6 +195,10 @@ def normalize_property_payload(payload: Mapping[str, Any], *, source: PropertyUp
             area = item.get("carpet_area")
             total = item.get("price_including_all")
             rate = item.get("rate_per_sqft")
+            bundle = item.get("bundle_rate")
+            if total is None and bundle is not None:
+                item["price_including_all"] = bundle
+                total = bundle
             if total is None and rate is not None and area:
                 item["price_including_all"] = round(float(area) * float(rate), 2)
             elif rate is None and total is not None and area:
@@ -291,7 +295,8 @@ CONFIGURATION_COLUMNS = (
     ("configuration", "Configuration"),
     ("carpet_area", "Carpet Area (Sq Ft)"),
     ("price_including_all", "Total Price (Including All)"),
-    ("rate_per_sqft", "Rate / Sq Ft"),
+    ("rate_per_sqft", "Per Square Rate"),
+    ("bundle_rate", "Bundle Rate"),
     ("negotiation", "Negotiation (Yes/No)"),
     ("availability", "Availability"),
 )
