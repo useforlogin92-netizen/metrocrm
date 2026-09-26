@@ -9,6 +9,8 @@ def test_property_template_contains_only_property_sheets():
     assert workbook.sheetnames == ["Instructions", "Property Master", "Property Configurations", "Property Towers", "Examples"]
     assert workbook["Property Master"]["A1"].value == "property_id"
     assert workbook["Property Configurations"]["C1"].value == "configuration"
+    assert "rate_per_sqft" in [cell.value for cell in workbook["Property Configurations"][1]]
+    assert "bundle_rate" in [cell.value for cell in workbook["Property Configurations"][1]]
     assert workbook["Property Towers"]["C1"].value == "tower_name"
     assert "unit_number" not in [cell.value for cell in workbook["Property Master"][1]]
     assert "floor" not in [cell.value for cell in workbook["Property Master"][1]]
