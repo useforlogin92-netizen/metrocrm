@@ -51,3 +51,21 @@ def test_duplicate_create_updates_existing_project(db_session):
     )
     assert first.id == second.id
     assert db_session.query(Project).count() == 1
+
+
+def test_duplicate_matching_uses_project_city_locality_without_requiring_developer(db_session):
+    first, _ = apply_property_master(
+        db_session,
+        payload=_payload(),
+        source=PropertyUpdateSource.BULK,
+        create=True,
+    )
+    second_payload = {**_payload(), "developer": "Another Developer"}
+    second, _ = apply_property_master(
+        db_session,
+        payload=second_payload,
+        source=PropertyUpdateSource.BULK,
+        create=True,
+    )
+    assert first.id == second.id
+    assert db_session.query(Project).count() == 1
