@@ -218,8 +218,12 @@ async def register_trusted_device(request: Request, db: Session = Depends(get_db
             TrustedDevice.status == "ACTIVE",
         ).limit(1)
     )
-    if active:
+    replace_existing = bool(body.get("replace_existing"))
+    if active and not replace_existing:
         return JSONResponse({"error": "trusted_device_already_registered"}, status_code=409)
+    if active and replace_existing:
+        active.status = "REVOKED"
+        _audit(db, user, "TRUSTED_DEVICE_REPLACED", active, request)
 
     try:
         jwk = _validate_jwk(body.get("public_key"))
