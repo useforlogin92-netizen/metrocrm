@@ -79,18 +79,37 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
         developer = db.query(Developer).filter(Developer.name.ilike(developer_name)).first()
         if not developer:
             developer = Developer(name=developer_name); db.add(developer); db.flush()
-        candidates = db.query(Project).filter(
-            Project.developer_id == developer.id,
-            Project.name.ilike(project_name),
-        ).all()
+        # Duplicate key priority:
+        # 1) RERA match when supplied
+        # 2) Project Name + City + Locality
+        # 3) Project Name + City only when that combination is unique
+        candidates = db.query(Project).filter(Project.name.ilike(project_name)).all()
+        normalized_city = city.casefold()
+        normalized_locality = locality.casefold()
+        normalized_rera = rera.casefold()
+        exact = []
+        location = []
+        city_only = []
         for candidate in candidates:
-            same_city = not city or str(candidate.city or "").strip().casefold() == city.casefold()
-            same_locality = not locality or str(candidate.locality or "").strip().casefold() == locality.casefold()
-            same_rera = not rera or str(candidate.rera or "").strip().casefold() == rera.casefold()
-            if same_city and same_locality and same_rera:
-                project = candidate
-                break
-        if not project:
+            candidate_city = str(candidate.city or "").strip().casefold()
+            candidate_locality = str(candidate.locality or "").strip().casefold()
+            candidate_rera = str(candidate.rera or "").strip().casefold()
+            if normalized_rera and candidate_rera and candidate_rera == normalized_rera:
+                exact.append(candidate)
+            elif normalized_city and candidate_city == normalized_city:
+                if normalized_locality and candidate_locality == normalized_locality:
+                    location.append(candidate)
+                else:
+                    city_only.append(candidate)
+        if exact:
+            project = exact[0]
+        elif location:
+            project = location[0]
+        elif len(city_only) == 1:
+            project = city_only[0]
+        if project:
+            project.developer_id = developer.id
+        else:
             project = Project(developer_id=developer.id, name=project_name); db.add(project); db.flush()
     project.name = canonical.get("project_name") or project.name
     for attr, key in (("address","full_address"),("city","city"),("locality","locality"),("pincode","pincode"),("rera","rera_registration_number")):
