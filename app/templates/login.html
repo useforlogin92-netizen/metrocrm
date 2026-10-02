@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if super_admin_only %}MetroCRM | Super Admin Login{% else %}MetroCRM | Secure Login{% endif %}</title>
+  <title>MetroCRM | Secure Login</title>
   <style>
     :root{--blue:#1677ff;--blue2:#0b4fd6;--navy:#06152f;--ink:#10213f;--muted:#64748b}
     *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;color:#fff;overflow-x:hidden}
@@ -32,7 +32,7 @@
     @media(max-width:650px){.hero{min-height:430px;padding:28px 24px}.hero h2{font-size:43px;letter-spacing:-2px}.hero p{font-size:15px}.watch{display:none}.chips{gap:8px}.chip{padding:9px 11px}.footer{display:block;line-height:1.8}.panel-wrap{padding:0 14px 28px}.super-admin-login .panel-wrap{padding:0 14px 28px}.panel{padding:30px 22px;border-radius:22px}.panel h1{font-size:29px}}
   </style>
 </head>
-<body class="{% if super_admin_only %}super-admin-login{% else %}staff-login{% endif %}">
+<body class="staff-login">
   <main class="page">
     <section class="hero">
       <div>
@@ -40,9 +40,9 @@
         <div style="margin-top:34px;font-size:16px;color:#e6eefc">People <span style="margin:0 10px;opacity:.7">|</span> Properties <span style="margin:0 10px;opacity:.7">|</span> Progress</div>
       </div>
       <div class="hero-main">
-        <div class="eyebrow">{% if super_admin_only %}Restricted Super Admin Access{% else %}Secure Staff Portal{% endif %}</div>
-        <h2>{% if super_admin_only %}Manage Smarter.<br><span>Connect Better.</span><br>Grow Together.{% else %}Welcome to <span>MetroCRM</span>{% endif %}</h2>
-        <p>{% if super_admin_only %}Secure executive access to the MetroCRM control center for authorized Super Admin personnel only.{% else %}Centralize customer relationships, property enquiries, leads, visits and operational alerts in one professional CRM.{% endif %}</p>
+        <div class="eyebrow">Secure Unified Login</div>
+        <h2>Welcome to <span>MetroCRM</span></h2>
+        <p>One secure login for Super Admin, Admin, Manager, Staff and all authorized MetroCRM users.</p>
         <div class="quote">“Better Systems<br>Build Bigger Futures.”</div>
         <div class="chips"><div class="chip"><b>People</b>Management</div><div class="chip"><b>Properties</b>Operations</div><div class="chip"><b>Analytics</b>Insights</div><div class="chip"><b>Security</b>Protected access</div></div>
       </div>
@@ -52,18 +52,18 @@
     <section class="panel-wrap">
       <div class="super-status">🛡 Secure <span>▣ Reliable</span> ▥ Scalable</div>
       <div class="panel">
-        <div class="panel-top"><div class="admin-badge">♛</div><div class="mini">{% if super_admin_only %}Restricted Executive Access{% else %}Staff Portal{% endif %}</div><h1>{% if super_admin_only %}Super Admin Login{% else %}Welcome Back{% endif %}</h1><p class="subtitle">{% if super_admin_only %}Secure access for authorized administrators only.{% else %}Sign in to continue to your MetroCRM workspace.{% endif %}</p>{% if super_admin_only %}<div class="restricted">🛡 Super Admin Area</div>{% endif %}</div>
+        <div class="panel-top"><div class="admin-badge">♛</div><div class="mini">Unified Secure Login</div><h1>Welcome Back</h1><p class="subtitle">Sign in to continue to your MetroCRM workspace. Your role and permissions are applied automatically after authentication.</p></div>
         {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-        <form method="post" action="{% if super_admin_only %}/auth/super-admin/login{% else %}/auth/login{% endif %}">
+        <form method="post" action="/auth/login">
           <div class="field"><label for="username">Username</label><input id="username" name="username" required autocomplete="username" placeholder="Enter your username"></div>
           <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" required autocomplete="current-password" placeholder="Enter your password"></div>
-          <div class="field"><label for="method">{% if super_admin_only %}Verify with{% else %}Verification method{% endif %}</label><select id="method" name="method" required>{% if super_admin_only %}<option value="security_question">Security Question (Super Admin only)</option><option value="mobile_otp">Mobile OTP</option><option value="email_otp">Email OTP</option>{% else %}<option value="mobile_otp">Mobile OTP</option><option value="email_otp">Email OTP</option><option value="approval">Admin / Super Admin Approval</option>{% endif %}</select><div class="hint">Only verification methods permitted for your account will be accepted.</div></div>
+          <div class="field"><label for="method">Verification method</label><select id="method" name="method" required><option value="mobile_otp">Mobile OTP</option><option value="email_otp">Email OTP</option><option value="security_question">Security Question</option><option value="approval">Admin / Super Admin Approval</option></select><div class="hint">One login screen is shared by every role. The server accepts only verification methods permitted for the signed-in role.</div></div>
           <button class="button" type="submit">🔐 Continue Secure Login&nbsp; →</button>
         </form>
-        {% if super_admin_only %}<a class="forgot-link" href="/super-admin/forgot-password">Forgot your password?</a>{% endif %}
-        <div class="super-note">🛡 This is a restricted Super Admin area.<br>Only authorized personnel can access this system.</div>
+        <a class="forgot-link" href="/forgot-password">Forgot your password?</a>
+        <div class="super-note" style="display:block">🛡 Role-based access is enforced after login. Super Admin and Admin privileges remain protected.</div>
         <div class="security-line"></div><div class="security"><span>🔒</span> Encrypted session · Role-based access · Audit logging</div>
-        <div class="portal-note">{% if super_admin_only %}Super Admin credentials are restricted to this portal and cannot use staff login.{% else %}Authorized staff access only · MetroCRM{% endif %}</div>
+        <div class="portal-note">All authorized MetroCRM users · Single Login URL</div>
       </div>
     </section>
   </main>
