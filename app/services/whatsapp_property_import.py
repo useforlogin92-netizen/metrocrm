@@ -81,31 +81,54 @@ def _extract_identities(text: str) -> dict[str, list[str]]:
 
 
 def _extract_configurations(text: str) -> list[dict[str, Any]]:
+    """Extract every BHK/area/price configuration, even when WhatsApp collapses lines."""
     configs: list[dict[str, Any]] = []
-    patterns = (
-        re.compile(r"(?i)\b(\d+\s*(?:BHK|BED))\b\s*(?:WITH\s+DECK\s*)?(?:-|–|—|:|\|)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:SQ\.?\s*FT|SQFT|SFT)?\s*(?:-|–|—|:|\|)\s*(₹?\s*[0-9,.]+\s*(?:CR(?:ORE)?|CRORE|L(?:AKH)?|LAC)?\+*)"),
-        re.compile(r"(?i)\b(\d+\s*(?:BHK|BED))\b[^\n]{0,80}?(?:carpet|area)[^0-9]{0,12}([0-9,]+(?:\.[0-9]+)?)\s*(?:sq\.?\s*ft|sqft|sft)?[^\n]{0,40}?(?:₹|rs\.?|price)[^0-9]{0,8}([0-9,.]+\s*(?:cr(?:ore)?|crore|l(?:akh)?|lac)?\+?)"),
+
+    # WhatsApp copy/paste can remove newlines and add object-replacement characters.
+    # Keep the original meaning but make headings/configurations searchable globally.
+    normalized = text.replace("\u2028", "\n").replace("\u2029", "\n")
+    normalized = re.sub(r"[\uFFFC]+", " ", normalized)
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+
+    config_pattern = re.compile(
+        r"(?i)\b(\d+\s*(?:BHK|BED))\b\s*"
+        r"(?:WITH\s+DECK\s*)?(?:-|–|—|:|\|)\s*"
+        r"([0-9,]+(?:\.[0-9]+)?)\s*"
+        r"(?:SQ\.?\s*FT|SQFT|SFT)?\s*"
+        r"(?:-|–|—|:|\|)\s*"
+        r"(₹?\s*[0-9,.]+\s*(?:CR(?:ORE)?|CRORE|L(?:AKH)?|LAC)?\+*)"
     )
-    seen: set[tuple[str, float | None, float | None]] = set()
-    current_wing: str | None = None
-    for raw_line in text.splitlines():
-        line = _clean_line(raw_line)
-        wing_match = re.search(r"(?i)\b([A-Z](?:-?\s*WING))\b(?:\s*[-–—:]\s*(.*))?", line)
-        if wing_match and not re.search(r"\b\d+\s*(?:BHK|BED)\b", line, re.I):
-            current_wing = wing_match.group(1).replace(" ", "-").upper()
-        for pattern in patterns:
-            m = pattern.search(line)
-            if not m:
-                continue
-            bhk = re.sub(r"(?i)\s*BED\b", " BHK", m.group(1)).upper().replace("  ", " ")
-            area = float(m.group(2).replace(",", ""))
-            price = _money(m.group(3))
-            key = (bhk, area, price)
-            if key in seen:
-                continue
-            seen.add(key)
-            configs.append({"bhk": bhk, "carpet_area": area, "price": price, "wing": current_wing, "source_line": line[:500]})
-            break
+    wing_pattern = re.compile(r"(?i)\b([A-Z])\s*(?:-\s*|\s+)?WING\b")
+
+    seen: set[tuple[str, float | None, float | None, str | None]] = set()
+    for match in config_pattern.finditer(normalized):
+        bhk = re.sub(r"(?i)\s*BED\b", " BHK", match.group(1)).upper().replace("  ", " ")
+        area = float(match.group(2).replace(",", ""))
+        price = _money(match.group(3))
+
+        # The active wing is the nearest wing heading before this configuration.
+        prior_text = normalized[:match.start()]
+        wings = list(wing_pattern.finditer(prior_text))
+        current_wing = wings[-1].group(1).upper() + "-WING" if wings else None
+
+        source_line = normalized[max(0, normalized.rfind("\n", 0, match.start()) + 1):]
+        next_newline = source_line.find("\n")
+        if next_newline >= 0:
+            source_line = source_line[:next_newline]
+        source_line = _clean_line(source_line)[:500]
+
+        key = (bhk, area, price, current_wing)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append({
+            "bhk": bhk,
+            "carpet_area": area,
+            "price": price,
+            "wing": current_wing,
+            "source_line": source_line,
+        })
+
     return configs
 
 
