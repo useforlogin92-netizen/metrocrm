@@ -19,7 +19,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
   <h2 class="pd-title">Property Data Import &amp; Export</h2>
   <p class="pd-sub">Download the ready-to-use Excel template for bulk uploads. Use the online editor for small updates.</p>
   <div class="pd-actions">
-    <a class="pd-btn primary" href="{{ property_data_base }}/template">⬇ Download Complete V5 Excel Template</a><a class="pd-btn primary" href="{{ property_data_base }}/property-data/v5-entry">🧾 Complete Property Entry</a>
+    <a class="pd-btn primary" href="{{ property_data_base }}/template">⬇ Download Complete V5 Excel Template</a><a class="pd-btn primary" href="{{ property_data_base }}/v5-entry">🧾 Complete Property Entry</a>
     <a class="pd-btn primary" href="/admin/property-update">✏️ Individual Property Update</a>
     <a class="pd-btn" href="{{ '/super-admin/media-catalog' if role == 'SUPER_ADMIN' else '/admin/media-catalog' }}">🖼 Property Media Catalog</a><button id="metrocrm-whatsapp-property-import" class="pd-btn primary" type="button">📲 Property Data Received by WhatsApp</button><a class="pd-btn" href="{{ property_data_base }}/whatsapp-import">📋 Review Queue</a>
     {% if selected == "Projects" %}<a class="pd-btn primary" href="{{ property_data_base }}?entity=Projects&modify=new">✏️ Single Property Modification</a><a class="pd-btn" href="{{ property_data_base }}?entity=Projects&modify=bulk">📝 Bulk Property Modification</a>{% endif %}
