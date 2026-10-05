@@ -115,6 +115,22 @@ def super_admin_property_template(request: Request, db: Session = Depends(get_db
     return _download_property_template(request, db)
 
 
+@router.get("/super-admin/property-data/v5-entry")
+def super_admin_property_data_v5_entry(request: Request, db: Session = Depends(get_db)):
+    if not _require_super_admin(request, db):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    from app.routers.property_data import property_data_v5_entry
+    return property_data_v5_entry(request, db)
+
+
+@router.post("/super-admin/property-data/v5-save", dependencies=[Depends(require_csrf)])
+async def super_admin_property_data_v5_save(request: Request, db: Session = Depends(get_db)):
+    if not _require_super_admin(request, db):
+        return RedirectResponse("/super-admin/login", status_code=303)
+    from app.routers.property_data import property_data_v5_save
+    return _rewrite_admin_redirect(await property_data_v5_save(request, db), "/super-admin/property-data")
+
+
 @router.post("/super-admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
 def super_admin_load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
     if not _require_super_admin(request, db): return RedirectResponse("/super-admin/login", status_code=303)
