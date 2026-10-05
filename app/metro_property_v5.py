@@ -289,6 +289,9 @@ def _upsert_developer(db, Developer, raw, cache):
     if obj is None: obj=db.query(Developer).filter(Developer.name.ilike(name)).first()
     if obj is None:
         obj=Developer(name=name); db.add(obj)
+        db.flush()
+    elif obj.id is None:
+        db.flush()
     _set_if(obj,"contact",raw.get("contact") or raw.get("contact_number") or raw.get("Developer Contact Number"))
     details={k:v for k,v in raw.items() if k not in {"id","name"} and v not in (None,"")}
     obj.details=json.dumps(details,ensure_ascii=False,default=str)
