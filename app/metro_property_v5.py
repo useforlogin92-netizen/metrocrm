@@ -321,29 +321,153 @@ def import_v5_workbook(db, models, wb, actor):
     developer_cache={}; project_cache={}; tower_cache={}; config_cache={}
 
     # QuickImport is deliberately normalized into the same structured records.
+    # It is the primary user-facing upload sheet: one row = one project + one
+    # BHK/configuration + one carpet-area combination. Re-uploading the same
+    # natural key updates the existing configuration instead of creating a duplicate.
     if "QuickImport" in wb.sheetnames:
-        for raw in _row_map(wb["QuickImport"]):
-            if not any(v not in (None,"") for v in raw.values()): continue
+        for row_no, raw in enumerate(_row_map(wb["QuickImport"]), start=2):
+            if not any(v not in (None, "") for v in raw.values()):
+                continue
             pname=_text(raw.get("Project Name"))
-            if not pname: warnings.append("QuickImport row skipped: Project Name is required"); continue
-            dev=_upsert_developer(db,Developer,{"name":raw.get("Developer / Builder"),"contact":raw.get("Developer Contact Number")},developer_cache)
-            if dev is None: warnings.append(f"QuickImport '{pname}' skipped: Developer / Builder is required"); continue
+            if not pname:
+                warnings.append(f"QuickImport row {row_no} skipped: Project Name is required")
+                continue
+            dev_name=_text(raw.get("Developer / Builder"))
+            if not dev_name:
+                warnings.append(f"QuickImport row {row_no} skipped: Developer / Builder is required")
+                continue
+            bhk=_text(raw.get("BHK / Configuration"))
+            if not bhk:
+                warnings.append(f"QuickImport row {row_no} skipped: BHK / Configuration is required")
+                continue
+
+            dev=_upsert_developer(db,Developer,{
+                "name":dev_name,
+                "contact":raw.get("Developer Contact Number"),
+                "email":raw.get("Developer Email"),
+                "website":raw.get("Website"),
+                "contact_name":raw.get("Developer Contact Name"),
+            },developer_cache)
             key=(dev.id or id(dev),pname.casefold())
-            project=None
-            ref=_text(raw.get("Project ID"))
-            if key in project_cache: project=project_cache[key]
-            if project is None: project=db.query(Project).filter(Project.developer_id==dev.id,Project.name.ilike(pname)).first()
-            if project is None: project=Project(developer_id=dev.id,name=pname); db.add(project); created+=1
-            else: updated+=1
-            for attr,val in _project_payload(raw).items(): _set_if(project,attr,val)
+            project=project_cache.get(key)
+            if project is None:
+                project=db.query(Project).filter(
+                    Project.developer_id==dev.id,Project.name.ilike(pname)
+                ).first()
+            if project is None:
+                project=Project(developer_id=dev.id,name=pname)
+                db.add(project)
+                created+=1
+            else:
+                updated+=1
+
+            for attr,val in _project_payload(raw).items():
+                _set_if(project,attr,val)
             extra={k:v for k,v in raw.items() if v not in (None,"")}
-            project.description=json.dumps({"property_master_v5":extra},ensure_ascii=False,default=str)
+            try:
+                existing_desc=json.loads(project.description or "{}")
+                if not isinstance(existing_desc,dict):
+                    existing_desc={}
+            except (TypeError,ValueError):
+                existing_desc={}
+            rows=existing_desc.get("quick_import_rows")
+            if not isinstance(rows,list):
+                rows=[]
+            # Keep the latest value for the same natural row key.
+            area=_num(raw.get("Carpet Area (sq.ft.)"))
+            tower_name=_text(raw.get("Tower / Wing"))
+            unit_number=_text(raw.get("Unit / Flat No."))
+            row_key="|".join([pname.casefold(),bhk.casefold(),str(area or ""),tower_name.casefold(),unit_number.casefold()])
+            rows=[x for x in rows if not isinstance(x,dict) or x.get("_natural_key")!=row_key]
+            extra["_natural_key"]=row_key
+            rows.append(extra)
+            existing_desc["quick_import_rows"]=rows[-250:]
+            project.description=json.dumps(existing_desc,ensure_ascii=False,default=str)
             project_cache[key]=project
             db.flush()
-            bhk=_text(raw.get("BHK / Configuration"))
-            if bhk:
-                cfg=PropertyConfiguration(project_id=project.id,configuration=bhk,carpet_area=_num(raw.get("Carpet Area (sq.ft.)")),rate_per_sqft=_num(raw.get("Rate / sq.ft.")),price_including_all=_num(raw.get("Bundle / Total Price")),availability=_text(raw.get("Availability")) or None,source_details=json.dumps(extra,ensure_ascii=False,default=str))
-                db.add(cfg); db.flush()
+
+            cfg=db.query(PropertyConfiguration).filter(
+                PropertyConfiguration.project_id==project.id,
+                PropertyConfiguration.configuration==bhk,
+                PropertyConfiguration.carpet_area==area,
+            ).first()
+            if cfg is None:
+                cfg=PropertyConfiguration(project_id=project.id,configuration=bhk,carpet_area=area)
+                db.add(cfg)
+            cfg.rate_per_sqft=_num(raw.get("Rate / sq.ft."))
+            cfg.price_including_all=_num(raw.get("Bundle / Total Price"))
+            cfg.availability=_text(raw.get("Availability")) or None
+            cfg.source_details=json.dumps(extra,ensure_ascii=False,default=str)
+            db.flush()
+
+            tower_name=_text(raw.get("Tower / Wing"))
+            tower=None
+            if tower_name:
+                tower=db.query(Tower).filter(
+                    Tower.project_id==project.id,Tower.name.ilike(tower_name)
+                ).first()
+                if tower is None:
+                    tower=Tower(project_id=project.id,name=tower_name)
+                    db.add(tower)
+                    db.flush()
+                tower.details=json.dumps({
+                    "total_floors":raw.get("Total Floors"),
+                    "project_status":raw.get("Project Status"),
+                    "source":raw.get("Data Source"),
+                },ensure_ascii=False,default=str)
+                possession=_to_date(raw.get("Possession Date"))
+                if possession:
+                    tower.possession_date=possession
+
+            unit_number=_text(raw.get("Unit / Flat No."))
+            if unit_number:
+                unit=db.query(Unit).filter(
+                    Unit.project_id==project.id,Unit.unit_number==unit_number
+                ).first()
+                if unit is None:
+                    unit=Unit(project_id=project.id,unit_number=unit_number)
+                    db.add(unit)
+                if tower:
+                    unit.tower_id=tower.id
+                unit.bhk=bhk
+                unit.property_type=_text(raw.get("Property Type")) or None
+                unit.carpet_area=area
+                unit.built_up_area=_num(raw.get("Built-up Area (sq.ft.)"))
+                unit.price=cfg.price_including_all
+                unit.price_per_sqft=cfg.rate_per_sqft
+                unit.parking=_text(raw.get("Parking")) or None
+                unit.furnishing=_text(raw.get("Furnishing")) or None
+                unit.availability=_text(raw.get("Availability")) or None
+                unit.status=(_text(raw.get("Availability")) or "AVAILABLE").upper()
+                floor=_num(raw.get("Floor"))
+                if floor is not None:
+                    unit.floor=int(floor)
+                total_floors=_num(raw.get("Total Floors"))
+                if total_floors is not None:
+                    unit.total_building_floors=int(total_floors)
+                unit.possession=_text(raw.get("Possession Date")) or None
+                unit.rera=_text(raw.get("MahaRERA Number")) or None
+                unit.floor_plan=_text(raw.get("Floor Plan URL")) or None
+                unit.brochure=_text(raw.get("Brochure URL")) or None
+                unit.other_details=json.dumps(extra,ensure_ascii=False,default=str)
+
+            nearby_pairs=[
+                ("Railway Station",_text(raw.get("Nearby Station")),_text(raw.get("Station Distance"))),
+                ("Landmark",_text(raw.get("Nearby Location / Landmark")),""),
+            ]
+            for category,name,distance in nearby_pairs:
+                if not name:
+                    continue
+                nearby=db.query(NearbyLocation).filter(
+                    NearbyLocation.project_id==project.id,
+                    NearbyLocation.category.ilike(category),
+                    NearbyLocation.name.ilike(name),
+                ).first()
+                if nearby is None:
+                    nearby=NearbyLocation(project_id=project.id,category=category,name=name)
+                    db.add(nearby)
+                nearby.distance=distance or nearby.distance
+                nearby.details=json.dumps({"source":_text(raw.get("Data Source"))},ensure_ascii=False)
 
     # Structured sheets: master rows first.
     if "Developers" in wb.sheetnames:
