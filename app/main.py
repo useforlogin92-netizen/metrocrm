@@ -26,6 +26,7 @@ from app.routers.backups import router as backups_router, legacy_super_admin_rou
 from app.routers.integrations import router as integrations_router
 from app.routers.data_tools import router as data_tools_router
 from app.routers.crm_plus import router as crm_plus_router
+from app.routers.commissions import router as commissions_router
 from app.routers.realestate_finance import router as realestate_finance_router
 from app.routers.advanced_reports import router as advanced_reports_router
 from app.routers.lead_import import router as lead_import_router
@@ -115,6 +116,7 @@ app.include_router(legacy_backups_router)
 app.include_router(integrations_router)
 app.include_router(data_tools_router)
 app.include_router(crm_plus_router)
+app.include_router(commissions_router)
 app.include_router(realestate_finance_router)
 app.include_router(advanced_reports_router)
 app.include_router(lead_import_router)
