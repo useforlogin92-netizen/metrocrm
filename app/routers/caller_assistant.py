@@ -179,7 +179,7 @@ def _opening_speeches(user: User, lead: Lead, customer: Customer | None, locatio
 
 
 def _property_speeches(property_: dict[str, Any], customer: Customer | None) -> dict[str, str]:
-    customer_name = (customer.name if customer else "Sir/Ma'am")
+    customer_name = ((customer.get("name") if isinstance(customer, dict) else customer.name) if customer else None) or "Sir/Ma'am"
     project = property_.get("project") or "this project"
     location = property_.get("location") or "your preferred location"
     details = _speech_details(property_)
