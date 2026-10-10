@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Customer, FollowUp, Lead, SiteVisit, User
+from app.models import AuditEvent, Customer, FollowUp, Lead, LeadAssignmentHistory, SiteVisit, User
 
 router = APIRouter(prefix="/admin/lead-monitoring", tags=["lead-visit-monitoring"])
 MANAGERS = {"SUPER_ADMIN", "ADMIN"}
@@ -112,6 +112,7 @@ def reassign_lead(request: Request, lead_id: int = Form(...), assigned_user_id: 
         return HTMLResponse("Invalid lead or active caller selection.", status_code=400)
     previous = lead.assigned_user_id
     lead.assigned_user_id = target.id
+    db.add(LeadAssignmentHistory(lead_id=lead.id, from_user_id=previous, to_user_id=target.id, assigned_by_id=actor.id, reason=reason[:300] or None))
     db.add(AuditEvent(actor_user_id=actor.id, action="LEAD_REASSIGNED", entity_type="Lead", entity_id=str(lead.id), details=f"from={previous};to={target.id};reason={reason[:300]}"))
     db.commit()
     return RedirectResponse("/admin/lead-monitoring", status_code=303)
