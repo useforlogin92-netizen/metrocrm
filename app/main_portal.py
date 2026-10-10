@@ -29,6 +29,7 @@ from app.routers.godrej_test_admin import router as godrej_test_admin_router
 from app.routers.godrej_test_property_delete import router as godrej_test_property_delete_router
 from app.routers.sales_property import router as sales_property_router
 from app.routers.whatsapp import router as whatsapp_router
+from app.routers.email import router as email_router
 from app.routers.whatsapp_property_import import router as whatsapp_property_import_router
 from app.routers.backup_devices import router as backup_devices_router
 from fastapi.responses import HTMLResponse
@@ -80,6 +81,7 @@ app.include_router(ai_caller_router)
 app.include_router(password_recovery_router)
 app.include_router(password_reset_requests_router)
 app.include_router(whatsapp_router)
+app.include_router(email_router)
 app.include_router(backup_devices_router)
 
 # Emergency offline foundation. The service worker only provides a safe shell;
