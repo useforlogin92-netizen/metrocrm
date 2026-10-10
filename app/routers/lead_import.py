@@ -195,7 +195,7 @@ def _import_leads(content: bytes, actor: User, db: Session):
     headers = [str(x.value).strip() if x.value is not None else "" for x in ws[1]]
     has_serial_column = bool(headers and headers[0].lower() == "sr_no")
     normalized_headers = headers[1:] if has_serial_column else headers
-    expected_fields = LEAD_FIELDS[1:] if has_serial_column else LEAD_FIELDS
+    expected_fields = LEAD_FIELDS[1:]
     if normalized_headers != expected_fields:
         return 0, 0, ["Leads sheet columns do not match the MetroCRM template"]
     users = {u.id for u in db.scalars(select(User)).all()}
