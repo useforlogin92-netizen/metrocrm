@@ -56,6 +56,16 @@ def _index(role: str) -> str:
     return "/super-admin/property-data/whatsapp-import" if role == "SUPER_ADMIN" else "/admin/property-data/whatsapp-import"
 
 
+def _legacy_admin_path_role(actor) -> str:
+    """Resolve a legacy /admin URL to the authenticated actor's own role.
+
+    The Property Data modal can submit the shared import form to the legacy
+    /admin path even when opened by Super Admin. Never downgrade a Super Admin
+    to Admin; route the request through the Super Admin flow.
+    """
+    return "SUPER_ADMIN" if actor and actor.role == "SUPER_ADMIN" else "ADMIN"
+
+
 def _payload(row: SalesPropertySubmission) -> dict:
     try:
         value = json.loads(row.data_json or "{}")
@@ -123,6 +133,8 @@ def _queue(request: Request, db: Session, actor, message: str | None = None, err
 @router.get("/admin/property-data/whatsapp-import", response_class=HTMLResponse)
 def admin_page(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
+    if actor and actor.role == "SUPER_ADMIN":
+        return RedirectResponse(_index(actor.role), status_code=303)
     if not actor or actor.role != "ADMIN": return RedirectResponse("/", status_code=303)
     return _queue(request, db, actor, request.query_params.get("message"), request.query_params.get("error"))
 
@@ -157,7 +169,12 @@ async def _analyze(request: Request, source_text: str, files: list[UploadFile], 
 
 @router.post("/admin/property-data/whatsapp-import/analyze", dependencies=[Depends(require_csrf)])
 async def admin_analyze(request: Request, source_text: str = Form(""), files: list[UploadFile] = File(default=[]), db: Session = Depends(get_db)):
-    return await _analyze(request, source_text, files, db, "ADMIN")
+    # Backward-compatible dispatch for the shared Property Data modal. It
+    # may submit to /admin even when a Super Admin opened it. The authenticated
+    # role decides the workflow; the request never grants Admin access.
+    actor = _guard(request, db)
+    role = _legacy_admin_path_role(actor)
+    return await _analyze(request, source_text, files, db, role)
 
 
 @router.post("/super-admin/property-data/whatsapp-import/analyze", dependencies=[Depends(require_csrf)])
