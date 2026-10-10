@@ -323,11 +323,13 @@ def test_sales_executive_rejects_reversed_carpet_area_range(db_session, monkeypa
 def test_property_calling_speech_includes_developer_and_furnishing_details():
     from app.routers.caller_assistant import _property_speeches
 
+    from types import SimpleNamespace
+
     speeches = _property_speeches(
         {"project": "Harbour View", "developer": "Acme Group", "property_type": "Apartment",
          "furnishing": "Semi-Furnished", "parking": "1 covered", "bhk": "2 BHK",
          "price": 8000000, "carpet_area": 750, "possession": "Ready to Move", "rera": "RERA-123"},
-        {"name": "Test Customer"},
+        SimpleNamespace(name="Test Customer"),
     )
 
     assert any("Acme Group" in text for text in speeches.values())
