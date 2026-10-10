@@ -145,7 +145,18 @@ def advanced_hub(request: Request, db: Session = Depends(get_db)):
     body += "<div class='card'><h2>Lead Intelligence</h2><p class='muted'>Score leads from 0–100 using source, freshness and captured qualification data.</p>"
     body += f"<form method='post' action='/crm/advanced/score-leads'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn' type='submit'>Recalculate Lead Scores</button></form></div>"
     body += "<div class='grid'>"
-    links = [("Tasks & Follow-up", "/crm/advanced/tasks"), ("Sales Targets", "/crm/advanced/targets"), ("Marketing Campaigns", "/crm/advanced/campaigns"), ("Channel Partners", "/crm/advanced/partners"), ("Payment Milestones", "/crm/advanced/payments"), ("Customer Service", "/crm/advanced/tickets"), ("Possession Checklist", "/crm/advanced/possession")]
+    links = [("Tasks & Follow-up", "/crm/advanced/tasks")]
+    if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE"}:
+        links.append(("Sales Targets", "/crm/advanced/targets"))
+        links.extend([
+            ("Payment Milestones", "/crm/advanced/payments"),
+            ("Customer Service", "/crm/advanced/tickets"),
+            ("Possession Checklist", "/crm/advanced/possession"),
+        ])
+    if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER"}:
+        links.append(("Channel Partners", "/crm/advanced/partners"))
+    if actor.role in {"SUPER_ADMIN", "ADMIN"}:
+        links.append(("Marketing Campaigns", "/crm/advanced/campaigns"))
     for label, href in links:
         body += f"<div class='card'><h2>{escape(label)}</h2><a class='btn' href='{href}'>Open</a></div>"
     body += "</div>"
