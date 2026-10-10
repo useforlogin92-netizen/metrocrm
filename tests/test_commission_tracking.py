@@ -72,7 +72,7 @@ def test_admin_can_record_partial_commission_receipt_and_overpayment_is_rejected
     record = Commission(
         booking_id=booking.id, employee_id=employee.id, project_id=project.id, developer_id=project.developer_id,
         commission_percent=Decimal("2.5"), amount=Decimal("200000"), payable_amount=Decimal("180000"),
-        received_amount=Decimal("30000"), pending_amount=Decimal("150000"),
+        received_amount=Decimal("30000"), pending_amount=Decimal("0"),
     )
     db_session.add(record)
     db_session.commit()
