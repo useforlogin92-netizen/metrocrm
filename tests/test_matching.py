@@ -102,3 +102,39 @@ def test_possession_date_still_works_with_normalized_status():
 
     # Status and possession deadline are one possession dimension; they do not stack twice.
     assert score_match(customer, property_).score == 10.0
+
+
+
+def test_saved_project_developer_furnishing_and_parking_preferences_improve_match_score():
+    customer = {
+        "project_preference": "Harbour View",
+        "developer_preference": "Acme Group",
+        "furnishing": "Semi Furnished",
+        "parking": "Covered",
+    }
+    matching_property = {
+        "id": 90, "project": "Harbour View Residency", "developer": "Acme Group",
+        "furnishing": "Semi-Furnished", "parking": "1 covered parking",
+    }
+    other_property = {
+        "id": 91, "project": "Garden Heights", "developer": "Other Developer",
+        "furnishing": "Unfurnished", "parking": "None",
+    }
+
+    match = score_match(customer, matching_property)
+    other = score_match(customer, other_property)
+
+    assert match.score > other.score
+    assert {"preferred_project", "preferred_developer", "furnishing", "parking"} <= set(match.reasons)
+    assert other.reasons == []
+
+
+def test_project_and_developer_preferences_are_optional():
+    customer = {"budget_min": 100, "budget_max": 200}
+    property_ = {"id": 92, "project": "Any Project", "developer": "Any Developer", "price": 150}
+
+    result = score_match(customer, property_)
+
+    assert result.score == 25.0
+    assert "preferred_project" not in result.reasons
+    assert "preferred_developer" not in result.reasons
