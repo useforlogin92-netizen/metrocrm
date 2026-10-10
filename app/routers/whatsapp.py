@@ -79,9 +79,11 @@ def whatsapp_page(request: Request, db: Session = Depends(get_db)):
     user = _user(request, db)
     context = _shell(request, user)
     scope_ids = _scope_user_ids(user, db)
-    leads = db.scalars(
-        select(Lead).where(Lead.assigned_user_id.in_(scope_ids)).order_by(Lead.created_at.desc()).limit(500)
-    ).all()
+    if user.role in {"SUPER_ADMIN", "ADMIN"}:
+        lead_query = select(Lead).order_by(Lead.created_at.desc()).limit(500)
+    else:
+        lead_query = select(Lead).where(Lead.assigned_user_id.in_(scope_ids)).order_by(Lead.created_at.desc()).limit(500)
+    leads = db.scalars(lead_query).all()
     context["leads"] = leads
     context["customers"] = {
         customer.id: customer
