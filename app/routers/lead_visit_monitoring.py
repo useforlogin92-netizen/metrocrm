@@ -13,7 +13,9 @@ from app.database import get_db
 from app.models import AuditEvent, Customer, FollowUp, Lead, LeadAssignmentHistory, SiteVisit, User
 
 router = APIRouter(prefix="/admin/lead-monitoring", tags=["lead-visit-monitoring"])
-MANAGERS = {"SUPER_ADMIN", "ADMIN"}
+ADMIN_ROLES = {"SUPER_ADMIN", "ADMIN"}
+TEAM_ROLES = {"MANAGER", "TL"}
+MONITOR_ROLES = ADMIN_ROLES | TEAM_ROLES
 
 
 def _actor(request: Request, db: Session) -> User | None:
@@ -25,18 +27,45 @@ def _dt(value: datetime | None) -> str:
     return value.strftime("%d %b %Y, %I:%M %p") if value else "—"
 
 
+
+def _scope_user_ids(actor: User, db: Session) -> set[int]:
+    if actor.role in ADMIN_ROLES:
+        return set(db.scalars(select(User.id)).all())
+    ids = {actor.id}
+    frontier = {actor.id}
+    while frontier:
+        children = db.scalars(select(User.id).where(User.reporting_manager_id.in_(frontier))).all()
+        frontier = {int(user_id) for user_id in children if int(user_id) not in ids}
+        ids.update(frontier)
+    return ids
+
+
+def _lead_in_scope(actor: User, lead: Lead, db: Session) -> bool:
+    if actor.role in ADMIN_ROLES:
+        return True
+    return lead.assigned_user_id in _scope_user_ids(actor, db)
+
+
 @router.get("", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
-    if not actor or actor.role not in MANAGERS:
+    if not actor or actor.role not in MONITOR_ROLES:
         return RedirectResponse("/", status_code=303)
 
     now = datetime.now()
-    leads = db.scalars(select(Lead).order_by(Lead.created_at.desc()).limit(500)).all()
-    followups = db.scalars(select(FollowUp).where(FollowUp.completed.is_(False)).order_by(FollowUp.due_at.asc()).limit(500)).all()
-    visits = db.scalars(select(SiteVisit).order_by(SiteVisit.scheduled_at.asc()).limit(500)).all()
-    users = db.scalars(select(User).where(User.is_active.is_(True), User.role.in_({"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"})).order_by(User.username)).all()
-    user_map = {u.id: u.username for u in db.scalars(select(User)).all()}
+    scope_ids = _scope_user_ids(actor, db)
+    leads_query = select(Lead).order_by(Lead.created_at.desc()).limit(500)
+    followup_query = select(FollowUp).where(FollowUp.completed.is_(False)).order_by(FollowUp.due_at.asc()).limit(500)
+    visit_query = select(SiteVisit).order_by(SiteVisit.scheduled_at.asc()).limit(500)
+    if actor.role not in ADMIN_ROLES:
+        leads_query = select(Lead).where(Lead.assigned_user_id.in_(scope_ids)).order_by(Lead.created_at.desc()).limit(500)
+        followup_query = select(FollowUp).where(FollowUp.completed.is_(False), FollowUp.assigned_user_id.in_(scope_ids)).order_by(FollowUp.due_at.asc()).limit(500)
+        visit_query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(Lead.assigned_user_id.in_(scope_ids)).order_by(SiteVisit.scheduled_at.asc()).limit(500)
+    leads = db.scalars(leads_query).all()
+    followups = db.scalars(followup_query).all()
+    visits = db.scalars(visit_query).all()
+    users = db.scalars(select(User).where(User.is_active.is_(True), User.id.in_(scope_ids), User.role.in_({"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"})).order_by(User.username)).all()
+    user_map = {u.id: u.username for u in db.scalars(select(User).where(User.id.in_(scope_ids))).all()}
     customer_map = {c.id: c for c in db.scalars(select(Customer)).all()}
     overdue_calls = [f for f in followups if f.due_at <= now]
     upcoming_visits = [v for v in visits if v.scheduled_at >= now and (v.status or "").upper() not in {"CANCELLED", "COMPLETED", "DONE"}]
@@ -87,7 +116,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     body = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>MetroCRM | Lead & Visit Monitoring</title><style>
 body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0;padding:24px}}main{{max-width:1500px;margin:auto}}.top,.card{{background:#fff;border:1px solid #e0e7f0;border-radius:14px;padding:20px;margin-bottom:16px}}.stats{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}}.stat{{background:#f8fafc;border:1px solid #e5eaf2;border-radius:10px;padding:15px}}.num{{font-size:26px;font-weight:800;margin-top:6px}}.tablewrap{{overflow:auto}}table{{width:100%;border-collapse:collapse;min-width:900px}}th,td{{padding:10px;border-bottom:1px solid #e8edf4;text-align:left;vertical-align:top}}th{{background:#f8fafc;position:sticky;top:0}}input,select,button{{font:inherit;padding:8px;border:1px solid #cbd5e1;border-radius:7px;margin:2px;max-width:180px}}button{{background:#1d4ed8;color:white;border:0;font-weight:700;cursor:pointer}}.alert{{border-left:4px solid #dc2626;background:#fff7f7;padding:12px;margin:8px 0}}.muted{{color:#64748b}}@media(max-width:750px){{body{{padding:10px}}.stats{{grid-template-columns:1fr 1fr}}.top,.card{{padding:12px}}}}</style></head><body><main>
-<div class='top'><h1>Lead & Visit Monitoring</h1><p class='muted'>Admin: {escape(actor.username)} · Lead source, caller ownership, overdue tasks and site visits in one view.</p>
+<div class='top'><h1>Lead & Visit Monitoring</h1><p class='muted'>{escape(actor.role.title().replace('_', ' '))}: {escape(actor.username)} · Showing leads, follow-ups and visits within your permitted scope.</p>
 <div class='stats'><div class='stat'>Total leads<div class='num'>{len(leads)}</div></div><div class='stat'>Unassigned leads<div class='num'>{sum(1 for l in leads if not l.assigned_user_id)}</div></div><div class='stat'>Overdue follow-ups<div class='num'>{len(overdue_calls)}</div></div><div class='stat'>Upcoming visits<div class='num'>{len(upcoming_visits)}</div></div></div></div>
 <div class='card'><h2>Alerts needing attention</h2>
 {''.join(f"<div class='alert'>Overdue follow-up · {escape((customer_map.get(f.customer_id).name if f.customer_id and customer_map.get(f.customer_id) else 'Lead follow-up'))} · Caller {escape(user_map.get(f.assigned_user_id, 'Unassigned'))} · Due {_dt(f.due_at)}</div>" for f in overdue_calls[:50]) or "<p>No overdue follow-ups currently recorded.</p>"}
@@ -108,8 +137,11 @@ def reassign_lead(request: Request, lead_id: int = Form(...), assigned_user_id: 
         return RedirectResponse("/", status_code=303)
     lead = db.get(Lead, lead_id)
     target = db.get(User, assigned_user_id)
-    if not lead or not target or not target.is_active or target.role not in {"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
-        return HTMLResponse("Invalid lead or active caller selection.", status_code=400)
+    scope_ids = _scope_user_ids(actor, db)
+    if not lead or not _lead_in_scope(actor, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    if not target or not target.is_active or target.role not in {"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"} or target.id not in scope_ids:
+        return HTMLResponse("Select an active caller within your permitted team.", status_code=400)
     previous = lead.assigned_user_id
     lead.assigned_user_id = target.id
     db.add(LeadAssignmentHistory(lead_id=lead.id, from_user_id=previous, to_user_id=target.id, assigned_by_id=actor.id, reason=reason[:300] or None))
@@ -126,8 +158,12 @@ def reassign_visit(request: Request, visit_id: int = Form(...), assigned_user_id
         return RedirectResponse("/", status_code=303)
     visit = db.get(SiteVisit, visit_id)
     target = db.get(User, assigned_user_id)
-    if not visit or not target or not target.is_active or target.role not in {"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
-        return HTMLResponse("Invalid visit or active caller selection.", status_code=400)
+    lead = db.get(Lead, visit.lead_id) if visit and visit.lead_id else None
+    scope_ids = _scope_user_ids(actor, db)
+    if not visit or not lead or not _lead_in_scope(actor, lead, db):
+        return HTMLResponse("Visit not found or outside your permitted scope.", status_code=404)
+    if not target or not target.is_active or target.role not in {"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"} or target.id not in scope_ids:
+        return HTMLResponse("Select an active caller within your permitted team.", status_code=400)
     previous = visit.sales_employee_id
     visit.sales_employee_id = target.id
     db.add(AuditEvent(actor_user_id=actor.id, action="SITE_VISIT_REASSIGNED", entity_type="SiteVisit", entity_id=str(visit.id), details=f"from={previous};to={target.id};reason={reason[:300]}"))
