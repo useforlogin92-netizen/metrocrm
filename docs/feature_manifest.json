@@ -115,19 +115,6 @@
       "tests": []
     },
     {
-      "id": "lead-assignment-suggestions",
-      "label": "Lead Assignment Suggestions",
-      "current_paths": [
-        "app/routers/lead_assignment_suggestions.py",
-        "app/services/lead_assignment_recommendations.py"
-      ],
-      "target_root": "app/features/leads/assignment",
-      "tests": [
-        "tests/test_lead_assignment_recommendations.py",
-        "tests/test_lead_assignment_suggestion_scope.py"
-      ]
-    },
-    {
       "id": "backups",
       "label": "Backup and Restore",
       "current_paths": [
