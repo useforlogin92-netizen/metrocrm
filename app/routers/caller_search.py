@@ -227,7 +227,7 @@ def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLR
     user = _user(request, db)
     if not user or not _can_use_search(user):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}})
+    return templates.TemplateResponse(request, "caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}})
 
 
 @router.post("/search")
