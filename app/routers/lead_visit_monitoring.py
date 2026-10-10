@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+from datetime import datetime
+from html import escape
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.csrf import csrf_token, require_csrf
+from app.database import get_db
+from app.models import AuditEvent, Customer, FollowUp, Lead, SiteVisit, User
+
+router = APIRouter(prefix="/admin/lead-monitoring", tags=["lead-visit-monitoring"])
+MANAGERS = {"SUPER_ADMIN", "ADMIN"}
+
+
+def _actor(request: Request, db: Session) -> User | None:
+    from app.main import _current_user
+    return _current_user(request, db)
+
+
+def _dt(value: datetime | None) -> str:
+    return value.strftime("%d %b %Y, %I:%M %p") if value else "—"
+
+
+@router.get("", response_class=HTMLResponse)
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    actor = _actor(request, db)
+    if not actor or actor.role not in MANAGERS:
+        return RedirectResponse("/", status_code=303)
+
+    now = datetime.now()
+    leads = db.scalars(select(Lead).order_by(Lead.created_at.desc()).limit(500)).all()
+    followups = db.scalars(select(FollowUp).where(FollowUp.completed.is_(False)).order_by(FollowUp.due_at.asc()).limit(500)).all()
+    visits = db.scalars(select(SiteVisit).order_by(SiteVisit.scheduled_at.asc()).limit(500)).all()
+    users = db.scalars(select(User).where(User.is_active.is_(True), User.role.in_({"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"})).order_by(User.username)).all()
+    user_map = {u.id: u.username for u in db.scalars(select(User)).all()}
+    customer_map = {c.id: c for c in db.scalars(select(Customer)).all()}
+    overdue_calls = [f for f in followups if f.due_at <= now]
+    upcoming_visits = [v for v in visits if v.scheduled_at >= now and (v.status or "").upper() not in {"CANCELLED", "COMPLETED", "DONE"}]
+    missed_visits = [v for v in visits if v.scheduled_at < now and (v.status or "").upper() not in {"CANCELLED", "COMPLETED", "DONE", "NO_SHOW", "CUSTOMER_NO_SHOW"}]
+
+    lead_rows = []
+    for lead in leads:
+        customer = customer_map.get(lead.customer_id)
+        owner = user_map.get(lead.assigned_user_id, "Unassigned")
+        options = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
+        lead_rows.append(
+            "<tr>"
+            f"<td>#{lead.id}</td><td>{escape(customer.name if customer else 'Unlinked')}</td>"
+            f"<td>{escape(lead.source or 'Unknown')}</td><td>{escape(owner)}</td>"
+            f"<td>{escape(lead.status or 'NEW')}</td><td>{_dt(lead.created_at)}</td>"
+            f"<td><form method='post' action='/admin/lead-monitoring/reassign-lead'>"
+            f"<input type='hidden' name='csrf_token' value='{escape(csrf_token(request))}'>"
+            f"<input type='hidden' name='lead_id' value='{lead.id}'>"
+            f"<select name='assigned_user_id' required><option value=''>Select caller</option>{options}</select>"
+            "<input name='reason' placeholder='Reason (optional)' maxlength='300'>"
+            "<button type='submit'>Assign</button></form></td></tr>"
+        )
+
+    follow_rows = []
+    for f in followups:
+        lead = db.get(Lead, f.lead_id) if f.lead_id else None
+        customer = customer_map.get(f.customer_id) if f.customer_id else (customer_map.get(lead.customer_id) if lead else None)
+        state = "OVERDUE" if f.due_at <= now else "UPCOMING"
+        follow_rows.append(f"<tr><td>{escape(state)}</td><td>{escape(customer.name if customer else '—')}</td><td>{escape(lead.source if lead and lead.source else '—')}</td><td>{escape(user_map.get(f.assigned_user_id, 'Unassigned'))}</td><td>{_dt(f.due_at)}</td><td>{escape(f.purpose or 'Call follow-up')}</td><td>{escape(f.notes or '')}</td></tr>")
+
+    visit_rows = []
+    for visit in visits:
+        customer = customer_map.get(visit.customer_id)
+        options = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
+        status = (visit.status or "SCHEDULED").upper()
+        attention = "OVERDUE" if visit.scheduled_at < now and status not in {"CANCELLED", "COMPLETED", "DONE", "NO_SHOW", "CUSTOMER_NO_SHOW"} else status
+        visit_rows.append(
+            f"<tr><td>#{visit.id}</td><td>{escape(customer.name if customer else '—')}</td>"
+            f"<td>{escape(user_map.get(visit.sales_employee_id, 'Unassigned'))}</td><td>{_dt(visit.scheduled_at)}</td>"
+            f"<td><strong>{escape(attention)}</strong></td><td>{escape(visit.outcome or '')}</td>"
+            f"<td><form method='post' action='/admin/lead-monitoring/reassign-visit'>"
+            f"<input type='hidden' name='csrf_token' value='{escape(csrf_token(request))}'>"
+            f"<input type='hidden' name='visit_id' value='{visit.id}'>"
+            f"<select name='assigned_user_id' required><option value=''>Backup caller</option>{options}</select>"
+            f"<input name='reason' placeholder='Reason (optional)' maxlength='300'><button type='submit'>Reassign visit</button></form></td></tr>"
+        )
+
+    body = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>MetroCRM | Lead & Visit Monitoring</title><style>
+body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0;padding:24px}}main{{max-width:1500px;margin:auto}}.top,.card{{background:#fff;border:1px solid #e0e7f0;border-radius:14px;padding:20px;margin-bottom:16px}}.stats{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}}.stat{{background:#f8fafc;border:1px solid #e5eaf2;border-radius:10px;padding:15px}}.num{{font-size:26px;font-weight:800;margin-top:6px}}.tablewrap{{overflow:auto}}table{{width:100%;border-collapse:collapse;min-width:900px}}th,td{{padding:10px;border-bottom:1px solid #e8edf4;text-align:left;vertical-align:top}}th{{background:#f8fafc;position:sticky;top:0}}input,select,button{{font:inherit;padding:8px;border:1px solid #cbd5e1;border-radius:7px;margin:2px;max-width:180px}}button{{background:#1d4ed8;color:white;border:0;font-weight:700;cursor:pointer}}.alert{{border-left:4px solid #dc2626;background:#fff7f7;padding:12px;margin:8px 0}}.muted{{color:#64748b}}@media(max-width:750px){{body{{padding:10px}}.stats{{grid-template-columns:1fr 1fr}}.top,.card{{padding:12px}}}}</style></head><body><main>
+<div class='top'><h1>Lead & Visit Monitoring</h1><p class='muted'>Admin: {escape(actor.username)} · Lead source, caller ownership, overdue tasks and site visits in one view.</p>
+<div class='stats'><div class='stat'>Total leads<div class='num'>{len(leads)}</div></div><div class='stat'>Unassigned leads<div class='num'>{sum(1 for l in leads if not l.assigned_user_id)}</div></div><div class='stat'>Overdue follow-ups<div class='num'>{len(overdue_calls)}</div></div><div class='stat'>Upcoming visits<div class='num'>{len(upcoming_visits)}</div></div></div></div>
+<div class='card'><h2>Alerts needing attention</h2>
+{''.join(f"<div class='alert'>Overdue follow-up · {escape((customer_map.get(f.customer_id).name if f.customer_id and customer_map.get(f.customer_id) else 'Lead follow-up'))} · Caller {escape(user_map.get(f.assigned_user_id, 'Unassigned'))} · Due {_dt(f.due_at)}</div>" for f in overdue_calls[:50]) or "<p>No overdue follow-ups currently recorded.</p>"}
+{''.join(f"<div class='alert'>Visit requires status update · Visit #{v.id} · {escape(customer_map.get(v.customer_id).name if v.customer_id and customer_map.get(v.customer_id) else 'Customer not linked')} · Scheduled {_dt(v.scheduled_at)} · Current status {escape(v.status or 'SCHEDULED')}</div>" for v in missed_visits[:50]) or "<p>No past-due visits requiring status update.</p>"}
+</div>
+<div class='card'><h2>All leads & reassignment</h2><p class='muted'>Lead source is shown on every row. Reassignment records the acting admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>Assign / reassign</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="7">No leads found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>Call follow-ups</h2><div class='tablewrap'><table><thead><tr><th>Alert</th><th>Customer</th><th>Source</th><th>Caller</th><th>Due</th><th>Purpose</th><th>Notes</th></tr></thead><tbody>{''.join(follow_rows) or '<tr><td colspan="7">No open follow-ups found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>Site visit monitoring & backup assignment</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>Reassign</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
+</main></body></html>"""
+    return HTMLResponse(body)
+
+
+@router.post("/reassign-lead")
+def reassign_lead(request: Request, lead_id: int = Form(...), assigned_user_id: int = Form(...), reason: str = Form(""), csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db)):
+    require_csrf(request, csrf_token_value)
+    actor = _actor(request, db)
+    if not actor or actor.role not in MANAGERS:
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    target = db.get(User, assigned_user_id)
+    if not lead or not target or not target.is_active or target.role not in {"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
+        return HTMLResponse("Invalid lead or active caller selection.", status_code=400)
+    previous = lead.assigned_user_id
+    lead.assigned_user_id = target.id
+    db.add(AuditEvent(actor_user_id=actor.id, action="LEAD_REASSIGNED", entity_type="Lead", entity_id=str(lead.id), details=f"from={previous};to={target.id};reason={reason[:300]}"))
+    db.commit()
+    return RedirectResponse("/admin/lead-monitoring", status_code=303)
+
+
+@router.post("/reassign-visit")
+def reassign_visit(request: Request, visit_id: int = Form(...), assigned_user_id: int = Form(...), reason: str = Form(""), csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db)):
+    require_csrf(request, csrf_token_value)
+    actor = _actor(request, db)
+    if not actor or actor.role not in MANAGERS:
+        return RedirectResponse("/", status_code=303)
+    visit = db.get(SiteVisit, visit_id)
+    target = db.get(User, assigned_user_id)
+    if not visit or not target or not target.is_active or target.role not in {"MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
+        return HTMLResponse("Invalid visit or active caller selection.", status_code=400)
+    previous = visit.sales_employee_id
+    visit.sales_employee_id = target.id
+    db.add(AuditEvent(actor_user_id=actor.id, action="SITE_VISIT_REASSIGNED", entity_type="SiteVisit", entity_id=str(visit.id), details=f"from={previous};to={target.id};reason={reason[:300]}"))
+    db.commit()
+    return RedirectResponse("/admin/lead-monitoring", status_code=303)
