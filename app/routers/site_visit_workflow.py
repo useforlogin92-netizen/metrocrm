@@ -23,10 +23,26 @@ def _actor(request: Request, db: Session) -> User | None:
     return _current_user(request, db)
 
 
-def _visible_lead(actor: User, lead: Lead) -> bool:
+def _team_user_ids(actor: User, db: Session) -> set[int]:
+    if actor.role not in {"MANAGER", "TL"}:
+        return {actor.id}
+    ids = {actor.id}
+    frontier = {actor.id}
+    while frontier:
+        children = db.scalars(select(User.id).where(User.reporting_manager_id.in_(frontier))).all()
+        frontier = {int(user_id) for user_id in children if int(user_id) not in ids}
+        ids.update(frontier)
+    return ids
+
+
+def _visible_lead(actor: User, lead: Lead, db: Session | None = None) -> bool:
     if actor.role in {"SUPER_ADMIN", "ADMIN"}:
         return True
-    return lead.assigned_user_id == actor.id
+    if lead.assigned_user_id == actor.id:
+        return True
+    if db is None or actor.role not in {"MANAGER", "TL"}:
+        return False
+    return lead.assigned_user_id in _team_user_ids(actor, db)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -36,14 +52,14 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     leads_query = select(Lead).order_by(Lead.created_at.desc()).limit(300)
     if actor.role not in {"SUPER_ADMIN", "ADMIN"}:
-        leads_query = select(Lead).where(Lead.assigned_user_id == actor.id).order_by(Lead.created_at.desc()).limit(300)
+        leads_query = select(Lead).where(Lead.assigned_user_id.in_(_team_user_ids(actor, db))).order_by(Lead.created_at.desc()).limit(300)
     leads = db.scalars(leads_query).all()
     customers = {c.id: c for c in db.scalars(select(Customer)).all()}
     projects = db.scalars(select(Project).order_by(Project.name)).all()
     staff = db.scalars(select(User).where(User.is_active.is_(True), User.role.in_({"SUPER_ADMIN","ADMIN","MANAGER","TL","SALES_EXECUTIVE","TELECALLER"})).order_by(User.username)).all()
     query = select(SiteVisit).order_by(SiteVisit.scheduled_at.desc()).limit(200)
     if actor.role not in {"SUPER_ADMIN", "ADMIN"}:
-        query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(Lead.assigned_user_id == actor.id).order_by(SiteVisit.scheduled_at.desc()).limit(200)
+        query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(Lead.assigned_user_id.in_(_team_user_ids(actor, db))).order_by(SiteVisit.scheduled_at.desc()).limit(200)
     visits = db.scalars(query).all()
     user_map = {u.id: u.username for u in db.scalars(select(User)).all()}
     project_map = {p.id: p for p in projects}
@@ -109,7 +125,7 @@ def create_visit_batch(
     if not actor or actor.role not in ALLOWED_ROLES:
         return RedirectResponse("/", status_code=303)
     lead = db.get(Lead, lead_id)
-    if not lead or not _visible_lead(actor, lead):
+    if not lead or not _visible_lead(actor, lead, db):
         return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
     try:
         when = datetime.fromisoformat(scheduled_at)
