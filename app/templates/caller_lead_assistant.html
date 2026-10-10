@@ -34,6 +34,43 @@
 <div class="stat"><div class="label">Buy / Rent</div><div class="value">{{ (requirement.buy_rent if requirement else None) or lead.buy_rent or 'Not specified' }}</div></div>
 </div><h3>Preferred Locations</h3><div class="locations">{% for item in locations %}<span class="loc">{{ item.name }} · {{ item.side }} · {{ item.priority }}</span>{% else %}<span class="muted">No preferred location captured.</span>{% endfor %}</div>{% if lead.requirement %}<p class="side-note">Lead requirement: {{ lead.requirement }}</p>{% endif %}</div>
 
+<div class="card"><h2>Update Customer & Requirement</h2>
+<p class="muted">Changes apply only to this lead and its linked customer. Use the latest confirmed requirement before recommending properties.</p>
+<form method="post" action="/caller/lead/{{ lead.id }}/requirements">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="grid">
+<label>Customer Name<input name="customer_name" maxlength="200" required value="{{ customer.name if customer else '' }}"></label>
+<label>Primary Mobile<input name="mobile" maxlength="30" value="{{ customer.mobile if customer else '' }}"></label>
+<label>Alternate Mobile<input name="alternate_mobile" maxlength="30" value="{{ customer.alternate_mobile if customer else '' }}"></label>
+<label>Email Address<input name="email" type="email" maxlength="255" value="{{ customer.email if customer else '' }}"></label>
+<label>Minimum Budget (INR)<input name="budget_min" type="number" min="0" step="1" value="{{ requirement.budget_min if requirement and requirement.budget_min is not none else (lead.budget_min if lead.budget_min is not none else '') }}"></label>
+<label>Maximum Budget (INR)<input name="budget_max" type="number" min="0" step="1" value="{{ requirement.budget_max if requirement and requirement.budget_max is not none else (lead.budget_max if lead.budget_max is not none else '') }}"></label>
+<label>Preferred Locations (comma separated)<input name="preferred_locations" value="{{ locations|map(attribute='name')|join(', ') }}" placeholder="Borivali, Kandivali, Malad"></label>
+<label>BHK<input name="bhk" value="{{ (requirement.bhk if requirement else None) or lead.bhk or '' }}" placeholder="2 BHK"></label>
+<label>Property Type<input name="property_type" value="{{ (requirement.property_type if requirement else None) or lead.property_type or '' }}" placeholder="Apartment"></label>
+<label>Buy / Rent<select name="buy_rent"><option value="">Not specified</option><option value="BUY" {% if ((requirement.buy_rent if requirement else None) or lead.buy_rent) == 'BUY' %}selected{% endif %}>Buy</option><option value="RENT" {% if ((requirement.buy_rent if requirement else None) or lead.buy_rent) == 'RENT' %}selected{% endif %}>Rent</option><option value="BOTH" {% if ((requirement.buy_rent if requirement else None) or lead.buy_rent) == 'BOTH' %}selected{% endif %}>Both</option></select></label>
+<label>Requirement Summary<input name="requirement_text" maxlength="2000" value="{{ lead.requirement or '' }}" placeholder="Ready possession, family use, near station"></label>
+<label>Customer Notes<input name="customer_notes" value="{{ customer.notes if customer and customer.notes else '' }}" maxlength="2000"></label>
+<label style="grid-column:1/-1">Requirement Notes<textarea name="requirement_notes" rows="2">{{ requirement.notes if requirement and requirement.notes else '' }}</textarea></label>
+</div>
+<p><button class="btn" type="submit">Save Customer & Requirement</button> <a class="btn" href="/whatsapp">Open WhatsApp</a></p>
+</form></div>
+
+<div class="card"><h2>Call Follow-ups</h2>
+<form method="post" action="/caller/lead/{{ lead.id }}/follow-ups" class="grid">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Follow-up Date & Time<input type="datetime-local" name="due_at" required></label>
+<label>Purpose<select name="purpose"><option>Call follow-up</option><option>Share property details</option><option>Discuss budget</option><option>Arrange site visit</option><option>Negotiation</option><option>Documents / Loan</option></select></label>
+<label style="grid-column:1/-1">Notes<textarea name="notes" rows="2" placeholder="Agreed callback time, customer question, next action"></textarea></label>
+<div><button class="btn" type="submit">Schedule Follow-up</button></div>
+</form>
+<div class="scroll" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-top:14px"><tr><th>Due</th><th>Purpose</th><th>Notes</th><th>Status</th><th>Action</th></tr>
+{% for item in followups %}
+<tr><td>{{ item.due_at.strftime('%d %b %Y, %I:%M %p') }}</td><td>{{ item.purpose or 'Call follow-up' }}</td><td>{{ item.notes or '—' }}</td><td>{{ 'Completed' if item.completed else ('Overdue' if item.due_at < now_datetime else 'Open') }}</td><td>{% if not item.completed %}<form method="post" action="/caller/lead/{{ lead.id }}/follow-ups/{{ item.id }}/complete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn" type="submit">Mark Complete</button></form>{% else %}—{% endif %}</td></tr>
+{% else %}<tr><td colspan="5">No follow-ups scheduled for this lead.</td></tr>{% endfor %}
+</table></div>
+</div>
+
 <div class="card"><h2>3. Matching Properties — click a property to open its calling speech</h2>{% if properties %}{% for p in properties %}<div class="property" data-id="{{ p.id }}" onclick="showProperty('{{ p.id }}')"><span class="badge">Match {{ p.score }}/100</span><h3>{{ p.project }}{% if p.tower %} · {{ p.tower }}{% endif %}</h3><div class="meta"><span>{{ p.location or 'Location not specified' }}</span><span>{{ p.bhk or '' }}</span><span>{% if p.carpet_area is not none %}{{ p.carpet_area:g }} Sq.Ft.{% endif %}</span><span>{% if p.price_per_sqft is not none %}₹{{ '{:,.0f}'.format(p.price_per_sqft) }}/Sq.Ft.{% endif %}</span><span>{% if p.price is not none %}₹{{ '{:,.0f}'.format(p.price) }} All Inclusive{% endif %}</span><span>Parking: {{ p.parking or 'Not specified' }}</span></div><div class="muted">{{ (p.reasons or [])|join(' · ') }}</div></div>{% endfor %}{% else %}<div class="empty">No matching approved/live inventory found for this requirement.</div>{% endif %}</div>
 
 <div class="card"><h2>4. Property Calling Speech</h2><button class="copy btn" type="button" onclick="copyText('propertySpeech', event)">Copy</button><div id="propertySpeech" class="speech large-note">Select a property above to view the ready-to-read calling script.</div></div>
