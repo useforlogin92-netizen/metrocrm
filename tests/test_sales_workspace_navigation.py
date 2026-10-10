@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from starlette.requests import Request
 
 from app.routers import crm_plus
@@ -65,3 +67,46 @@ def test_sales_executive_can_view_but_not_set_sales_targets(db_session, monkeypa
     assert "Sales Targets" in html
     assert "Set monthly targets" not in html
     assert "Save Target" not in html
+
+
+
+@pytest.mark.parametrize(
+    "page_fn",
+    [
+        crm_plus.advanced_hub,
+        crm_plus.tasks_page,
+        crm_plus.targets_page,
+        crm_plus.payments_page,
+        crm_plus.tickets_page,
+        crm_plus.possession_page,
+    ],
+)
+def test_accountant_cannot_open_sales_crm_workspaces(page_fn, db_session, monkeypatch):
+    actor = SimpleNamespace(role="ACCOUNTANT", username="accountant", id=778)
+    monkeypatch.setattr(crm_plus, "current_user", lambda request, db: actor)
+
+    response = page_fn(_request(), db_session)
+
+    assert response.status_code == 303
+    assert response.headers["location"] in {"/", "/dashboard"}
+
+
+@pytest.mark.parametrize(
+    "page_fn",
+    [
+        crm_plus.advanced_hub,
+        crm_plus.tasks_page,
+        crm_plus.targets_page,
+        crm_plus.payments_page,
+        crm_plus.tickets_page,
+        crm_plus.possession_page,
+    ],
+)
+def test_sales_executive_can_open_scoped_crm_workspaces(page_fn, db_session, monkeypatch):
+    actor = SimpleNamespace(role="SALES_EXECUTIVE", username="sales-exec", id=779)
+    monkeypatch.setattr(crm_plus, "current_user", lambda request, db: actor)
+    monkeypatch.setattr(crm_plus, "csrf_token", lambda request: "test-csrf")
+
+    response = page_fn(_request(), db_session)
+
+    assert response.status_code == 200
