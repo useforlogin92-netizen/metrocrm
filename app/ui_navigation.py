@@ -70,7 +70,7 @@ def add_history_navigation(document: str) -> str:
     if re.search(r"</head\s*>", document, re.IGNORECASE):
         document = re.sub(r"</head\s*>", _NAVIGATION_STYLE + "</head>", document, count=1, flags=re.IGNORECASE)
     else:
-        body_start = re.search(r"<body\\b", document, re.IGNORECASE)
+        body_start = re.search(r"<body\b", document, re.IGNORECASE)
         if body_start:
             document = document[:body_start.start()] + _NAVIGATION_STYLE + document[body_start.start():]
 
