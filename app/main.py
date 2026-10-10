@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from json import JSONDecodeError
 import json
 import time
 
