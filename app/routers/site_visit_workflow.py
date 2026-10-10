@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Customer, FollowUp, Lead, Project, SiteVisit, User
-from app.site_visit_workflow_models import SiteVisitReview
+from app.site_visit_workflow_models import DeveloperSalesContact, SiteVisitReview
 
 router = APIRouter(prefix="/site-visits", tags=["site-visit-workflow"])
 ALLOWED_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
@@ -56,13 +56,15 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
         project_name = escape(project_map[v.project_id].name if v.project_id in project_map else "—")
         caller_name = escape(user_map.get(review.called_by_id, "—") if review else "—")
         coordinator_name = escape(user_map.get(v.conducted_by_id, "—"))
-        sm_name = escape(user_map.get(review.sm_id, user_map.get(v.sales_employee_id, "—")) if review else user_map.get(v.sales_employee_id, "—"))
+        developer_contact = db.scalar(select(DeveloperSalesContact).where(DeveloperSalesContact.visit_id == v.id))
+        sm_name = escape(developer_contact.sm_name if developer_contact and developer_contact.sm_name else (user_map.get(review.sm_id, user_map.get(v.sales_employee_id, "—")) if review else user_map.get(v.sales_employee_id, "—")))
+        sm_phone = escape(developer_contact.sm_phone if developer_contact and developer_contact.sm_phone else "—")
         scheduled_text = escape(v.scheduled_at.strftime("%d %b %Y %I:%M %p"))
         visit_status = escape(v.status or "SCHEDULED")
         deal_status = escape(review.deal_status if review else "FEEDBACK PENDING")
         rows.append(
             f"<tr><td>#{v.id}</td><td>{customer_name}</td><td>{project_name}</td>"
-            f"<td>{caller_name}</td><td>{coordinator_name}</td><td>{sm_name}</td>"
+            f"<td>{caller_name}</td><td>{coordinator_name}</td><td>{sm_name}<br><small>{sm_phone}</small></td>"
             f"<td>{scheduled_text}</td><td>{visit_status}</td><td>{deal_status}</td>"
             f'<td><a href="/site-visits/{v.id}/feedback">Feedback / Next Step</a></td></tr>'
         )
@@ -78,7 +80,8 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
 <div><label>Visit date & time *</label><input name="scheduled_at" type="datetime-local" required></div>
 <div><label>Call kisne kiya? *</label><select name="called_by_id" required><option value="">Select caller</option>{staff_opts}</select></div>
 <div><label>Visit kaun conduct karega? *</label><select name="conducted_by_id" required><option value="">Select visit coordinator</option>{staff_opts}</select></div>
-<div><label>SM / Sales Manager</label><select name="sm_id"><option value="">Select SM (optional)</option>{staff_opts}</select></div>
+<div><label>Developer SM ka naam</label><input name="developer_sm_name" maxlength="160" placeholder="Developer sales manager name"></div>
+<div><label>Developer SM ka mobile number</label><input name="developer_sm_phone" type="tel" maxlength="30" pattern="[0-9+() -]{7,30}" placeholder="Developer SM contact number"></div>
 <div><label>Initial notes</label><input name="notes" maxlength="1000" placeholder="Customer requirement / meeting notes"></div>
 <div style="grid-column:1/-1"><label>Projects to visit * (multiple select supported)</label><select name="project_ids" multiple required>{project_opts}</select><p class="hint">Computer par Ctrl/⌘ ke saath multiple projects select karein. Har project ke liye separate visit record banega, same customer/date aur common batch ID ke saath.</p></div>
 </div><p><button type="submit">Create Visit Plan</button></p></form></div>
@@ -94,7 +97,8 @@ def create_visit_batch(
     scheduled_at: str = Form(...),
     called_by_id: int = Form(...),
     conducted_by_id: int = Form(...),
-    sm_id: int | None = Form(None),
+    developer_sm_name: str = Form(""),
+    developer_sm_phone: str = Form(""),
     project_ids: list[int] = Form(...),
     notes: str = Form(""),
     csrf_token_value: str = Form("", alias="csrf_token"),
@@ -113,7 +117,7 @@ def create_visit_batch(
         return HTMLResponse("Invalid visit date/time.", status_code=400)
     if not project_ids or len(set(project_ids)) != len(project_ids):
         return HTMLResponse("Select at least one project without duplicates.", status_code=400)
-    for uid in [called_by_id, conducted_by_id] + ([sm_id] if sm_id else []):
+    for uid in [called_by_id, conducted_by_id]:
         user = db.get(User, uid)
         if not user or not user.is_active:
             return HTMLResponse("Selected staff member is unavailable.", status_code=400)
@@ -126,12 +130,13 @@ def create_visit_batch(
         for project in projects:
             visit = SiteVisit(
                 customer_id=lead.customer_id, lead_id=lead.id, project_id=project.id,
-                sales_employee_id=sm_id, conducted_by_id=conducted_by_id,
+                sales_employee_id=None, conducted_by_id=conducted_by_id,
                 scheduled_at=when, status="SCHEDULED", notes=notes.strip() or None,
             )
             db.add(visit)
             db.flush()
-            db.add(SiteVisitReview(visit_id=visit.id, batch_key=batch_key, called_by_id=called_by_id, sm_id=sm_id, deal_status="FOLLOW_UP_REQUIRED", updated_by_id=actor.id))
+            db.add(SiteVisitReview(visit_id=visit.id, batch_key=batch_key, called_by_id=called_by_id, sm_id=None, deal_status="FOLLOW_UP_REQUIRED", updated_by_id=actor.id))
+            db.add(DeveloperSalesContact(visit_id=visit.id, sm_name=developer_sm_name.strip() or None, sm_phone=developer_sm_phone.strip() or None))
             created_ids.append(visit.id)
         db.add(AuditEvent(actor_user_id=actor.id, action="SITE_VISIT_BATCH_CREATED", entity_type="SiteVisitBatch", entity_id=batch_key, details=f'{{"lead_id":{lead.id},"visit_ids":{created_ids},"project_count":{len(created_ids)}}}'))
         db.commit()
@@ -159,7 +164,7 @@ def visit_feedback_page(visit_id: int, request: Request, db: Session = Depends(g
     user_opts = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
     project_opts = "".join(f'<option value="{p.id}" {"selected" if review and review.next_project_id == p.id else ""}>{escape(p.name)}</option>' for p in projects)
     def val(x): return escape(str(x or ""))
-    body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visit Feedback</title><style>body{{font:14px Arial;background:#f4f7fb;margin:0;padding:22px;color:#172033}}main{{max-width:1000px;margin:auto}}.card{{background:#fff;padding:22px;border-radius:14px;border:1px solid #e1e7f0;margin-bottom:16px}}.grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}label{{display:block;font-weight:700;margin:8px 0 5px}}input,select,textarea{{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box}}textarea{{min-height:90px}}button,.btn{{background:#1d4ed8;color:white;padding:10px 14px;border:0;border-radius:8px;text-decoration:none;font-weight:700}}@media(max-width:650px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><main><div class="card"><h1>Post-Visit Feedback — Visit #{visit.id}</h1><p><b>Customer:</b> {val(customer.name if customer else '—')} · <b>Project:</b> {val(project.name if project else '—')} · <b>Scheduled:</b> {val(visit.scheduled_at)}</p><p><b>Lead source:</b> {val(lead.source)} · <b>Customer contact:</b> {val(customer.mobile if customer else '')} · <b>SM:</b> {val(db.get(User, review.sm_id).username if review and review.sm_id and db.get(User, review.sm_id) else '—')}</p><a class="btn" href="/site-visits">Back to Visits</a></div>
+    body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visit Feedback</title><style>body{{font:14px Arial;background:#f4f7fb;margin:0;padding:22px;color:#172033}}main{{max-width:1000px;margin:auto}}.card{{background:#fff;padding:22px;border-radius:14px;border:1px solid #e1e7f0;margin-bottom:16px}}.grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}label{{display:block;font-weight:700;margin:8px 0 5px}}input,select,textarea{{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box}}textarea{{min-height:90px}}button,.btn{{background:#1d4ed8;color:white;padding:10px 14px;border:0;border-radius:8px;text-decoration:none;font-weight:700}}@media(max-width:650px){{.grid{{grid-template-columns:1fr}}}}</style></head><body><main><div class="card"><h1>Post-Visit Feedback — Visit #{visit.id}</h1><p><b>Customer:</b> {val(customer.name if customer else '—')} · <b>Project:</b> {val(project.name if project else '—')} · <b>Scheduled:</b> {val(visit.scheduled_at)}</p><p><b>Lead source:</b> {val(lead.source)} · <b>Customer contact:</b> {val(customer.mobile if customer else '')} · <b>Developer SM:</b> {val((db.scalar(select(DeveloperSalesContact).where(DeveloperSalesContact.visit_id == visit.id)).sm_name if db.scalar(select(DeveloperSalesContact).where(DeveloperSalesContact.visit_id == visit.id)) else '—'))} · <b>SM Contact:</b> {val((db.scalar(select(DeveloperSalesContact).where(DeveloperSalesContact.visit_id == visit.id)).sm_phone if db.scalar(select(DeveloperSalesContact).where(DeveloperSalesContact.visit_id == visit.id)) else '—')}</p><a class="btn" href="/site-visits">Back to Visits</a></div>
 <div class="card"><form method="post" action="/site-visits/{visit.id}/feedback"><input type="hidden" name="csrf_token" value="{csrf}"><div class="grid">
 <div><label>Visit status</label><select name="status">{''.join(f'<option value="{s}" {"selected" if (visit.status or "SCHEDULED")==s else ""}>{s.replace("_"," ").title()}</option>' for s in ["SCHEDULED","COMPLETED","RESCHEDULED","CANCELLED","NO_SHOW","CUSTOMER_NO_SHOW"])}</select></div>
 <div><label>Customer interest</label><select name="interest_level">{''.join(f'<option value="{s}" {"selected" if review and review.interest_level==s else ""}>{s.replace("_"," ").title()}</option>' for s in ["HOT","WARM","COLD","UNDECIDED"])}</select></div>
