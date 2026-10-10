@@ -141,6 +141,8 @@ def test_sales_executive_can_update_customer_and_requirement_for_assigned_lead(d
         customer_notes="Prefers evening calls", requirement_text="Ready possession near station",
         budget_min="5000000", budget_max="8500000", preferred_locations="Borivali, Kandivali",
         bhk="2 BHK", property_type="Apartment", buy_rent="BUY",
+        property_category="", carpet_area_min="", carpet_area_max="", possession_requirement="",
+        furnishing="", parking="", project_preference="", developer_preference="", loan_required=False, purpose="",
         requirement_notes="Loan required", csrf_token_value="test", db=db_session,
     )
 
@@ -278,8 +280,8 @@ def test_sales_executive_can_save_full_real_estate_qualification(db_session, mon
 
     assert response.status_code == 303
     requirement = db_session.query(CustomerRequirement).filter_by(customer_id=customer.id, is_active=True).one()
-    assert str(requirement.carpet_area_min) == "650"
-    assert str(requirement.carpet_area_max) == "900"
+    assert str(requirement.carpet_area_min) == "650.00"
+    assert str(requirement.carpet_area_max) == "900.00"
     assert requirement.property_category == "Residential"
     assert requirement.possession_requirement == "Within 1 Year"
     assert requirement.furnishing == "Semi-Furnished"
@@ -307,7 +309,10 @@ def test_sales_executive_rejects_reversed_carpet_area_range(db_session, monkeypa
 
     response = caller_assistant.update_lead_requirements(
         lead_id=lead.id, request=_post_request(), customer_name="Area Customer",
-        carpet_area_min="1000", carpet_area_max="500", csrf_token_value="test", db=db_session,
+        budget_min="", budget_max="", preferred_locations="", bhk="", property_type="", buy_rent="",
+        property_category="", carpet_area_min="1000", carpet_area_max="500", possession_requirement="",
+        furnishing="", parking="", project_preference="", developer_preference="", loan_required=False, purpose="",
+        csrf_token_value="test", db=db_session,
     )
 
     assert response.status_code == 400
