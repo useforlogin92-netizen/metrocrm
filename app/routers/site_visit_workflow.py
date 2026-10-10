@@ -52,7 +52,20 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
     for v in visits:
         customer = customers.get(v.customer_id) if v.customer_id else (customers.get(db.get(Lead, v.lead_id).customer_id) if v.lead_id and db.get(Lead, v.lead_id) else None)
         review = review_map.get(v.id)
-        rows.append(f"<tr><td>#{v.id}</td><td>{escape(customer.name if customer else '—')}</td><td>{escape(project_map[v.project_id].name if v.project_id in project_map else '—')}</td><td>{escape(user_map.get(review.called_by_id, '—') if review else '—')}</td><td>{escape(user_map.get(v.conducted_by_id, '—'))}</td><td>{escape(user_map.get(review.sm_id, user_map.get(v.sales_employee_id, '—')) if review else user_map.get(v.sales_employee_id, '—'))}</td><td>{escape(v.scheduled_at.strftime('%d %b %Y %I:%M %p'))}</td><td>{escape(v.status or 'SCHEDULED')}</td><td>{escape(review.deal_status if review else 'FEEDBACK PENDING')}</td><td><a href="/site-visits/{v.id}/feedback">Feedback / Next Step</a></td></tr>")
+        customer_name = escape(customer.name if customer else "—")
+        project_name = escape(project_map[v.project_id].name if v.project_id in project_map else "—")
+        caller_name = escape(user_map.get(review.called_by_id, "—") if review else "—")
+        coordinator_name = escape(user_map.get(v.conducted_by_id, "—"))
+        sm_name = escape(user_map.get(review.sm_id, user_map.get(v.sales_employee_id, "—")) if review else user_map.get(v.sales_employee_id, "—"))
+        scheduled_text = escape(v.scheduled_at.strftime("%d %b %Y %I:%M %p"))
+        visit_status = escape(v.status or "SCHEDULED")
+        deal_status = escape(review.deal_status if review else "FEEDBACK PENDING")
+        rows.append(
+            f"<tr><td>#{v.id}</td><td>{customer_name}</td><td>{project_name}</td>"
+            f"<td>{caller_name}</td><td>{coordinator_name}</td><td>{sm_name}</td>"
+            f"<td>{scheduled_text}</td><td>{visit_status}</td><td>{deal_status}</td>"
+            f'<td><a href="/site-visits/{v.id}/feedback">Feedback / Next Step</a></td></tr>'
+        )
     csrf = escape(csrf_token(request))
     lead_opts = "".join(f'<option value="{l.id}">#{l.id} · {escape(customers[l.customer_id].name if l.customer_id in customers else "Customer not linked")} · {escape(l.source or "Unknown source")}</option>' for l in leads)
     project_opts = "".join(f'<option value="{p.id}">{escape(p.name)} — {escape(p.locality or p.city or "")}</option>' for p in projects)
