@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.csrf import csrf_token
+from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import Customer, CustomerRequirement, Lead, Project, Tower, Unit, User
+from app.models import AuditEvent, Customer, CustomerRequirement, FollowUp, Lead, Project, Tower, Unit, User
 from app.services.caller_search import filter_and_rank_properties
 
 router = APIRouter(prefix="/caller", tags=["caller-assistant"])
@@ -239,6 +240,7 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
         "carpet_area_max": requirement.carpet_area_max if requirement else None,
         "construction_statuses": [],
     }
+    followups = db.scalars(select(FollowUp).where(FollowUp.lead_id == lead.id).order_by(FollowUp.completed.asc(), FollowUp.due_at.asc()).limit(50)).all()
     properties = _property_rows(db, customer_data)
     for item in properties:
         if not item.get("negotiable") and item.get("description"):
@@ -249,8 +251,159 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
                 pass
     return templates.TemplateResponse("caller_lead_assistant.html", {
         "request": request, "user": user, "lead": lead, "customer": customer,
-        "requirement": requirement, "locations": locations, "properties": properties,
+        "requirement": requirement, "locations": locations, "properties": properties, "followups": followups,
         "opening_speeches": _opening_speeches(user, lead, customer, locations),
         "property_speeches": {str(p["id"]): _property_speeches(p, customer) for p in properties},
         "csrf_token": csrf_token(request), "now": datetime.now().strftime("%d %b %Y %H:%M"),
     })
+
+
+def _parse_optional_amount(raw: str, field_name: str) -> Decimal | None:
+    value = (raw or "").strip()
+    if not value:
+        return None
+    try:
+        amount = Decimal(value)
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"{field_name} must be a valid amount.")
+    if not amount.is_finite() or amount < 0:
+        raise ValueError(f"{field_name} must be zero or greater.")
+    return amount
+
+
+@router.post("/lead/{lead_id}/requirements", dependencies=[Depends(require_csrf)])
+def update_lead_requirements(
+    lead_id: int, request: Request,
+    customer_name: str = Form(""), mobile: str = Form(""), alternate_mobile: str = Form(""),
+    email: str = Form(""), customer_notes: str = Form(""), requirement_text: str = Form(""),
+    budget_min: str = Form(""), budget_max: str = Form(""), preferred_locations: str = Form(""),
+    bhk: str = Form(""), property_type: str = Form(""), buy_rent: str = Form(""),
+    requirement_notes: str = Form(""), csrf_token_value: str = Form("", alias="csrf_token"),
+    db: Session = Depends(get_db),
+):
+    require_csrf(request, csrf_token_value)
+    user = _current_user(request, db)
+    if not user or not _allowed(user):
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(user, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    try:
+        minimum = _parse_optional_amount(budget_min, "Minimum budget")
+        maximum = _parse_optional_amount(budget_max, "Maximum budget")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            return HTMLResponse("Minimum budget cannot exceed maximum budget.", status_code=400)
+    except ValueError as exc:
+        return HTMLResponse(str(exc), status_code=400)
+    mode = buy_rent.strip().upper()
+    if mode not in {"", "BUY", "RENT", "BOTH"}:
+        return HTMLResponse("Select a valid Buy / Rent option.", status_code=400)
+    customer = db.get(Customer, lead.customer_id) if lead.customer_id else None
+    name = customer_name.strip() or (customer.name if customer else "")
+    if not name:
+        return HTMLResponse("Customer name is required.", status_code=400)
+    if customer is None:
+        customer = Customer(name=name)
+        db.add(customer)
+        db.flush()
+        lead.customer_id = customer.id
+    customer.name = name[:200]
+    customer.mobile = mobile.strip()[:30] or None
+    customer.alternate_mobile = alternate_mobile.strip()[:30] or None
+    customer.email = email.strip().lower()[:255] or None
+    customer.notes = customer_notes.strip() or None
+
+    locations = [item.strip() for item in preferred_locations.split(",") if item.strip()]
+    lead.requirement = requirement_text.strip() or None
+    lead.budget_min = minimum
+    lead.budget_max = maximum
+    lead.preferred_location = ", ".join(locations) or None
+    lead.bhk = bhk.strip() or None
+    lead.property_type = property_type.strip() or None
+    lead.buy_rent = mode or None
+
+    requirement = db.scalar(
+        select(CustomerRequirement)
+        .where(CustomerRequirement.customer_id == customer.id, CustomerRequirement.is_active.is_(True))
+        .order_by(CustomerRequirement.updated_at.desc()).limit(1)
+    )
+    if requirement is None:
+        requirement = CustomerRequirement(customer_id=customer.id, is_active=True)
+        db.add(requirement)
+    existing_locations = {}
+    try:
+        for item in json.loads(requirement.locations_json or "[]"):
+            if isinstance(item, dict) and item.get("name"):
+                existing_locations[str(item["name"]).casefold()] = item
+    except (TypeError, ValueError, json.JSONDecodeError):
+        existing_locations = {}
+    requirement.locations_json = json.dumps([
+        {
+            "name": name,
+            "side": existing_locations.get(name.casefold(), {}).get("side", "Both"),
+            "priority": existing_locations.get(name.casefold(), {}).get("priority", "Primary"),
+        }
+        for name in locations
+    ])
+    requirement.buy_rent = mode or None
+    requirement.budget_min = minimum
+    requirement.budget_max = maximum
+    requirement.bhk = lead.bhk
+    requirement.property_type = lead.property_type
+    requirement.notes = requirement_notes.strip() or None
+    requirement.updated_at = datetime.now()
+    db.add(AuditEvent(actor_user_id=user.id, action="LEAD_REQUIREMENTS_UPDATED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"customer_id": customer.id, "requirement_updated": True})))
+    db.commit()
+    return RedirectResponse(f"/caller/lead/{lead.id}/call", status_code=303)
+
+
+@router.post("/lead/{lead_id}/follow-ups", dependencies=[Depends(require_csrf)])
+def schedule_lead_followup(
+    lead_id: int, request: Request, due_at: str = Form(...),
+    purpose: str = Form("Call follow-up"), notes: str = Form(""),
+    csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db),
+):
+    require_csrf(request, csrf_token_value)
+    user = _current_user(request, db)
+    if not user or not _allowed(user):
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(user, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    try:
+        scheduled = datetime.fromisoformat(due_at)
+    except ValueError:
+        return HTMLResponse("Enter a valid follow-up date and time.", status_code=400)
+    if not lead.customer_id:
+        return HTMLResponse("Link a customer to this lead before scheduling a follow-up.", status_code=400)
+    followup = FollowUp(
+        lead_id=lead.id, customer_id=lead.customer_id,
+        assigned_user_id=lead.assigned_user_id or user.id, due_at=scheduled,
+        purpose=purpose.strip()[:255] or "Call follow-up",
+        notes=notes.strip() or None, completed=False,
+    )
+    db.add(followup)
+    db.add(AuditEvent(actor_user_id=user.id, action="LEAD_FOLLOWUP_SCHEDULED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"followup_due_at": scheduled.isoformat()})))
+    db.commit()
+    return RedirectResponse(f"/caller/lead/{lead.id}/call", status_code=303)
+
+
+@router.post("/lead/{lead_id}/follow-ups/{followup_id}/complete", dependencies=[Depends(require_csrf)])
+def complete_lead_followup(
+    lead_id: int, followup_id: int, request: Request,
+    csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db),
+):
+    require_csrf(request, csrf_token_value)
+    user = _current_user(request, db)
+    if not user or not _allowed(user):
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(user, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    followup = db.get(FollowUp, followup_id)
+    if not followup or followup.lead_id != lead.id:
+        return HTMLResponse("Follow-up not found for this lead.", status_code=404)
+    followup.completed = True
+    db.add(AuditEvent(actor_user_id=user.id, action="LEAD_FOLLOWUP_COMPLETED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"followup_id": followup.id})))
+    db.commit()
+    return RedirectResponse(f"/caller/lead/{lead.id}/call", status_code=303)
