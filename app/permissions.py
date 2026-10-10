@@ -46,9 +46,8 @@ SENSITIVE_FIELDS = {
     "documents",
 }
 
-# Export/delete are deliberately absent from ordinary role defaults.
-# Data downloads and destructive deletion use the approval workflow in the
-# application service layer rather than a menu-only permission.
+# Super Admin has every action by default. Ordinary roles intentionally have
+# narrower defaults; destructive/export workflows may still require approval.
 ROLE_DEFAULTS: dict[Role, dict[str, set[Access]]] = {
     Role.SUPER_ADMIN: {"*": set(Access)},
     Role.ADMIN: {
@@ -105,12 +104,16 @@ def user_allows(
     action: Access,
     permissions: Mapping[str, object] | None = None,
 ) -> bool:
-    """Resolve role defaults, then apply per-user additions/restrictions.
+    """Resolve role defaults and per-user overrides.
 
-    Supported JSON shape:
+    SUPER_ADMIN is always unrestricted: per-user allow/deny overrides cannot
+    accidentally remove any default Super Admin right. Other roles support:
       {"allow": {"leads": ["VIEW"]}, "deny": {"leads": ["EDIT"]}}
-    A deny always wins, allowing an administrator to restrict a role default.
+    For non-Super-Admin users, deny takes precedence over role defaults.
     """
+    if role == Role.SUPER_ADMIN:
+        return True
+
     permissions = permissions or {}
     allowed = role_allows(role, module, action)
     allow = permissions.get("allow", {})
