@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from json import JSONDecodeError
 import json
 import time
 
@@ -307,10 +308,61 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     if not actor or actor.role not in {"SUPER_ADMIN", "ADMIN"}:
         return RedirectResponse("/dashboard", status_code=303)
-    users = db.scalars(select(User).order_by(User.id.asc())).all()
-    visible_users = users if actor.role == "SUPER_ADMIN" else [u for u in users if u.role not in {"SUPER_ADMIN", "ADMIN"}]
-    managers = [u for u in users if u.is_active and u.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} and (actor.role == "SUPER_ADMIN" or u.role != "SUPER_ADMIN")]
-    return templates.TemplateResponse(request, "admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "user": actor, "users": visible_users, "managers": managers, "roles": [r.value for r in Role if actor.role == "SUPER_ADMIN" or r.value not in {"SUPER_ADMIN", "ADMIN"}], "csrf_token": csrf_token(request)})
+
+    # Apply filters only to the visible user population; Admin never sees
+    # Super Admin/Admin accounts, even if a filter is crafted manually.
+    all_users = db.scalars(select(User).order_by(User.id.asc())).all()
+    visible_users = all_users if actor.role == "SUPER_ADMIN" else [u for u in all_users if u.role not in {"SUPER_ADMIN", "ADMIN"}]
+    query = request.query_params.get("q", "").strip().casefold()
+    role_filter = request.query_params.get("role_filter", "").strip().upper()
+    category_filter = request.query_params.get("category_filter", "").strip().casefold()
+    team_filter = request.query_params.get("team_filter", "").strip().casefold()
+    status_filter = request.query_params.get("status_filter", "").strip().lower()
+    created_from = request.query_params.get("created_from", "").strip()
+    created_to = request.query_params.get("created_to", "").strip()
+
+    filtered = []
+    for item in visible_users:
+        if query and query not in " ".join(filter(None, [item.username, item.email, item.mobile, item.category, item.team])).casefold():
+            continue
+        if role_filter and item.role.upper() != role_filter:
+            continue
+        if category_filter and category_filter not in (item.category or "").casefold():
+            continue
+        if team_filter and team_filter not in (item.team or "").casefold():
+            continue
+        if status_filter == "active" and not item.is_active:
+            continue
+        if status_filter == "disabled" and item.is_active:
+            continue
+        if status_filter == "pending" and item.is_approved:
+            continue
+        if status_filter == "approved" and not item.is_approved:
+            continue
+        created_day = item.created_at.date().isoformat() if item.created_at else ""
+        if created_from and (not created_day or created_day < created_from):
+            continue
+        if created_to and (not created_day or created_day > created_to):
+            continue
+        filtered.append(item)
+
+    try:
+        per_page = int(request.query_params.get("per_page", "10"))
+    except ValueError:
+        per_page = 10
+    per_page = per_page if per_page in {10, 20, 50} else 10
+    try:
+        page = max(1, int(request.query_params.get("page", "1")))
+    except ValueError:
+        page = 1
+    filtered_count = len(filtered)
+    page_count = max(1, (filtered_count + per_page - 1) // per_page)
+    page = min(page, page_count)
+    page_users = filtered[(page - 1) * per_page:page * per_page]
+    managers = [u for u in all_users if u.is_active and u.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} and (actor.role == "SUPER_ADMIN" or u.role != "SUPER_ADMIN")]
+    stats_users = visible_users
+    filter_values = {"q": request.query_params.get("q", ""), "role_filter": role_filter, "category_filter": request.query_params.get("category_filter", ""), "team_filter": request.query_params.get("team_filter", ""), "status_filter": status_filter, "created_from": created_from, "created_to": created_to, "per_page": per_page}
+    return templates.TemplateResponse(request, "admin_users.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "user": actor, "users": page_users, "managers": managers, "roles": [r.value for r in Role if actor.role == "SUPER_ADMIN" or r.value not in {"SUPER_ADMIN", "ADMIN"}], "csrf_token": csrf_token(request), "filter_values": filter_values, "total_visible_users": len(stats_users), "total_enabled_users": sum(1 for u in stats_users if u.is_active), "total_disabled_users": sum(1 for u in stats_users if not u.is_active), "total_pending_users": sum(1 for u in stats_users if not u.is_approved), "filtered_count": filtered_count, "page": page, "page_count": page_count, "per_page": per_page})
 
 @app.post("/admin/users/create", dependencies=[Depends(require_csrf)])
 def create_user(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), manager_id: str = Form(""), security_question: str = Form(""), security_answer: str = Form(""), db: Session = Depends(get_db)):
@@ -333,7 +385,7 @@ def create_user(request: Request, username: str = Form(...), password: str = For
     return RedirectResponse("/admin/users", status_code=303)
 
 @app.post("/admin/users/{user_id}/edit", dependencies=[Depends(require_csrf)])
-def edit_user(request: Request, user_id: int, username: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), manager_id: str = Form(""), db: Session = Depends(get_db)):
+def edit_user(request: Request, user_id: int, username: str = Form(...), role: str = Form(...), mobile: str = Form(""), email: str = Form(""), category: str = Form(""), team: str = Form(""), manager_id: str = Form(""), permissions_json: str = Form(""), db: Session = Depends(get_db)):
     actor = _current_user(request, db)
     target = db.get(User, user_id)
     role = role.upper()
@@ -342,6 +394,30 @@ def edit_user(request: Request, user_id: int, username: str = Form(...), role: s
     manager = int(manager_id) if manager_id.isdigit() else None
     if not _valid_reporting_manager(actor, manager, target, db):
         return RedirectResponse("/admin/users?error=manager", status_code=303)
+
+    # Only Super Admin may set explicit permission overrides. Validate the
+    # schema and enum values before persisting JSON that authorization reads.
+    if permissions_json.strip() and actor.role.upper() == "SUPER_ADMIN":
+        try:
+            override = json.loads(permissions_json)
+        except (JSONDecodeError, TypeError):
+            return RedirectResponse("/admin/users?error=permissions", status_code=303)
+        if not isinstance(override, dict) or set(override) - {"allow", "deny"}:
+            return RedirectResponse("/admin/users?error=permissions", status_code=303)
+        valid_modules = {"leads", "customers", "properties", "followups", "reports", "users", "integrations", "site_visits", "bookings", "accounting", "exports", "audit_logs"}
+        valid_actions = {action.value for action in Access}
+        for section in override.values():
+            if not isinstance(section, dict):
+                return RedirectResponse("/admin/users?error=permissions", status_code=303)
+            for module, actions in section.items():
+                if module not in valid_modules and module != "*":
+                    return RedirectResponse("/admin/users?error=permissions", status_code=303)
+                if not isinstance(actions, list) or any(not isinstance(action, str) or action not in valid_actions for action in actions):
+                    return RedirectResponse("/admin/users?error=permissions", status_code=303)
+        target.permissions_json = json.dumps(override, separators=(",", ":"), sort_keys=True)
+    elif actor.role.upper() == "ADMIN":
+        # Admin profile edits cannot alter a user's authorization overrides.
+        pass
     target.username = username.strip()
     target.role = role
     target.mobile = mobile.strip() or None
@@ -349,7 +425,7 @@ def edit_user(request: Request, user_id: int, username: str = Form(...), role: s
     target.team = team.strip() or None
     target.reporting_manager_id = manager
     target.email = email.strip().lower() or None
-    _audit(db, actor.id, "USER_UPDATED", target, {"role": role})
+    _audit(db, actor.id, "USER_UPDATED", target, {"role": role, "permissions_changed": bool(permissions_json.strip()) and actor.role.upper() == "SUPER_ADMIN"})
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
 
