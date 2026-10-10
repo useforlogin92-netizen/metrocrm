@@ -234,6 +234,7 @@ def _import_leads(content: bytes, actor: User, db: Session):
     return created, updated, errors
 
 
+@router.get("/super-admin/leads/offline-import", response_class=HTMLResponse)
 @router.get("/admin/leads/offline-import", response_class=HTMLResponse)
 def offline_lead_import_page(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -242,6 +243,7 @@ def offline_lead_import_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("lead_offline_import.html", {"request": request, "username": actor.username, "role": actor.role, "avatar": actor.username[:1].upper(), "csrf_token": csrf_token(request), "message": request.query_params.get("message"), "error": request.query_params.get("error"), "show_user_management": True, "show_integrations": False, "show_alerts": False, "show_approvals": True})
 
 
+@router.get("/super-admin/leads/offline-import/template")
 @router.get("/admin/leads/offline-import/template")
 def offline_lead_template(request: Request, db: Session = Depends(get_db)):
     if not _guard(request, db):
@@ -249,6 +251,7 @@ def offline_lead_template(request: Request, db: Session = Depends(get_db)):
     return StreamingResponse(_lead_template(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Offline_Lead_Upload_Template.xlsx"})
 
 
+@router.post("/super-admin/leads/offline-import", dependencies=[Depends(require_csrf)])
 @router.post("/admin/leads/offline-import", dependencies=[Depends(require_csrf)])
 async def offline_lead_import(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     actor = _guard(request, db)
