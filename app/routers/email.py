@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from html import escape
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
