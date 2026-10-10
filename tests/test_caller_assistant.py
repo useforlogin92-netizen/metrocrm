@@ -317,3 +317,74 @@ def test_sales_executive_rejects_reversed_carpet_area_range(db_session, monkeypa
 
     assert response.status_code == 400
     assert "Minimum carpet area" in response.body.decode()
+
+
+
+def test_sales_executive_can_update_status_for_assigned_lead_and_audit_it(db_session, monkeypatch):
+    from app.models import AuditEvent, Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="status-exec", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add(actor)
+    db_session.flush()
+    lead = Lead(source="WEBSITE", status="NEW", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_lead_status(
+        lead_id=lead.id, request=_post_request(), status="SITE_VISIT_SCHEDULED",
+        csrf_token_value="test", db=db_session,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(lead)
+    assert lead.status == "SITE_VISIT_SCHEDULED"
+    audit = db_session.query(AuditEvent).filter_by(action="LEAD_STATUS_UPDATED", entity_id=str(lead.id)).one()
+    assert "SITE_VISIT_SCHEDULED" in audit.details
+
+
+def test_sales_executive_cannot_update_status_of_unassigned_lead(db_session, monkeypatch):
+    from app.models import Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="status-owner", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    other = User(username="status-other", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add_all([actor, other])
+    db_session.flush()
+    lead = Lead(source="WEBSITE", status="NEW", assigned_user_id=other.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_lead_status(
+        lead_id=lead.id, request=_post_request(), status="CONTACTED",
+        csrf_token_value="test", db=db_session,
+    )
+
+    assert response.status_code == 404
+    db_session.refresh(lead)
+    assert lead.status == "NEW"
+
+
+def test_lead_status_update_rejects_unknown_status(db_session, monkeypatch):
+    from app.models import Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="status-invalid", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add(actor)
+    db_session.flush()
+    lead = Lead(source="WEBSITE", status="NEW", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_lead_status(
+        lead_id=lead.id, request=_post_request(), status="NOT_A_REAL_STATUS",
+        csrf_token_value="test", db=db_session,
+    )
+
+    assert response.status_code == 400
