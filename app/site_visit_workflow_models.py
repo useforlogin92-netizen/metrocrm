@@ -22,6 +22,7 @@ class SiteVisitReview(Base):
     quoted_price: Mapped[str | None] = mapped_column(String(100))
     customer_objections: Mapped[str | None] = mapped_column(Text)
     next_followup_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    followup_id: Mapped[int | None] = mapped_column(ForeignKey("followups.id"), nullable=True)
     next_followup_plan: Mapped[str | None] = mapped_column(Text)
     next_project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     other_project_required: Mapped[bool] = mapped_column(Boolean, default=False)
