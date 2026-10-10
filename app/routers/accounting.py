@@ -17,6 +17,8 @@ from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 
 router = APIRouter(tags=["accounting"])
+ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN"}
+ACCOUNTING_ROLES = ADMIN_ROLES | {"ACCOUNTANT"}
 
 # NOTE: full file update preserves existing logic; export access is now POST+CSRF.
 
@@ -65,7 +67,13 @@ CATEGORIES = [
 def actor(request: Request, db: Session):
     from app.main import _current_user
     user = _current_user(request, db)
-    return user if user and user.role in {"ADMIN", "SUPER_ADMIN"} else None
+    return user if user and user.role in ACCOUNTING_ROLES else None
+
+
+def admin_actor(request: Request, db: Session):
+    from app.main import _current_user
+    user = _current_user(request, db)
+    return user if user and user.role in ADMIN_ROLES else None
 
 def page(title: str, body: str) -> HTMLResponse:
     css = "body{font-family:Arial;background:#f5f7fb;color:#10213f;padding:24px}.wrap{max-width:1250px;margin:auto}.card{background:#fff;padding:20px;border:1px solid #e5eaf2;border-radius:15px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{border:1px solid #e5eaf2;border-radius:10px;padding:14px}.value{font-size:22px;font-weight:800;margin-top:5px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;font-size:12px;font-weight:700;margin:8px 0 4px}input,select,textarea{width:100%;box-sizing:border-box;padding:9px;border:1px solid #cbd5e1;border-radius:8px}.btn{display:inline-block;border:0;border-radius:8px;padding:9px 13px;background:#2563eb;color:#fff;font-weight:700;text-decoration:none;cursor:pointer;margin-top:10px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid #eef2f7;text-align:left}th{background:#f8fafc}.muted{color:#64748b;font-size:12px}@media(max-width:800px){.grid,.two{grid-template-columns:1fr}}"
@@ -106,10 +114,10 @@ def accounting_page(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(select(AccountingEntry).order_by(AccountingEntry.entry_date.desc(), AccountingEntry.id.desc()).limit(300)).all()
     income = sum((dec(x.amount) for x in rows if x.entry_type == "INCOME"), Decimal(0)); expenses = sum((dec(x.amount) for x in rows if x.entry_type == "EXPENSE"), Decimal(0)); gst = sum((dec(x.gst_amount) for x in rows), Decimal(0)); csrf = csrf_token(request)
     expense_opts = "".join(f"<option value='{c}'>{escape(n)}</option>" for c,n,t in CATEGORIES if t == "EXPENSE"); income_opts = "".join(f"<option value='{c}'>{escape(n)}</option>" for c,n,t in CATEGORIES if t == "INCOME")
-    body = "<div class='card'><p class='muted'>Restricted to Admin and Super Admin. Register entries are automatically posted to the double-entry journal.</p><div class='grid'>" + "".join(f"<div class='stat'><div class='muted'>{k}</div><div class='value'>₹ {float(v):,.2f}</div></div>" for k,v in [("Income",income),("Expenses",expenses),("Net Operating Result",income-expenses),("GST Captured",gst)]) + "</div></div>"
+    body = "<div class='card'><p class='muted'>Finance access is role-controlled. Register entries are automatically posted to the double-entry journal.</p><div class='grid'>" + "".join(f"<div class='stat'><div class='muted'>{k}</div><div class='value'>₹ {float(v):,.2f}</div></div>" for k,v in [("Income",income),("Expenses",expenses),("Net Operating Result",income-expenses),("GST Captured",gst)]) + "</div></div>"
     body += f"<div class='card'><h2>Expense / Income Register</h2><form method='post' action='/accounting/entries'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Date</label><input type='date' name='entry_date' required></div><div><label>Type</label><select name='entry_type'><option>EXPENSE</option><option>INCOME</option></select></div><div><label>Category</label><select name='category_code'>{expense_opts}{income_opts}</select></div><div><label>Amount before GST</label><input name='amount' type='number' min='0' step='0.01' required></div><div><label>GST Rate %</label><input name='gst_rate' type='number' min='0' max='100' step='0.01' value='0'></div><div><label>GST Amount</label><input name='gst_amount' type='number' min='0' step='0.01' value='0'></div><div><label>TDS Amount</label><input name='tds_amount' type='number' min='0' step='0.01' value='0'></div><div><label>Payment Mode</label><select name='payment_mode'><option>Bank</option><option>Cash</option><option>UPI</option><option>Card</option><option>Cheque</option><option>Credit</option></select></div><div><label>Vendor / Party</label><input name='party_name'></div><div><label>Invoice No.</label><input name='invoice_no'></div><div><label>Reference No.</label><input name='reference_no'></div><div><label>Bank / Account</label><input name='bank_account'></div></div><label>Description</label><textarea name='description' required></textarea><label>Notes</label><textarea name='notes'></textarea><button class='btn' type='submit'>Save & Post Transaction</button></form></div>"
     body += "<div class='card'><h2>Ledger</h2><table><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th>Party</th><th>Amount</th><th>GST</th><th>TDS</th><th>Mode</th><th>Invoice</th></tr>" + "".join(f"<tr><td>{x.entry_date.date()}</td><td>{x.entry_type}</td><td>{escape(x.category_code)}</td><td>{escape(x.description)}</td><td>{escape(x.party_name or '—')}</td><td>₹ {float(x.amount):,.2f}</td><td>₹ {float(x.gst_amount):,.2f}</td><td>₹ {float(x.tds_amount):,.2f}</td><td>{escape(x.payment_mode or '—')}</td><td>{escape(x.invoice_no or '—')}</td></tr>" for x in rows) + "</table><form method='post' action='/accounting/export'><input type='hidden' name='csrf_token' value='" + csrf + "'><button class='btn' type='submit'>Export Full Ledger Excel</button></form></div>"
-    body += "<div class='card'><h2>Finance Controls</h2><a class='btn' href='/accounting/journal'>Journal</a> <a class='btn' href='/accounting/financials'>Financial Statements</a> <a class='btn' href='/accounting/periods'>Accounting Periods</a></div>"
+    body += "<div class='card'><h2>Finance Controls</h2>" + ("<a class='btn' href='/accounting/journal'>Journal</a> <a class='btn' href='/accounting/periods'>Accounting Periods</a> " if user.role in ADMIN_ROLES else "") + "<a class='btn' href='/accounting/financials'>Financial Statements</a></div>"
     return page("Accounting & Finance", body)
 
 @router.post("/accounting/entries", dependencies=[Depends(require_csrf)])
@@ -127,7 +135,7 @@ def create_entry(request: Request, entry_date: str = Form(...), entry_type: str 
 
 @router.get("/accounting/journal", response_class=HTMLResponse)
 def journal_page(request: Request, db: Session = Depends(get_db)):
-    user=actor(request,db)
+    user=admin_actor(request,db)
     if not user: return RedirectResponse("/dashboard",status_code=303)
     ensure_categories(db); accounts=db.scalars(select(AccountCategory).order_by(AccountCategory.account_type,AccountCategory.code)).all(); rows=db.scalars(select(JournalEntry).order_by(JournalEntry.entry_date.desc()).limit(100)).all(); csrf=csrf_token(request); opts="".join(f"<option value='{a.code}'>{a.code} — {escape(a.name)}</option>" for a in accounts)
     body=f"<div class='card'><h2>Balanced Journal Entry</h2><p class='muted'>Manual journals are available to Admin/Super Admin for controlled adjustments. Posted entries cannot be edited here.</p><form method='post' action='/accounting/journal'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Date</label><input type='date' name='entry_date' required></div><div><label>Entry No.</label><input name='entry_no' required></div><div><label>Debit Account</label><select name='debit_account'>{opts}</select></div><div><label>Credit Account</label><select name='credit_account'>{opts}</select></div><div><label>Amount</label><input name='amount' type='number' min='0.01' step='0.01' required></div><div><label>Reference</label><input name='reference_no'></div></div><label>Narration</label><textarea name='narration' required></textarea><button class='btn' type='submit'>Post Balanced Journal</button></form></div><div class='card'><h2>Journal</h2><table><tr><th>No.</th><th>Date</th><th>Narration</th><th>Status</th></tr>"+"".join(f"<tr><td>{escape(x.entry_no)}</td><td>{x.entry_date.date()}</td><td>{escape(x.narration)}</td><td>{escape(x.status)}</td></tr>" for x in rows)+"</table></div>"
@@ -135,7 +143,7 @@ def journal_page(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/accounting/journal", dependencies=[Depends(require_csrf)])
 def create_journal(request: Request, entry_date: str = Form(...), entry_no: str = Form(...), debit_account: str = Form(...), credit_account: str = Form(...), amount: Decimal = Form(...), narration: str = Form(...), reference_no: str = Form(""), db: Session = Depends(get_db)):
-    user=actor(request,db); ensure_categories(db)
+    user=admin_actor(request,db); ensure_categories(db)
     try: parsed_date=dt(entry_date)
     except ValueError: return RedirectResponse("/accounting/journal?error=date",status_code=303)
     if not user or amount<=0 or debit_account==credit_account: return RedirectResponse("/accounting/journal?error=validation",status_code=303)
@@ -158,13 +166,13 @@ def financials(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/accounting/periods", response_class=HTMLResponse)
 def periods_page(request: Request, db: Session = Depends(get_db)):
-    user=actor(request,db)
+    user=admin_actor(request,db)
     if not user: return RedirectResponse("/dashboard",status_code=303)
     rows=db.scalars(select(AccountingPeriod).order_by(AccountingPeriod.from_date.desc())).all(); csrf=csrf_token(request); body=f"<div class='card'><h2>Accounting Period</h2><form method='post' action='/accounting/periods'><input type='hidden' name='csrf_token' value='{csrf}'><div class='two'><div><label>Name</label><input name='period_name' placeholder='FY 2026-27' required></div><div><label>From</label><input type='date' name='from_date' required></div><div><label>To</label><input type='date' name='to_date' required></div></div><button class='btn' type='submit'>Create Open Period</button></form></div><div class='card'><h2>Periods</h2><table><tr><th>Name</th><th>From</th><th>To</th><th>Status</th><th>Action</th></tr>"+"".join(f"<tr><td>{escape(x.period_name)}</td><td>{x.from_date.date()}</td><td>{x.to_date.date()}</td><td>{escape(x.status)}</td><td>"+(f"<form method='post' action='/accounting/periods/{x.id}/close' style='display:inline'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn' type='submit'>Close Period</button></form>" if x.status!="CLOSED" else "Locked")+"</td></tr>" for x in rows)+"</table></div>"; return page("Accounting Periods",body)
 
 @router.post("/accounting/periods", dependencies=[Depends(require_csrf)])
 def create_period(request: Request, period_name: str = Form(...), from_date: str = Form(...), to_date: str = Form(...), db: Session = Depends(get_db)):
-    user=actor(request,db)
+    user=admin_actor(request,db)
     if not user: return RedirectResponse("/dashboard",status_code=303)
     try: start,end=dt(from_date),dt(to_date)
     except ValueError: return RedirectResponse("/accounting/periods?error=date",status_code=303)
@@ -173,7 +181,7 @@ def create_period(request: Request, period_name: str = Form(...), from_date: str
 
 @router.post("/accounting/periods/{period_id}/close", dependencies=[Depends(require_csrf)])
 def close_period(period_id:int,request:Request,db:Session=Depends(get_db)):
-    user=actor(request,db); period=db.get(AccountingPeriod,period_id)
+    user=admin_actor(request,db); period=db.get(AccountingPeriod,period_id)
     if not user or not period or period.status=="CLOSED": return RedirectResponse("/accounting/periods?error=validation",status_code=303)
     period.status="CLOSED"; period.closed_by_id=user.id; period.closed_at=datetime.utcnow(); from app.main import _audit; _audit(db,user.id,"ACCOUNTING_PERIOD_CLOSED",None,{"period_id":period.id,"period_name":period.period_name}); db.commit(); return RedirectResponse("/accounting/periods",status_code=303)
 
