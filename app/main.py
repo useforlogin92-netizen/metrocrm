@@ -19,6 +19,7 @@ from app.database import Base, engine, get_db
 from app.email_verification import EmailVerification
 from app.models import AuditEvent, User
 from app.permissions import Access, Role
+from app.features.users.service import filter_user_records, parse_permission_overrides
 from app.security import hash_password
 from app.routers.catalog_sharing import router as catalog_sharing_router
 from app.routers.caller_search import router as caller_search_router
@@ -321,30 +322,16 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
     created_from = request.query_params.get("created_from", "").strip()
     created_to = request.query_params.get("created_to", "").strip()
 
-    filtered = []
-    for item in visible_users:
-        if query and query not in " ".join(filter(None, [item.username, item.email, item.mobile, item.category, item.team])).casefold():
-            continue
-        if role_filter and item.role.upper() != role_filter:
-            continue
-        if category_filter and category_filter not in (item.category or "").casefold():
-            continue
-        if team_filter and team_filter not in (item.team or "").casefold():
-            continue
-        if status_filter == "active" and not item.is_active:
-            continue
-        if status_filter == "disabled" and item.is_active:
-            continue
-        if status_filter == "pending" and item.is_approved:
-            continue
-        if status_filter == "approved" and not item.is_approved:
-            continue
-        created_day = item.created_at.date().isoformat() if item.created_at else ""
-        if created_from and (not created_day or created_day < created_from):
-            continue
-        if created_to and (not created_day or created_day > created_to):
-            continue
-        filtered.append(item)
+    filtered = filter_user_records(
+        visible_users,
+        query=query,
+        role=role_filter,
+        category=category_filter,
+        team=team_filter,
+        status=status_filter,
+        created_from=created_from,
+        created_to=created_to,
+    )
 
     try:
         per_page = int(request.query_params.get("per_page", "10"))
@@ -399,21 +386,9 @@ def edit_user(request: Request, user_id: int, username: str = Form(...), role: s
     # schema and enum values before persisting JSON that authorization reads.
     if actor.role.upper() == "SUPER_ADMIN":
         try:
-            override = json.loads(permissions_json or "{}")
-        except (JSONDecodeError, TypeError):
+            override = parse_permission_overrides(permissions_json)
+        except ValueError:
             return RedirectResponse("/admin/users?error=permissions", status_code=303)
-        if not isinstance(override, dict) or set(override) - {"allow", "deny"}:
-            return RedirectResponse("/admin/users?error=permissions", status_code=303)
-        valid_modules = {"leads", "customers", "properties", "followups", "reports", "users", "integrations", "site_visits", "bookings", "accounting", "exports", "audit_logs"}
-        valid_actions = {action.value for action in Access}
-        for section in override.values():
-            if not isinstance(section, dict):
-                return RedirectResponse("/admin/users?error=permissions", status_code=303)
-            for module, actions in section.items():
-                if module not in valid_modules and module != "*":
-                    return RedirectResponse("/admin/users?error=permissions", status_code=303)
-                if not isinstance(actions, list) or any(not isinstance(action, str) or action not in valid_actions for action in actions):
-                    return RedirectResponse("/admin/users?error=permissions", status_code=303)
         target.permissions_json = json.dumps(override, separators=(",", ":"), sort_keys=True)
     elif actor.role.upper() == "ADMIN":
         # Admin profile edits cannot alter a user's authorization overrides.
