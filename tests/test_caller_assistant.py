@@ -184,3 +184,24 @@ def test_sales_executive_can_schedule_followup_for_assigned_lead(db_session, mon
     assert followup.assigned_user_id == actor.id
     assert followup.completed is False
     assert followup.purpose == "Call follow-up"
+
+
+
+def test_matched_property_rows_include_project_id_for_whatsapp_share(db_session):
+    from app.models import Developer, Project, Unit
+    from app.routers.caller_assistant import _property_rows
+
+    developer = Developer(name="Test Developer")
+    db_session.add(developer)
+    db_session.flush()
+    project = Project(developer_id=developer.id, name="Test Residency", city="Mumbai", locality="Borivali")
+    db_session.add(project)
+    db_session.flush()
+    unit = Unit(project_id=project.id, unit_number="A-101", bhk="2 BHK", property_type="Apartment", price=8000000)
+    db_session.add(unit)
+    db_session.commit()
+
+    properties = _property_rows(db_session, {"city": "Mumbai", "preferred_locations": [], "construction_statuses": []})
+
+    match = next(item for item in properties if item["id"] == unit.id)
+    assert match["project_id"] == project.id
