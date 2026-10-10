@@ -274,7 +274,7 @@ def save_visit_feedback(
             followup = FollowUp(
                 lead_id=lead.id,
                 customer_id=lead.customer_id,
-                assigned_user_id=lead.assigned_user_id or actor.id,
+                assigned_user_id=visit.sales_employee_id or lead.assigned_user_id or actor.id,
                 due_at=next_dt,
                 purpose="Post-site visit follow-up",
                 notes=next_followup_plan.strip() or f"Follow up after site visit #{visit.id}",
