@@ -212,9 +212,12 @@ def test_reassigned_sales_executive_can_open_and_update_their_visit_feedback(db_
         visit_id=visit.id, request=_visit_request(f"/site-visits/{visit.id}/feedback", "POST"),
         status="COMPLETED", interest_level="WARM", deal_status="FOLLOW_UP_REQUIRED",
         quoted_price="", customer_feedback="Backup caller completed the visit",
-        customer_objections="", next_followup_at="", next_followup_plan="Call customer",
+        customer_objections="", next_followup_at="2026-10-13T10:00", next_followup_plan="Call customer",
         other_project_required="no", next_project_id=None, csrf_token_value="test-csrf", db=db_session,
     )
+    from app.models import FollowUp
     db_session.refresh(visit)
+    followup = db_session.query(FollowUp).filter_by(lead_id=lead.id).one()
     assert response.status_code == 303
     assert visit.status == "COMPLETED"
+    assert followup.assigned_user_id == visit_owner.id
