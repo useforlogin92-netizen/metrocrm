@@ -123,6 +123,9 @@ def approve_assignment(
     if lead.assigned_user_id == assigned_user_id:
         return HTMLResponse("Lead is already assigned to this caller.", status_code=409)
 
+    if not reason.strip():
+        return HTMLResponse("Approval reason is required.", status_code=422)
+
     previous_owner = lead.assigned_user_id
     lead.assigned_user_id = assigned_user_id
     if lead.original_owner_id is None:
