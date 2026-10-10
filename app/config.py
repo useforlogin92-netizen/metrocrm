@@ -10,10 +10,6 @@ class Settings(BaseSettings):
     otp_expiry_seconds: int = 300
     otp_max_attempts: int = 5
 
-    # Super Admin trusted-device enrollment. Keep this secret in Render/.env,
-    # never in Git. Without it, new device registration is disabled.
-    trusted_device_enrollment_code: str = ""
-
     # Full CRM backup settings. Keep destinations and encryption key in .env, never in Git.
     backup_enabled: bool = True
     backup_timezone: str = "Asia/Kolkata"
