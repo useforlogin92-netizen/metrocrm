@@ -256,6 +256,7 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
         "budget_max": (requirement.budget_max if requirement else None) or lead.budget_max,
         "carpet_area_min": requirement.carpet_area_min if requirement else None,
         "carpet_area_max": requirement.carpet_area_max if requirement else None,
+        "possession_requirement": requirement.possession_requirement if requirement else None,
         "construction_statuses": [],
     }
     followups = db.scalars(select(FollowUp).where(FollowUp.lead_id == lead.id).order_by(FollowUp.completed.asc(), FollowUp.due_at.asc()).limit(50)).all()
@@ -296,6 +297,10 @@ def update_lead_requirements(
     email: str = Form(""), customer_notes: str = Form(""), requirement_text: str = Form(""),
     budget_min: str = Form(""), budget_max: str = Form(""), preferred_locations: str = Form(""),
     bhk: str = Form(""), property_type: str = Form(""), buy_rent: str = Form(""),
+    property_category: str = Form(""), carpet_area_min: str = Form(""), carpet_area_max: str = Form(""),
+    possession_requirement: str = Form(""), furnishing: str = Form(""), parking: str = Form(""),
+    project_preference: str = Form(""), developer_preference: str = Form(""),
+    loan_required: bool = Form(False), purpose: str = Form(""),
     requirement_notes: str = Form(""), csrf_token_value: str = Form("", alias="csrf_token"),
     db: Session = Depends(get_db),
 ):
@@ -309,8 +314,12 @@ def update_lead_requirements(
     try:
         minimum = _parse_optional_amount(budget_min, "Minimum budget")
         maximum = _parse_optional_amount(budget_max, "Maximum budget")
+        area_min = _parse_optional_amount(carpet_area_min, "Minimum carpet area")
+        area_max = _parse_optional_amount(carpet_area_max, "Maximum carpet area")
         if minimum is not None and maximum is not None and minimum > maximum:
             return HTMLResponse("Minimum budget cannot exceed maximum budget.", status_code=400)
+        if area_min is not None and area_max is not None and area_min > area_max:
+            return HTMLResponse("Minimum carpet area cannot exceed maximum carpet area.", status_code=400)
     except ValueError as exc:
         return HTMLResponse(str(exc), status_code=400)
     mode = buy_rent.strip().upper()
@@ -364,10 +373,20 @@ def update_lead_requirements(
         for name in locations
     ])
     requirement.buy_rent = mode or None
+    requirement.property_category = property_category.strip()[:50] or None
     requirement.budget_min = minimum
     requirement.budget_max = maximum
+    requirement.carpet_area_min = area_min
+    requirement.carpet_area_max = area_max
     requirement.bhk = lead.bhk
     requirement.property_type = lead.property_type
+    requirement.possession_requirement = possession_requirement.strip()[:100] or None
+    requirement.furnishing = furnishing.strip()[:50] or None
+    requirement.parking = parking.strip()[:100] or None
+    requirement.project_preference = project_preference.strip()[:1000] or None
+    requirement.developer_preference = developer_preference.strip()[:1000] or None
+    requirement.loan_required = bool(loan_required)
+    requirement.purpose = purpose.strip()[:100] or None
     requirement.notes = requirement_notes.strip() or None
     requirement.updated_at = datetime.now()
     db.add(AuditEvent(actor_user_id=user.id, action="LEAD_REQUIREMENTS_UPDATED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"customer_id": customer.id, "requirement_updated": True})))
