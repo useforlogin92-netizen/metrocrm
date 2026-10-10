@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Customer, CustomerRequirement, FollowUp, Lead, Project, Tower, Unit, User
+from app.models import AuditEvent, Customer, CustomerRequirement, Developer, FollowUp, Lead, Project, Tower, Unit, User
 from app.services.caller_search import filter_and_rank_properties
 
 router = APIRouter(prefix="/caller", tags=["caller-assistant"])
@@ -105,15 +105,15 @@ def _unit_is_unavailable(unit: Unit, project: Project) -> bool:
 
 
 def _property_rows(db: Session, customer: dict[str, Any]) -> list[dict[str, Any]]:
-    stmt = select(Unit, Project, Tower).join(Project, Unit.project_id == Project.id).outerjoin(Tower, Unit.tower_id == Tower.id)
+    stmt = select(Unit, Project, Tower, Developer).join(Project, Unit.project_id == Project.id).outerjoin(Tower, Unit.tower_id == Tower.id).outerjoin(Developer, Project.developer_id == Developer.id)
     properties: list[dict[str, Any]] = []
-    for unit, project, tower in db.execute(stmt).all():
+    for unit, project, tower, developer in db.execute(stmt).all():
         if _unit_is_unavailable(unit, project):
             continue
         location = " ".join(filter(None, [project.locality, project.sector, project.address]))
         properties.append({
             "id": unit.id, "project_id": project.id, "title": f"{project.name} - {unit.unit_number}", "project": project.name,
-            "developer": None, "tower": tower.name if tower else None, "location": location,
+            "developer": developer.name if developer else None, "tower": tower.name if tower else None, "location": location,
             "locality": project.locality, "city": project.city, "district": project.district, "state": project.state,
             "pincode": project.pincode, "bhk": unit.bhk, "property_type": unit.property_type,
             "carpet_area": float(unit.carpet_area) if unit.carpet_area is not None else None,
@@ -257,6 +257,10 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
         "carpet_area_min": requirement.carpet_area_min if requirement else None,
         "carpet_area_max": requirement.carpet_area_max if requirement else None,
         "possession_requirement": requirement.possession_requirement if requirement else None,
+        "project_preference": requirement.project_preference if requirement else None,
+        "developer_preference": requirement.developer_preference if requirement else None,
+        "furnishing": requirement.furnishing if requirement else None,
+        "parking": requirement.parking if requirement else None,
         "construction_statuses": [],
     }
     followups = db.scalars(select(FollowUp).where(FollowUp.lead_id == lead.id).order_by(FollowUp.completed.asc(), FollowUp.due_at.asc()).limit(50)).all()
