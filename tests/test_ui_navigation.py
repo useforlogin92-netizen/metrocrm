@@ -21,7 +21,7 @@ def test_navigation_injection_is_idempotent():
     twice = add_history_navigation(once)
 
     assert twice == once
-    assert twice.count("data-metrocrm-history-nav") == 1
+    assert twice.count('class="metrocrm-page-navigation"') == 1
 
 
 def test_non_html_or_bodyless_content_is_unchanged():
