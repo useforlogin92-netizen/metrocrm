@@ -35,10 +35,12 @@ from app.routers.property_update import router as property_update_router
 from app.routers.marketing import router as marketing_router
 from app.routers.lead_visit_monitoring import router as lead_visit_monitoring_router
 from app.routers.lead_assignment_suggestions import router as lead_assignment_suggestions_router
+from app.routers.site_visit_workflow import router as site_visit_workflow_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from app.services.property_submission_schema import ensure_property_submission_schema
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
+import app.site_visit_workflow_models  # noqa: F401
 import app.catalog_models  # noqa: F401
 import app.integration_models  # noqa: F401
 import app.whatsapp_models  # noqa: F401
@@ -122,6 +124,7 @@ app.include_router(property_update_router)
 app.include_router(marketing_router)
 app.include_router(lead_visit_monitoring_router)
 app.include_router(lead_assignment_suggestions_router)
+app.include_router(site_visit_workflow_router)
 
 _super_admin_failures: dict[str, list[float]] = {}
 _SUPER_ADMIN_MAX_FAILURES = 5
