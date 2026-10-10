@@ -15,7 +15,8 @@ from app.models import AuditEvent, Customer, FollowUp, Lead, LeadAssignmentHisto
 router = APIRouter(prefix="/admin/lead-monitoring", tags=["lead-visit-monitoring"])
 ADMIN_ROLES = {"SUPER_ADMIN", "ADMIN"}
 TEAM_ROLES = {"MANAGER", "TL"}
-MONITOR_ROLES = ADMIN_ROLES | TEAM_ROLES
+ASSIGN_ROLES = ADMIN_ROLES | TEAM_ROLES
+MONITOR_ROLES = ASSIGN_ROLES | {"SALES_EXECUTIVE", "TELECALLER"}
 
 
 def _actor(request: Request, db: Session) -> User | None:
@@ -30,7 +31,9 @@ def _dt(value: datetime | None) -> str:
 
 def _scope_user_ids(actor: User, db: Session) -> set[int]:
     if actor.role in ADMIN_ROLES:
-        return set(db.scalars(select(User.id)).all())
+        return set(db.scalars(select(User.id)).all()
+    if actor.role not in TEAM_ROLES:
+        return {actor.id}
     ids = {actor.id}
     frontier = {actor.id}
     while frontier:
@@ -44,6 +47,10 @@ def _lead_in_scope(actor: User, lead: Lead, db: Session) -> bool:
     if actor.role in ADMIN_ROLES:
         return True
     return lead.assigned_user_id in _scope_user_ids(actor, db)
+
+
+def _can_reassign(actor: User) -> bool:
+    return actor.role in ASSIGN_ROLES
 
 
 @router.get("", response_class=HTMLResponse)
@@ -76,17 +83,21 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         customer = customer_map.get(lead.customer_id)
         owner = user_map.get(lead.assigned_user_id, "Unassigned")
         options = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
-        lead_rows.append(
-            "<tr>"
-            f"<td>#{lead.id}</td><td>{escape(customer.name if customer else 'Unlinked')}</td>"
-            f"<td>{escape(lead.source or 'Unknown')}</td><td>{escape(owner)}</td>"
-            f"<td>{escape(lead.status or 'NEW')}</td><td>{_dt(lead.created_at)}</td>"
+        action_cell = (
             f"<td><form method='post' action='/admin/lead-monitoring/reassign-lead'>"
             f"<input type='hidden' name='csrf_token' value='{escape(csrf_token(request))}'>"
             f"<input type='hidden' name='lead_id' value='{lead.id}'>"
             f"<select name='assigned_user_id' required><option value=''>Select caller</option>{options}</select>"
             "<input name='reason' placeholder='Reason (optional)' maxlength='300'>"
-            "<button type='submit'>Assign</button></form></td></tr>"
+            "<button type='submit'>Assign</button></form></td>"
+            if _can_reassign(actor) else "<td>—</td>"
+        )
+        lead_rows.append(
+            "<tr>"
+            f"<td>#{lead.id}</td><td>{escape(customer.name if customer else 'Unlinked')}</td>"
+            f"<td>{escape(lead.source or 'Unknown')}</td><td>{escape(owner)}</td>"
+            f"<td>{escape(lead.status or 'NEW')}</td><td>{_dt(lead.created_at)}</td>"
+            f"{action_cell}</tr>"
         )
 
     follow_rows = []
@@ -102,15 +113,19 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         options = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
         status = (visit.status or "SCHEDULED").upper()
         attention = "OVERDUE" if visit.scheduled_at < now and status not in {"CANCELLED", "COMPLETED", "DONE", "NO_SHOW", "CUSTOMER_NO_SHOW"} else status
-        visit_rows.append(
-            f"<tr><td>#{visit.id}</td><td>{escape(customer.name if customer else '—')}</td>"
-            f"<td>{escape(user_map.get(visit.sales_employee_id, 'Unassigned'))}</td><td>{_dt(visit.scheduled_at)}</td>"
-            f"<td><strong>{escape(attention)}</strong></td><td>{escape(visit.outcome or '')}</td>"
+        action_cell = (
             f"<td><form method='post' action='/admin/lead-monitoring/reassign-visit'>"
             f"<input type='hidden' name='csrf_token' value='{escape(csrf_token(request))}'>"
             f"<input type='hidden' name='visit_id' value='{visit.id}'>"
             f"<select name='assigned_user_id' required><option value=''>Backup caller</option>{options}</select>"
-            f"<input name='reason' placeholder='Reason (optional)' maxlength='300'><button type='submit'>Reassign visit</button></form></td></tr>"
+            f"<input name='reason' placeholder='Reason (optional)' maxlength='300'><button type='submit'>Reassign visit</button></form></td>"
+            if _can_reassign(actor) else "<td>—</td>"
+        )
+        visit_rows.append(
+            f"<tr><td>#{visit.id}</td><td>{escape(customer.name if customer else '—')}</td>"
+            f"<td>{escape(user_map.get(visit.sales_employee_id, 'Unassigned'))}</td><td>{_dt(visit.scheduled_at)}</td>"
+            f"<td><strong>{escape(attention)}</strong></td><td>{escape(visit.outcome or '')}</td>"
+            f"{action_cell}</tr>"
         )
 
     body = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -122,9 +137,9 @@ body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0
 {''.join(f"<div class='alert'>Overdue follow-up · {escape((customer_map.get(f.customer_id).name if f.customer_id and customer_map.get(f.customer_id) else 'Lead follow-up'))} · Caller {escape(user_map.get(f.assigned_user_id, 'Unassigned'))} · Due {_dt(f.due_at)}</div>" for f in overdue_calls[:50]) or "<p>No overdue follow-ups currently recorded.</p>"}
 {''.join(f"<div class='alert'>Visit requires status update · Visit #{v.id} · {escape(customer_map.get(v.customer_id).name if v.customer_id and customer_map.get(v.customer_id) else 'Customer not linked')} · Scheduled {_dt(v.scheduled_at)} · Current status {escape(v.status or 'SCHEDULED')}</div>" for v in missed_visits[:50]) or "<p>No past-due visits requiring status update.</p>"}
 </div>
-<div class='card'><h2>All leads & reassignment</h2><p class='muted'>Lead source is shown on every row. Reassignment records the acting admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>Assign / reassign</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="7">No leads found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>{'All leads & reassignment' if _can_reassign(actor) else 'My assigned leads'}</h2><p class='muted'>Lead source is shown on every row. {('Team scope applies.' if actor.role in TEAM_ROLES else 'Only your assigned leads are shown.')} Reassignment records the acting manager/admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>{'Assign / reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="7">No leads found.</td></tr>'}</tbody></table></div></div>
 <div class='card'><h2>Call follow-ups</h2><div class='tablewrap'><table><thead><tr><th>Alert</th><th>Customer</th><th>Source</th><th>Caller</th><th>Due</th><th>Purpose</th><th>Notes</th></tr></thead><tbody>{''.join(follow_rows) or '<tr><td colspan="7">No open follow-ups found.</td></tr>'}</tbody></table></div></div>
-<div class='card'><h2>Site visit monitoring & backup assignment</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>Reassign</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>{'Site visit monitoring & backup assignment' if _can_reassign(actor) else 'My site visits'}</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>{'Reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
 </main></body></html>"""
     return HTMLResponse(body)
 
@@ -133,7 +148,7 @@ body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0
 def reassign_lead(request: Request, lead_id: int = Form(...), assigned_user_id: int = Form(...), reason: str = Form(""), csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db)):
     require_csrf(request, csrf_token_value)
     actor = _actor(request, db)
-    if not actor or actor.role not in MANAGERS:
+    if not actor or not _can_reassign(actor):
         return RedirectResponse("/", status_code=303)
     lead = db.get(Lead, lead_id)
     target = db.get(User, assigned_user_id)
