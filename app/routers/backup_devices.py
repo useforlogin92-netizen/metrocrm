@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.csrf import require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, User
 from app.services.backup_devices import is_device_approved, list_devices, register_device, set_device_status
@@ -40,7 +41,7 @@ def devices_page(request: Request, db: Session = Depends(get_db)):
         + "</td></tr>"
         for d in devices
     )
-    return HTMLResponse(f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Backup Devices · MetroCRM</title><style>body{{font-family:system-ui;background:#f4f7fb;color:#0f172a;padding:28px}}.wrap{{max-width:1100px;margin:auto}}.card{{background:white;border:1px solid #e2e8f0;border-radius:14px;padding:20px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}}button{{padding:7px 11px;border:0;border-radius:7px;cursor:pointer}}a{{text-decoration:none}}</style></head><body><div class='wrap'><div class='card'><h2>External Backup Devices</h2><p>Signed in as <strong>{html.escape(user.username)}</strong>. <strong>Only Super Admin</strong> can approve or revoke a device.</p><p><a href='/admin/backups/status'>← Backup Status</a></p><table><thead><tr><th>Device ID</th><th>Name</th><th>Path</th><th>Status</th><th>Action</th></tr></thead><tbody>{rows or '<tr><td colspan=5>No devices registered yet.</td></tr>'}</tbody></table></div></div></body></html>""")
+    return HTMLResponse(add_history_navigation(f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Backup Devices · MetroCRM</title><style>body{{font-family:system-ui;background:#f4f7fb;color:#0f172a;padding:28px}}.wrap{{max-width:1100px;margin:auto}}.card{{background:white;border:1px solid #e2e8f0;border-radius:14px;padding:20px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}}button{{padding:7px 11px;border:0;border-radius:7px;cursor:pointer}}a{{text-decoration:none}}</style></head><body><div class='wrap'><div class='card'><h2>External Backup Devices</h2><p>Signed in as <strong>{html.escape(user.username)}</strong>. <strong>Only Super Admin</strong> can approve or revoke a device.</p><p><a href='/admin/backups/status'>← Backup Status</a></p><table><thead><tr><th>Device ID</th><th>Name</th><th>Path</th><th>Status</th><th>Action</th></tr></thead><tbody>{rows or '<tr><td colspan=5>No devices registered yet.</td></tr>'}</tbody></table></div></div></body></html>"""))
 
 
 @router.post("/{device_id}/approve", dependencies=[Depends(require_csrf)])

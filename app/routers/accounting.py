@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.accounting_logic import post_transaction
 from app.accounting_models import AccountCategory, AccountingEntry, AccountingPeriod, JournalEntry, JournalLine
 from app.csrf import csrf_token, require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 
 router = APIRouter(tags=["accounting"])
@@ -77,7 +78,7 @@ def admin_actor(request: Request, db: Session):
 
 def page(title: str, body: str) -> HTMLResponse:
     css = "body{font-family:Arial;background:#f5f7fb;color:#10213f;padding:24px}.wrap{max-width:1250px;margin:auto}.card{background:#fff;padding:20px;border:1px solid #e5eaf2;border-radius:15px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{border:1px solid #e5eaf2;border-radius:10px;padding:14px}.value{font-size:22px;font-weight:800;margin-top:5px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;font-size:12px;font-weight:700;margin:8px 0 4px}input,select,textarea{width:100%;box-sizing:border-box;padding:9px;border:1px solid #cbd5e1;border-radius:8px}.btn{display:inline-block;border:0;border-radius:8px;padding:9px 13px;background:#2563eb;color:#fff;font-weight:700;text-decoration:none;cursor:pointer;margin-top:10px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid #eef2f7;text-align:left}th{background:#f8fafc}.muted{color:#64748b;font-size:12px}@media(max-width:800px){.grid,.two{grid-template-columns:1fr}}"
-    return HTMLResponse(f"<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | {escape(title)}</title><style>{css}</style></head><body><div class='wrap'><h1>{escape(title)}</h1>{body}</div></body></html>")
+    return HTMLResponse(add_history_navigation(f"<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | {escape(title)}</title><style>{css}</style></head><body><div class='wrap'><h1>{escape(title)}</h1>{body}</div></body></html>"))
 
 def ensure_categories(db: Session):
     existing = {x.code for x in db.scalars(select(AccountCategory)).all()}

@@ -15,6 +15,7 @@ from sqlalchemy import String, cast, or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, NearbyLocation, Project, PropertyConfiguration, SiteVisit, Token, Tower, Unit, User
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
@@ -609,7 +610,7 @@ def property_export_requests(request: Request, db: Session = Depends(get_db)):
     if not rows:
         html.append("<div class='row muted'>No property export requests.</div>")
     html.append("</div></div></body></html>")
-    return HTMLResponse("".join(html))
+    return HTMLResponse(add_history_navigation("".join(html)))
 
 
 def _decide_property_export(actor: User | None, request_id: int, approve: bool, db: Session):

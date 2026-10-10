@@ -9,6 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, Customer, FollowUp, Lead, LeadAssignmentHistory, SiteVisit, User
 
@@ -143,7 +144,7 @@ body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0
 <div class='card'><h2>Call follow-ups</h2><div class='tablewrap'><table><thead><tr><th>Alert</th><th>Customer</th><th>Source</th><th>Caller</th><th>Due</th><th>Purpose</th><th>Notes</th></tr></thead><tbody>{''.join(follow_rows) or '<tr><td colspan="7">No open follow-ups found.</td></tr>'}</tbody></table></div></div>
 <div class='card'><h2>{'Site visit monitoring & backup assignment' if _can_reassign(actor) else 'My site visits'}</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>{'Reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
 </main></body></html>"""
-    return HTMLResponse(body)
+    return HTMLResponse(add_history_navigation(body))
 
 
 @router.post("/reassign-lead")

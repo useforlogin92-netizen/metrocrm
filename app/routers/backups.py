@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.csrf import csrf_token, require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, User
 from app.services.backup import acknowledge_agent_backup, backup_health, create_full_backup
@@ -105,13 +106,13 @@ def configure_page(request: Request, provider: str = "", db: Session = Depends(g
     health = backup_health()
     google_ready = bool(settings.backup_google_client_id.strip() and settings.backup_google_client_secret.strip())
     onedrive_ready = bool(settings.backup_onedrive_client_id.strip() and settings.backup_onedrive_client_secret.strip())
-    return HTMLResponse(f"""
+    return HTMLResponse(add_history_navigation(f"""
 <!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Backup Cloud Configuration · MetroCRM</title>
 <style>body{{font-family:system-ui;background:#f4f7fb;color:#0f172a;margin:0;padding:30px}}.wrap{{max-width:900px;margin:auto}}.card{{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:22px;margin-bottom:18px}}a{{display:inline-block;padding:10px 14px;border-radius:9px;text-decoration:none;font-weight:800;background:#2563eb;color:#fff}}.muted{{color:#64748b;font-size:13px;line-height:1.6}}.ok{{color:#166534;font-weight:800}}.pending{{color:#9a3412;font-weight:800}}code{{background:#f8fafc;padding:2px 5px;border-radius:5px}}</style></head>
 <body><div class='wrap'><div class='card'><h2>MetroCRM Cloud Backup Configuration</h2><p class='muted'>Signed in as <strong>{html.escape(user.username)}</strong>. Cloud secrets are never stored in the application database.</p><a href='/admin/backups/status'>← Back to Backup Status</a></div>
 <div class='card'><h3>Google Drive</h3><p class='muted'>Status: <span class='{'ok' if health.get('google_drive_configured') else 'pending'}'>{'READY' if health.get('google_drive_configured') else 'CREDENTIALS PENDING'}</span></p><p class='muted'>Required: <code>BACKUP_GOOGLE_CLIENT_ID</code>, <code>BACKUP_GOOGLE_CLIENT_SECRET</code>, <code>BACKUP_GOOGLE_REFRESH_TOKEN</code>, <code>BACKUP_GOOGLE_FOLDER_ID</code>.</p>{"<a href='/admin/backups/google/connect'>Connect Google Drive</a>" if google_ready else "<span class='pending'>First add BACKUP_GOOGLE_CLIENT_ID and BACKUP_GOOGLE_CLIENT_SECRET in Render.</span>"}</div>
 <div class='card'><h3>OneDrive</h3><p class='muted'>Status: <span class='{'ok' if health.get('onedrive_configured') else 'pending'}'>{'READY' if health.get('onedrive_configured') else 'CREDENTIALS PENDING'}</span></p><p class='muted'>Required: <code>BACKUP_ONEDRIVE_TENANT</code>, <code>BACKUP_ONEDRIVE_CLIENT_ID</code>, <code>BACKUP_ONEDRIVE_CLIENT_SECRET</code>, <code>BACKUP_ONEDRIVE_REFRESH_TOKEN</code>, <code>BACKUP_ONEDRIVE_FOLDER_PATH</code>.</p>{"<a href='/admin/backups/onedrive/connect'>Connect OneDrive</a>" if onedrive_ready else "<span class='pending'>First add BACKUP_ONEDRIVE_CLIENT_ID and BACKUP_ONEDRIVE_CLIENT_SECRET in Render.</span>"}</div>
-<div class='card'><p class='muted'><strong>Redirect URIs for OAuth:</strong><br><code>/admin/backups/google/callback</code><br><code>/admin/backups/onedrive/callback</code><br>Register the complete HTTPS URL of your MetroCRM deployment with these paths.</p></div></div></body></html>""")
+<div class='card'><p class='muted'><strong>Redirect URIs for OAuth:</strong><br><code>/admin/backups/google/callback</code><br><code>/admin/backups/onedrive/callback</code><br>Register the complete HTTPS URL of your MetroCRM deployment with these paths.</p></div></div></body></html>"""))
 
 
 @router.get("/run")

@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 
 from app import main
 from app.config import settings
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, User
 
@@ -69,6 +70,6 @@ def storage_status(request: Request):
 <div class='card'><h3>Local encrypted backup files</h3><table><thead><tr><th>Relative path</th><th>Bytes</th><th>SHA-256</th></tr></thead><tbody>{rows}</tbody></table></div>
 <div class='card'><p style='margin:0;color:#64748b;font-size:12px'>A database row count of zero here means the running application has no saved users in the database it is actually connected to. A backup file is independently verifiable by its size and SHA-256.</p></div>
 </div></body></html>"""
-        return HTMLResponse(html)
+        return HTMLResponse(add_history_navigation(html))
     finally:
         db.close()
