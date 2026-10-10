@@ -97,8 +97,10 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
             f'<td><a href="/site-visits/{v.id}/feedback">Feedback / Next Step</a></td></tr>'
         )
     csrf = escape(csrf_token(request))
-    lead_opts = "".join(f'<option value="{l.id}">#{l.id} · {escape(customers[l.customer_id].name if l.customer_id in customers else "Customer not linked")} · {escape(l.source or "Unknown source")}</option>' for l in leads)
-    project_opts = "".join(f'<option value="{p.id}">{escape(p.name)} — {escape(p.locality or p.city or "")}</option>' for p in projects)
+    selected_lead_id = request.query_params.get("lead_id", "")
+    selected_project_id = request.query_params.get("project_id", "")
+    lead_opts = "".join(f'<option value="{l.id}" {"selected" if str(l.id) == selected_lead_id else ""}>#{l.id} · {escape(customers[l.customer_id].name if l.customer_id in customers else "Customer not linked")} · {escape(l.source or "Unknown source")}</option>' for l in leads)
+    project_opts = "".join(f'<option value="{p.id}" {"selected" if str(p.id) == selected_project_id else ""}>{escape(p.name)} — {escape(p.locality or p.city or "")}</option>' for p in projects)
     staff_opts = "".join(f'<option value="{u.id}">{escape(u.username)} ({escape(u.role)})</option>' for u in staff)
     monitoring_href = "/admin/lead-monitoring" if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} else "/caller/leads"
     monitoring_label = "Lead & Visit Monitoring" if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} else "My Leads"
