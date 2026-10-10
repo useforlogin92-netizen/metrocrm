@@ -50,6 +50,16 @@
 <label>BHK<input name="bhk" value="{{ (requirement.bhk if requirement else None) or lead.bhk or '' }}" placeholder="2 BHK"></label>
 <label>Property Type<input name="property_type" value="{{ (requirement.property_type if requirement else None) or lead.property_type or '' }}" placeholder="Apartment"></label>
 <label>Buy / Rent<select name="buy_rent"><option value="">Not specified</option><option value="BUY" {% if ((requirement.buy_rent if requirement else None) or lead.buy_rent) == 'BUY' %}selected{% endif %}>Buy</option><option value="RENT" {% if ((requirement.buy_rent if requirement else None) or lead.buy_rent) == 'RENT' %}selected{% endif %}>Rent</option><option value="BOTH" {% if ((requirement.buy_rent if requirement else None) or lead.buy_rent) == 'BOTH' %}selected{% endif %}>Both</option></select></label>
+<label>Property Category<input name="property_category" value="{{ requirement.property_category if requirement and requirement.property_category else '' }}" placeholder="Residential / Commercial"></label>
+<label>Minimum Carpet Area (sq. ft.)<input name="carpet_area_min" type="number" min="0" step="0.01" value="{{ requirement.carpet_area_min if requirement and requirement.carpet_area_min is not none else '' }}"></label>
+<label>Maximum Carpet Area (sq. ft.)<input name="carpet_area_max" type="number" min="0" step="0.01" value="{{ requirement.carpet_area_max if requirement and requirement.carpet_area_max is not none else '' }}"></label>
+<label>Possession Requirement<input name="possession_requirement" value="{{ requirement.possession_requirement if requirement and requirement.possession_requirement else '' }}" placeholder="Ready to Move / Within 1 Year"></label>
+<label>Furnishing Preference<input name="furnishing" value="{{ requirement.furnishing if requirement and requirement.furnishing else '' }}" placeholder="Unfurnished / Semi-Furnished / Furnished"></label>
+<label>Parking Requirement<input name="parking" value="{{ requirement.parking if requirement and requirement.parking else '' }}" placeholder="1 covered parking"></label>
+<label>Preferred Project<input name="project_preference" value="{{ requirement.project_preference if requirement and requirement.project_preference else '' }}" maxlength="1000"></label>
+<label>Preferred Developer<input name="developer_preference" value="{{ requirement.developer_preference if requirement and requirement.developer_preference else '' }}" maxlength="1000"></label>
+<label>Purchase Purpose<input name="purpose" value="{{ requirement.purpose if requirement and requirement.purpose else '' }}" placeholder="Self Use / Investment"></label>
+<label style="display:flex;align-items:center;gap:8px"><input name="loan_required" type="checkbox" value="true" style="width:auto" {% if requirement and requirement.loan_required %}checked{% endif %}> Home loan required</label>
 <label>Requirement Summary<input name="requirement_text" maxlength="2000" value="{{ lead.requirement or '' }}" placeholder="Ready possession, family use, near station"></label>
 <label>Customer Notes<input name="customer_notes" value="{{ customer.notes if customer and customer.notes else '' }}" maxlength="2000"></label>
 <label style="grid-column:1/-1">Requirement Notes<textarea name="requirement_notes" rows="2">{{ requirement.notes if requirement and requirement.notes else '' }}</textarea></label>
