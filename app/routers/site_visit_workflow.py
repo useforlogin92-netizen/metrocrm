@@ -162,7 +162,7 @@ def create_visit_batch(
         for project in projects:
             visit = SiteVisit(
                 customer_id=lead.customer_id, lead_id=lead.id, project_id=project.id,
-                sales_employee_id=None, conducted_by_id=conducted_by_id,
+                sales_employee_id=lead.assigned_user_id, conducted_by_id=conducted_by_id,
                 scheduled_at=when, status="SCHEDULED", notes=notes.strip() or None,
             )
             db.add(visit)
@@ -185,7 +185,7 @@ def visit_feedback_page(visit_id: int, request: Request, db: Session = Depends(g
         return RedirectResponse("/", status_code=303)
     visit = db.get(SiteVisit, visit_id)
     lead = db.get(Lead, visit.lead_id) if visit and visit.lead_id else None
-    if not visit or not lead or not _visible_lead(actor, lead):
+    if not visit or not lead or not _visible_lead(actor, lead, db):
         return HTMLResponse("Visit not found or outside your permitted scope.", status_code=404)
     customer = db.get(Customer, visit.customer_id) if visit.customer_id else None
     project = db.get(Project, visit.project_id) if visit.project_id else None
@@ -234,7 +234,7 @@ def save_visit_feedback(
         return RedirectResponse("/", status_code=303)
     visit = db.get(SiteVisit, visit_id)
     lead = db.get(Lead, visit.lead_id) if visit and visit.lead_id else None
-    if not visit or not lead or not _visible_lead(actor, lead):
+    if not visit or not lead or not _visible_lead(actor, lead, db):
         return HTMLResponse("Visit not found or outside your permitted scope.", status_code=404)
     allowed_status = {"SCHEDULED","COMPLETED","RESCHEDULED","CANCELLED","NO_SHOW","CUSTOMER_NO_SHOW"}
     allowed_interest = {"HOT","WARM","COLD","UNDECIDED"}
