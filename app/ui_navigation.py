@@ -77,7 +77,10 @@ def add_history_navigation(document: str) -> str:
     body_match = re.search(r"<body\b[^>]*>", document, re.IGNORECASE)
     if not body_match:
         return document
-    document = document[:body_match.end()] + _NAVIGATION_MARKUP + document[body_match.end():]
+    navigation_markup = _NAVIGATION_MARKUP
+    if re.search(r"""href\\s*=\\s*["']\\/dashboard(?:[?#][^"']*)?["']""", document, re.IGNORECASE):
+        navigation_markup = navigation_markup.replace('<a href="/dashboard">Dashboard</a>\\n', "")
+    document = document[:body_match.end()] + navigation_markup + document[body_match.end():]
 
     if re.search(r"</body\s*>", document, re.IGNORECASE):
         document = re.sub(r"</body\s*>", _NAVIGATION_SCRIPT + "</body>", document, count=1, flags=re.IGNORECASE)
