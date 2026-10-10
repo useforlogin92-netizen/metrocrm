@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.csrf import require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Customer, Lead, Project, Unit, User
+from app.routers.caller_assistant import _lead_in_scope
 from app.services.email import send_email
 
 router = APIRouter(prefix="/email", tags=["email"])
@@ -31,7 +32,7 @@ def _lead_for_user(lead_id: int, user: User, db: Session) -> tuple[Lead, Custome
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(404, "lead_not_found")
-    if user.role not in {"SUPER_ADMIN", "ADMIN", "MANAGER"} and lead.assigned_user_id != user.id:
+    if not _lead_in_scope(user, lead, db):
         raise HTTPException(403, "lead_outside_scope")
     if not lead.customer_id:
         raise HTTPException(400, "lead_has_no_customer")
