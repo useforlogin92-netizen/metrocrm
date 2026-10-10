@@ -27,8 +27,8 @@ def _user(db, username, role, **kwargs):
         username=username,
         password_hash="test-hash",
         role=role,
-        is_active=True,
-        is_approved=True,
+        is_active=kwargs.pop("is_active", True),
+        is_approved=kwargs.pop("is_approved", True),
         **kwargs,
     )
     db.add(user)
