@@ -175,3 +175,46 @@ def test_site_visit_created_from_assigned_lead_keeps_sales_owner(db_session, mon
     visit = db_session.query(SiteVisit).filter_by(lead_id=lead.id, project_id=project.id).one()
     assert response.status_code == 303
     assert visit.sales_employee_id == executive.id
+
+
+
+def test_reassigned_sales_executive_can_open_and_update_their_visit_feedback(db_session, monkeypatch):
+    from datetime import datetime
+    from app.models import Customer, Developer, Lead, Project, SiteVisit, User
+    from app.routers import site_visit_workflow as workflow
+
+    visit_owner = User(username="backup-visit-owner", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    lead_owner = User(username="original-lead-owner", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Reassigned Visit Customer", mobile="9876500777")
+    developer = Developer(name="Reassigned Visit Developer")
+    db_session.add_all([visit_owner, lead_owner, customer, developer])
+    db_session.flush()
+    project = Project(developer_id=developer.id, name="Reassigned Visit Residency", city="Mumbai")
+    db_session.add(project)
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="SITE_VISIT_SCHEDULED", assigned_user_id=lead_owner.id)
+    db_session.add(lead)
+    db_session.flush()
+    visit = SiteVisit(customer_id=customer.id, lead_id=lead.id, project_id=project.id,
+                      sales_employee_id=visit_owner.id, conducted_by_id=visit_owner.id,
+                      scheduled_at=datetime(2026, 10, 12, 11, 0), status="SCHEDULED")
+    db_session.add(visit)
+    db_session.commit()
+
+    monkeypatch.setattr(workflow, "_actor", lambda request, db: visit_owner)
+    monkeypatch.setattr(workflow, "csrf_token", lambda request: "test-csrf")
+    page = workflow.visit_feedback_page(visit.id, _visit_request(f"/site-visits/{visit.id}/feedback"), db_session)
+    assert page.status_code == 200
+    assert "Reassigned Visit Customer" in page.body.decode()
+
+    monkeypatch.setattr(workflow, "require_csrf", lambda request, token: None)
+    response = workflow.save_visit_feedback(
+        visit_id=visit.id, request=_visit_request(f"/site-visits/{visit.id}/feedback", "POST"),
+        status="COMPLETED", interest_level="WARM", deal_status="FOLLOW_UP_REQUIRED",
+        quoted_price="", customer_feedback="Backup caller completed the visit",
+        customer_objections="", next_followup_at="", next_followup_plan="Call customer",
+        other_project_required="no", next_project_id=None, csrf_token_value="test-csrf", db=db_session,
+    )
+    db_session.refresh(visit)
+    assert response.status_code == 303
+    assert visit.status == "COMPLETED"
