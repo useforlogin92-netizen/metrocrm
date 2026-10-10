@@ -6,7 +6,7 @@ from dataclasses import asdict
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -22,6 +22,12 @@ from app.services.property_pricing import format_property_value, format_rate_per
 
 router = APIRouter(prefix="/caller", tags=["caller-search"])
 templates = Jinja2Templates(directory="app/templates")
+
+CALLER_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+
+
+def _can_use_search(user: User | None) -> bool:
+    return bool(user and user.role in CALLER_ROLES)
 
 
 class CallerSearchRequest(BaseModel):
@@ -207,7 +213,9 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
 def caller_search_options(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _user(request, db)
     if not user:
-        return {"error": "authentication_required"}
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not _can_use_search(user):
+        raise HTTPException(status_code=403, detail="caller_search_not_permitted")
     corridors: dict[str, list[str]] = {}
     for station in MUMBAI_LOCAL_STATIONS:
         corridors.setdefault(station["corridor"], []).append(station["name"])
@@ -217,7 +225,7 @@ def caller_search_options(request: Request, db: Session = Depends(get_db)) -> di
 @router.get("/search", response_class=HTMLResponse, response_model=None)
 def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse | RedirectResponse:
     user = _user(request, db)
-    if not user:
+    if not user or not _can_use_search(user):
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse("caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}})
 
@@ -226,7 +234,9 @@ def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLR
 def caller_search(body: CallerSearchRequest, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _user(request, db)
     if not user:
-        return {"error": "authentication_required"}
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not _can_use_search(user):
+        raise HTTPException(status_code=403, detail="caller_search_not_permitted")
     properties = _inventory_rows(db, body.city)
     filters = body.model_dump(exclude_none=True)
     if body.jodi:
