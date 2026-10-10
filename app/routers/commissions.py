@@ -108,7 +108,7 @@ def commission_tracker(request: Request, db: Session = Depends(get_db)):
 
     total_payable = sum((_money(row.payable_amount if row.payable_amount is not None else row.amount) for row in commissions), ZERO)
     total_received = sum((_money(row.received_amount) for row in commissions), ZERO)
-    total_pending = sum((_money(row.pending_amount if row.pending_amount is not None else _money(row.payable_amount if row.payable_amount is not None else row.amount) - _money(row.received_amount)) for row in commissions), ZERO)
+    total_pending = sum((max(_money(row.payable_amount if row.payable_amount is not None else row.amount) - _money(row.received_amount), ZERO) for row in commissions), ZERO)
     csrf = escape(csrf_token(request))
 
     form = ""
@@ -143,8 +143,8 @@ def commission_tracker(request: Request, db: Session = Depends(get_db)):
         employee = employees.get(row.employee_id) if row.employee_id else (employees.get(booking.employee_id) if booking and booking.employee_id else None)
         payable = _money(row.payable_amount if row.payable_amount is not None else row.amount)
         received = _money(row.received_amount)
-        pending = _money(row.pending_amount if row.pending_amount is not None else payable - received)
-        status = "RECEIVED" if pending <= ZERO else ("PARTIALLY RECEIVED" if received > ZERO else "PENDING")
+        pending = max(payable - received, ZERO)
+        status = "NO PAYABLE" if payable <= ZERO else ("RECEIVED" if pending <= ZERO else ("PARTIALLY RECEIVED" if received > ZERO else "PENDING"))
         receive_form = ""
         if actor.role in COMMISSION_RECEIVE_ROLES and pending > ZERO:
             receive_form = (
@@ -258,7 +258,7 @@ def receive_commission_payment(
         return HTMLResponse("Commission record not found.", status_code=404)
     payable = _money(record.payable_amount if record.payable_amount is not None else record.amount)
     received = _money(record.received_amount)
-    pending = _money(record.pending_amount if record.pending_amount is not None else payable - received)
+    pending = max(payable - received, ZERO)
     if amount_received <= ZERO:
         return HTMLResponse("Receipt amount must be greater than zero.", status_code=400)
     if amount_received > pending:
