@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.csrf import require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Customer, Lead, Project, Unit, User
-from app.routers.caller_assistant import _lead_in_scope
+from app.routers.caller_assistant import _lead_in_scope, _unit_is_unavailable
 from app.services.email import send_email
 
 router = APIRouter(prefix="/email", tags=["email"])
@@ -122,6 +122,8 @@ def share_property_email(
     unit = db.get(Unit, unit_id)
     if not project or not unit or unit.project_id != project.id:
         raise HTTPException(404, "property_not_found")
+    if _unit_is_unavailable(unit, project):
+        raise HTTPException(409, "property_unavailable")
 
     location = ", ".join(value for value in (project.locality, project.city, project.address) if value)
     subject = f"Property details: {project.name} — {unit.unit_number}"
