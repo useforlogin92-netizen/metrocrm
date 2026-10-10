@@ -49,3 +49,39 @@ def test_admin_email_workspace_can_list_all_leads(db_session):
     db_session.commit()
 
     assert record.id in {lead.id for lead in _visible_leads(admin, db_session)}
+
+
+
+def test_email_workspace_route_lists_only_the_sales_executives_assigned_customer(db_session, monkeypatch):
+    from starlette.requests import Request
+    from app.models import Customer
+    from app.routers import email
+
+    executive = User(username="email-page-exec", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    other = User(username="email-page-other", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    own_customer = Customer(name="Assigned Customer", email="assigned@example.com")
+    other_customer = Customer(name="Other Customer", email="other@example.com")
+    db_session.add_all([executive, other, own_customer, other_customer])
+    db_session.flush()
+    own_lead = Lead(customer_id=own_customer.id, source="WEBSITE", status="NEW", assigned_user_id=executive.id)
+    other_lead = Lead(customer_id=other_customer.id, source="REFERRAL", status="NEW", assigned_user_id=other.id)
+    db_session.add_all([own_lead, other_lead])
+    db_session.commit()
+
+    request = Request({"type": "http", "method": "GET", "path": "/email", "headers": [], "query_string": b""})
+    monkeypatch.setattr(email, "_user", lambda request, db: executive)
+
+    response = email.email_workspace(request, db_session)
+
+    assert response.status_code == 200
+    assert "Assigned Customer" in response.body.decode()
+    assert "Other Customer" not in response.body.decode()
+    assert f"/caller/lead/{own_lead.id}/call" in response.body.decode()
+
+
+def test_email_workspace_get_route_is_registered_on_live_app():
+    from app.main_portal import app
+
+    routes = {(getattr(route, "path", None), tuple(sorted(getattr(route, "methods", set()) or set()))) for route in app.routes}
+    assert ("/email", ("GET",)) in routes
+    assert ("/email/property-share", ("POST",)) in routes
