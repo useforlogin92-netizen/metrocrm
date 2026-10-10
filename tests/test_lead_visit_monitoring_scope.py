@@ -56,3 +56,40 @@ def test_sales_executive_monitoring_scope_is_only_their_own_user_id(db_session):
     assert not _can_reassign(executive)
     manager = User(username="monitor-manager-assign", password_hash="x", role="MANAGER", is_active=True, is_approved=True)
     assert _can_reassign(manager)
+
+
+
+def test_sales_executive_monitoring_includes_visits_reassigned_to_them(db_session, monkeypatch):
+    from datetime import datetime
+    from starlette.requests import Request
+    from app.models import Customer, Developer, Project, SiteVisit
+    from app.routers import lead_visit_monitoring as monitoring
+
+    visit_owner = User(username="monitor-backup-owner", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    lead_owner = User(username="monitor-original-owner", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Monitoring Reassigned Customer", mobile="9876500666")
+    developer = Developer(name="Monitoring Developer")
+    db_session.add_all([visit_owner, lead_owner, customer, developer])
+    db_session.flush()
+    project = Project(developer_id=developer.id, name="Monitoring Residency", city="Mumbai")
+    db_session.add(project)
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="SITE_VISIT_SCHEDULED", assigned_user_id=lead_owner.id)
+    db_session.add(lead)
+    db_session.flush()
+    visit = SiteVisit(customer_id=customer.id, lead_id=lead.id, project_id=project.id,
+                      sales_employee_id=visit_owner.id, conducted_by_id=visit_owner.id,
+                      scheduled_at=datetime(2026, 10, 12, 12, 0), status="SCHEDULED")
+    db_session.add(visit)
+    db_session.commit()
+
+    request = Request({"type": "http", "method": "GET", "path": "/admin/lead-monitoring", "headers": [], "query_string": b"", "session": {}})
+    monkeypatch.setattr(monitoring, "_actor", lambda request, db: visit_owner)
+    monkeypatch.setattr(monitoring, "csrf_token", lambda request: "test-csrf")
+
+    response = monitoring.dashboard(request, db_session)
+    html = response.body.decode()
+
+    assert response.status_code == 200
+    assert "My site visits" in html
+    assert "Monitoring Reassigned Customer" in html
