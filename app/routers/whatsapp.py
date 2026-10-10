@@ -103,7 +103,7 @@ def whatsapp_page(request: Request, db: Session = Depends(get_db)):
             })
     context["available_properties"] = available_properties
     context.update({"whatsapp_enabled": bool(settings.whatsapp_enabled), "whatsapp_mode": settings.whatsapp_mode})
-    return templates.TemplateResponse("whatsapp.html", context)
+    return templates.TemplateResponse(request, "whatsapp.html", context)
 
 
 @router.post("/send", dependencies=[Depends(require_csrf)])
