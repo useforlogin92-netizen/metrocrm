@@ -5,7 +5,7 @@ from html import escape
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
@@ -67,7 +67,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     if actor.role not in ADMIN_ROLES:
         leads_query = select(Lead).where(Lead.assigned_user_id.in_(scope_ids)).order_by(Lead.created_at.desc()).limit(500)
         followup_query = select(FollowUp).where(FollowUp.completed.is_(False), FollowUp.assigned_user_id.in_(scope_ids)).order_by(FollowUp.due_at.asc()).limit(500)
-        visit_query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(Lead.assigned_user_id.in_(scope_ids)).order_by(SiteVisit.scheduled_at.asc()).limit(500)
+        visit_query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(
+            or_(Lead.assigned_user_id.in_(scope_ids), SiteVisit.sales_employee_id.in_(scope_ids))
+        ).order_by(SiteVisit.scheduled_at.asc()).limit(500)
     leads = db.scalars(leads_query).all()
     followups = db.scalars(followup_query).all()
     visits = db.scalars(visit_query).all()
