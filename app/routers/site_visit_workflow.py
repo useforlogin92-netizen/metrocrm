@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Customer, Lead, Project, SiteVisit, User
+from app.models import AuditEvent, Customer, FollowUp, Lead, Project, SiteVisit, User
 from app.site_visit_workflow_models import SiteVisitReview
 
 router = APIRouter(prefix="/site-visits", tags=["site-visit-workflow"])
@@ -202,6 +202,31 @@ def save_visit_feedback(
     review.customer_objections = customer_objections.strip() or None
     review.next_followup_at = next_dt
     review.next_followup_plan = next_followup_plan.strip() or None
+    # Make the next-step plan actionable in the existing FollowUp queue.
+    if next_dt:
+        followup = db.get(FollowUp, review.followup_id) if review.followup_id else None
+        if followup is None:
+            followup = FollowUp(
+                lead_id=lead.id,
+                customer_id=lead.customer_id,
+                assigned_user_id=lead.assigned_user_id or actor.id,
+                due_at=next_dt,
+                purpose="Post-site visit follow-up",
+                notes=next_followup_plan.strip() or f"Follow up after site visit #{visit.id}",
+                completed=False,
+            )
+            db.add(followup)
+            db.flush()
+            review.followup_id = followup.id
+        else:
+            followup.due_at = next_dt
+            followup.purpose = "Post-site visit follow-up"
+            followup.notes = next_followup_plan.strip() or f"Follow up after site visit #{visit.id}"
+            followup.completed = False
+    elif review.followup_id:
+        existing_followup = db.get(FollowUp, review.followup_id)
+        if existing_followup and not existing_followup.completed:
+            existing_followup.completed = True
     review.other_project_required = other_project_required == "yes"
     review.next_project_id = next_project_id
     review.updated_by_id = actor.id
