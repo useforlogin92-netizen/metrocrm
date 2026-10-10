@@ -397,9 +397,9 @@ def edit_user(request: Request, user_id: int, username: str = Form(...), role: s
 
     # Only Super Admin may set explicit permission overrides. Validate the
     # schema and enum values before persisting JSON that authorization reads.
-    if permissions_json.strip() and actor.role.upper() == "SUPER_ADMIN":
+    if actor.role.upper() == "SUPER_ADMIN":
         try:
-            override = json.loads(permissions_json)
+            override = json.loads(permissions_json or "{}")
         except (JSONDecodeError, TypeError):
             return RedirectResponse("/admin/users?error=permissions", status_code=303)
         if not isinstance(override, dict) or set(override) - {"allow", "deny"}:
@@ -425,7 +425,7 @@ def edit_user(request: Request, user_id: int, username: str = Form(...), role: s
     target.team = team.strip() or None
     target.reporting_manager_id = manager
     target.email = email.strip().lower() or None
-    _audit(db, actor.id, "USER_UPDATED", target, {"role": role, "permissions_changed": bool(permissions_json.strip()) and actor.role.upper() == "SUPER_ADMIN"})
+    _audit(db, actor.id, "USER_UPDATED", target, {"role": role, "permissions_changed": actor.role.upper() == "SUPER_ADMIN"})
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
 
