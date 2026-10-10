@@ -218,11 +218,10 @@ def _import_leads(content: bytes, actor: User, db: Session):
     errors: list[str] = []
     try:
         for row_no, values in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if not any(v not in (None, "") for v in values):
+            row_values = values[1:] if has_serial_column else values
+            if not any(v not in (None, "") for v in row_values):
                 continue
-            if has_serial_column:
-                values = values[1:]
-            raw = {expected_fields[i]: values[i] for i in range(len(expected_fields))}
+            raw = {expected_fields[i]: row_values[i] for i in range(len(expected_fields))}
             try:
                 lead_id = int(raw["lead_id"]) if raw.get("lead_id") not in (None, "") else None
                 lead = db.get(Lead, lead_id) if lead_id else Lead()
