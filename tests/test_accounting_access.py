@@ -28,3 +28,14 @@ def test_admin_finance_controls_remain_available(monkeypatch, db_session):
 
     assert accounting.actor(_request(), db_session) is admin
     assert accounting.admin_actor(_request(), db_session) is admin
+
+
+
+def test_accountant_cannot_open_admin_only_journal_page(monkeypatch, db_session):
+    accountant = SimpleNamespace(id=12, role="ACCOUNTANT", username="finance-user")
+    monkeypatch.setattr("app.main._current_user", lambda request, db: accountant)
+
+    response = accounting.journal_page(_request(), db_session)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
