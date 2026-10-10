@@ -19,7 +19,7 @@ from app.whatsapp_models import WhatsAppMessage
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 templates = Jinja2Templates(directory="app/templates")
-SEND_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+SEND_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER", "USER"}
 
 
 def _user(request: Request, db: Session) -> User:
