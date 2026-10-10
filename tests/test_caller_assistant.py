@@ -247,3 +247,68 @@ def test_customer_matching_excludes_sold_out_project_inventory(db_session):
     properties = _property_rows(db_session, {"city": "Mumbai", "preferred_locations": ["Borivali"], "construction_statuses": []})
 
     assert unit.id not in {item["id"] for item in properties}
+
+
+
+def test_sales_executive_can_save_full_real_estate_qualification(db_session, monkeypatch):
+    from app.models import Customer, CustomerRequirement, Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="sales-full-qualification", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Qualification Customer", mobile="9876509876")
+    db_session.add_all([actor, customer])
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="QUALIFIED", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_lead_requirements(
+        lead_id=lead.id, request=_post_request(), customer_name="Qualification Customer",
+        mobile="9876509876", alternate_mobile="", email="buyer@example.com", customer_notes="Evening calls",
+        requirement_text="Family home near station", budget_min="7000000", budget_max="10000000",
+        preferred_locations="Borivali", bhk="2 BHK", property_type="Apartment", buy_rent="BUY",
+        property_category="Residential", carpet_area_min="650", carpet_area_max="900",
+        possession_requirement="Within 1 Year", furnishing="Semi-Furnished", parking="1 covered",
+        project_preference="Near station", developer_preference="Preferred developer",
+        loan_required=True, purpose="Self Use", requirement_notes="Loan pre-approval pending",
+        csrf_token_value="test", db=db_session,
+    )
+
+    assert response.status_code == 303
+    requirement = db_session.query(CustomerRequirement).filter_by(customer_id=customer.id, is_active=True).one()
+    assert str(requirement.carpet_area_min) == "650"
+    assert str(requirement.carpet_area_max) == "900"
+    assert requirement.property_category == "Residential"
+    assert requirement.possession_requirement == "Within 1 Year"
+    assert requirement.furnishing == "Semi-Furnished"
+    assert requirement.parking == "1 covered"
+    assert requirement.project_preference == "Near station"
+    assert requirement.developer_preference == "Preferred developer"
+    assert requirement.loan_required is True
+    assert requirement.purpose == "Self Use"
+
+
+def test_sales_executive_rejects_reversed_carpet_area_range(db_session, monkeypatch):
+    import pytest
+    from app.models import Customer, Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="sales-area-range", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Area Customer", mobile="9876501122")
+    db_session.add_all([actor, customer])
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="NEW", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_lead_requirements(
+        lead_id=lead.id, request=_post_request(), customer_name="Area Customer",
+        carpet_area_min="1000", carpet_area_max="500", csrf_token_value="test", db=db_session,
+    )
+
+    assert response.status_code == 400
+    assert "Minimum carpet area" in response.body.decode()
