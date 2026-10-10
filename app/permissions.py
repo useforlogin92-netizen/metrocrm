@@ -85,6 +85,7 @@ ROLE_DEFAULTS: dict[Role, dict[str, set[Access]]] = {
         "followups": {Access.VIEW, Access.CREATE, Access.EDIT},
     },
     Role.ACCOUNTANT: {
+        "accounting": {Access.VIEW, Access.CREATE, Access.EDIT, Access.EXPORT},
         "customers": {Access.VIEW},
         "reports": {Access.VIEW},
     },
