@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
@@ -54,6 +54,12 @@ def _visible_lead(actor: User, lead: Lead, db: Session | None = None) -> bool:
     return lead.assigned_user_id in _team_user_ids(actor, db)
 
 
+def _visible_visit(actor: User, visit: SiteVisit, lead: Lead, db: Session) -> bool:
+    if _visible_lead(actor, lead, db):
+        return True
+    return visit.sales_employee_id in _team_user_ids(actor, db)
+
+
 @router.get("", response_class=HTMLResponse)
 def visit_workflow(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
@@ -71,7 +77,10 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
     staff = db.scalars(staff_query).all()
     query = select(SiteVisit).order_by(SiteVisit.scheduled_at.desc()).limit(200)
     if actor.role not in {"SUPER_ADMIN", "ADMIN"}:
-        query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(Lead.assigned_user_id.in_(_team_user_ids(actor, db))).order_by(SiteVisit.scheduled_at.desc()).limit(200)
+        team_scope = _team_user_ids(actor, db)
+        query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(
+            or_(Lead.assigned_user_id.in_(team_scope), SiteVisit.sales_employee_id.in_(team_scope))
+        ).order_by(SiteVisit.scheduled_at.desc()).limit(200)
     visits = db.scalars(query).all()
     user_map = {u.id: u.username for u in db.scalars(select(User)).all()}
     project_map = {p.id: p for p in projects}
@@ -185,7 +194,7 @@ def visit_feedback_page(visit_id: int, request: Request, db: Session = Depends(g
         return RedirectResponse("/", status_code=303)
     visit = db.get(SiteVisit, visit_id)
     lead = db.get(Lead, visit.lead_id) if visit and visit.lead_id else None
-    if not visit or not lead or not _visible_lead(actor, lead, db):
+    if not visit or not lead or not _visible_visit(actor, visit, lead, db):
         return HTMLResponse("Visit not found or outside your permitted scope.", status_code=404)
     customer = db.get(Customer, visit.customer_id) if visit.customer_id else None
     project = db.get(Project, visit.project_id) if visit.project_id else None
@@ -234,7 +243,7 @@ def save_visit_feedback(
         return RedirectResponse("/", status_code=303)
     visit = db.get(SiteVisit, visit_id)
     lead = db.get(Lead, visit.lead_id) if visit and visit.lead_id else None
-    if not visit or not lead or not _visible_lead(actor, lead, db):
+    if not visit or not lead or not _visible_visit(actor, visit, lead, db):
         return HTMLResponse("Visit not found or outside your permitted scope.", status_code=404)
     allowed_status = {"SCHEDULED","COMPLETED","RESCHEDULED","CANCELLED","NO_SHOW","CUSTOMER_NO_SHOW"}
     allowed_interest = {"HOT","WARM","COLD","UNDECIDED"}
