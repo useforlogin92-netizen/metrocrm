@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -21,7 +22,7 @@ router = APIRouter(tags=["offline-lead-import"])
 templates = Jinja2Templates(directory="app/templates")
 
 LEAD_FIELDS = [
-    "lead_id", "customer_id", "customer_name", "mobile", "alternate_mobile", "email",
+    "sr_no", "lead_id", "customer_id", "customer_name", "mobile", "alternate_mobile", "email",
     "source", "status", "assigned_user_id", "original_owner_id", "requirement",
     "budget_min", "budget_max", "preferred_location", "bhk", "property_type", "buy_rent",
     "customer_notes",
@@ -53,6 +54,8 @@ def _lead_template() -> BytesIO:
         ["Rule 6", "The complete workbook is validated before any changes are committed."],
         ["Rule 7", "Only Super Admin and Admin can upload offline leads."],
         ["Rule 8", "Admin imports do not require approval, but Super Admin receives an activity notice."],
+        ["Rule 9", "Sr No is for spreadsheet reference only; MetroCRM generates its own lead ID."],
+        ["Rule 10", "Use the Source dropdown: Magicbricks, Meta Ads, 99acres, Website, Referral, Walk-in, WhatsApp, Instagram, Facebook, Housing.com, NoBroker, Other, or Offline Import."],
     ]
     for row in rows:
         ws.append(row)
@@ -63,13 +66,14 @@ def _lead_template() -> BytesIO:
     sh = wb.create_sheet("Leads")
     sh.append(LEAD_FIELDS)
     examples = {
+        "sr_no": 1,
         "lead_id": "",
         "customer_id": "",
         "customer_name": "Rahul Sharma",
         "mobile": "9876543210",
         "alternate_mobile": "9123456780",
         "email": "rahul@example.com",
-        "source": "OFFLINE_IMPORT",
+        "source": "Magicbricks",
         "status": "NEW",
         "assigned_user_id": 1,
         "original_owner_id": 1,
@@ -89,17 +93,27 @@ def _lead_template() -> BytesIO:
         cell.alignment = Alignment(horizontal="center")
     sh.freeze_panes = "A2"
     sh.auto_filter.ref = sh.dimensions
+    source_col = LEAD_FIELDS.index("source") + 1
+    source_letter = get_column_letter(source_col)
+    source_validation = DataValidation(type="list", formula1='"Magicbricks,Meta Ads,99acres,Website,Referral,Walk-in,WhatsApp,Instagram,Facebook,Housing.com,NoBroker,Other,Offline Import"', allow_blank=False)
+    source_validation.error = "Select a source from the dropdown."
+    source_validation.errorTitle = "Invalid lead source"
+    source_validation.prompt = "Choose where this lead came from."
+    source_validation.promptTitle = "Lead source"
+    sh.add_data_validation(source_validation)
+    source_validation.add(f"{source_letter}2:{source_letter}5000")
     for idx, field in enumerate(LEAD_FIELDS, 1):
         sh.column_dimensions[get_column_letter(idx)].width = min(30, max(13, len(field) + 4))
 
     ex = wb.create_sheet("Field Guide")
     ex.append(["Field", "Required?", "What to enter"])
     guide = {
+        "sr_no": ("No", "Spreadsheet serial number for reference only; ignored by MetroCRM"),
         "lead_id": ("No", "Existing lead ID for update; blank creates a lead"),
         "customer_id": ("No", "Existing customer ID if known"),
         "customer_name": ("For new customer", "Customer full name"),
         "mobile": ("Recommended", "Primary customer mobile number"),
-        "source": ("Yes", "Lead source such as OFFLINE_IMPORT, WALK_IN, CP, WEBSITE"),
+        "source": ("Yes", "Lead source: Magicbricks, Meta Ads, 99acres, Website, Referral, Walk-in, WhatsApp, Instagram, Facebook, Housing.com, NoBroker, Other, or Offline Import"),
         "status": ("Yes", "NEW, CONTACTED, QUALIFIED, etc."),
         "assigned_user_id": ("No", "MetroCRM user ID responsible for the lead"),
         "requirement": ("No", "Free-text property requirement"),
@@ -179,7 +193,10 @@ def _import_leads(content: bytes, actor: User, db: Session):
         return 0, 0, ["Workbook must contain a Leads sheet"]
     ws = wb["Leads"]
     headers = [str(x.value).strip() if x.value is not None else "" for x in ws[1]]
-    if headers != LEAD_FIELDS:
+    has_serial_column = bool(headers and headers[0].lower() == "sr_no")
+    normalized_headers = headers[1:] if has_serial_column else headers
+    expected_fields = LEAD_FIELDS[1:] if has_serial_column else LEAD_FIELDS
+    if normalized_headers != expected_fields:
         return 0, 0, ["Leads sheet columns do not match the MetroCRM template"]
     users = {u.id for u in db.scalars(select(User)).all()}
     created = updated = 0
@@ -188,7 +205,9 @@ def _import_leads(content: bytes, actor: User, db: Session):
         for row_no, values in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             if not any(v not in (None, "") for v in values):
                 continue
-            raw = {headers[i]: values[i] for i in range(len(headers))}
+            if has_serial_column:
+                values = values[1:]
+            raw = {expected_fields[i]: values[i] for i in range(len(expected_fields))}
             try:
                 lead_id = int(raw["lead_id"]) if raw.get("lead_id") not in (None, "") else None
                 lead = db.get(Lead, lead_id) if lead_id else Lead()
