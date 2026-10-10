@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.csrf import require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, Customer, Lead, Project, Unit, User
 from app.routers.caller_assistant import _lead_in_scope, _unit_is_unavailable
@@ -81,7 +82,7 @@ def email_workspace(request: Request, db: Session = Depends(get_db)):
         + ("".join(rows) or "<tr><td colspan='6'>No leads are available in your permitted scope.</td></tr>")
         + "</tbody></table></div></main></body></html>"
     )
-    return HTMLResponse(body)
+    return HTMLResponse(add_history_navigation(body))
 SEND_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER", "USER"}
 
 
