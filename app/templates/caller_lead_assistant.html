@@ -35,6 +35,17 @@
 <div class="stat"><div class="label">Buy / Rent</div><div class="value">{{ (requirement.buy_rent if requirement else None) or lead.buy_rent or 'Not specified' }}</div></div>
 </div><h3>Preferred Locations</h3><div class="locations">{% for item in locations %}<span class="loc">{{ item.name }} · {{ item.side }} · {{ item.priority }}</span>{% else %}<span class="muted">No preferred location captured.</span>{% endfor %}</div>{% if lead.requirement %}<p class="side-note">Lead requirement: {{ lead.requirement }}</p>{% endif %}</div>
 
+<div class="card"><h2>Update Lead Status</h2>
+<form method="post" action="/caller/lead/{{ lead.id }}/status" class="grid">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Lead Status<select name="status" required>
+{% for option in ['NEW','CONTACTED','QUALIFIED','FOLLOW_UP_REQUIRED','SITE_VISIT_SCHEDULED','NEGOTIATION','BOOKED','LOST','NOT_INTERESTED','INVALID','DUPLICATE','CLOSED'] %}
+<option value="{{ option }}" {% if (lead.status or 'NEW')|upper == option %}selected{% endif %}>{{ option.replace('_', ' ').title() }}</option>
+{% endfor %}
+</select></label>
+<div><button class="btn" type="submit">Save Lead Status</button></div>
+</form></div>
+
 <div class="card"><h2>Update Customer & Requirement</h2>
 <p class="muted">Changes apply only to this lead and its linked customer. Use the latest confirmed requirement before recommending properties.</p>
 <form method="post" action="/caller/lead/{{ lead.id }}/requirements">

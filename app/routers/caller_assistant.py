@@ -394,6 +394,37 @@ def update_lead_requirements(
     return RedirectResponse(f"/caller/lead/{lead.id}/call", status_code=303)
 
 
+@router.post("/lead/{lead_id}/status", dependencies=[Depends(require_csrf)])
+def update_lead_status(
+    lead_id: int, request: Request, status: str = Form(...),
+    csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db),
+):
+    require_csrf(request, csrf_token_value)
+    user = _current_user(request, db)
+    if not user or not _allowed(user):
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(user, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    normalized = status.strip().upper().replace(" ", "_").replace("-", "_")
+    allowed_statuses = {
+        "NEW", "CONTACTED", "QUALIFIED", "FOLLOW_UP_REQUIRED",
+        "SITE_VISIT_SCHEDULED", "NEGOTIATION", "BOOKED", "LOST",
+        "NOT_INTERESTED", "INVALID", "DUPLICATE", "CLOSED",
+    }
+    if normalized not in allowed_statuses:
+        return HTMLResponse("Select a valid lead status.", status_code=400)
+    previous_status = lead.status
+    lead.status = normalized
+    db.add(AuditEvent(
+        actor_user_id=user.id, action="LEAD_STATUS_UPDATED", entity_type="Lead",
+        entity_id=str(lead.id),
+        details=json.dumps({"previous_status": previous_status, "new_status": normalized}),
+    ))
+    db.commit()
+    return RedirectResponse(f"/caller/lead/{lead.id}/call", status_code=303)
+
+
 @router.post("/lead/{lead_id}/follow-ups", dependencies=[Depends(require_csrf)])
 def schedule_lead_followup(
     lead_id: int, request: Request, due_at: str = Form(...),
