@@ -127,6 +127,25 @@ def sync_provider(provider: str, request: Request, db: Session = Depends(get_db)
     return JSONResponse({"status": "ADAPTER_PENDING", "provider": provider, "message": "Connection is saved, but the provider-specific API sync adapter is not configured yet. No external data was changed."}, status_code=409)
 
 
+@router.get("/property-visits", response_class=HTMLResponse)
+def property_visits(request: Request, db: Session = Depends(get_db)):
+    """Show recent property visit alerts to authenticated management users."""
+    user = _management(request, db)
+    rows = db.scalars(
+        select(PropertyVisitAlert)
+        .order_by(PropertyVisitAlert.created_at.desc())
+        .limit(200)
+    ).all()
+    return templates.TemplateResponse(
+        "integration_property_visits.html",
+        {
+            **_shell_context(request, user),
+            "rows": rows,
+            "csrf_token": csrf_token(request),
+        },
+    )
+
+
 @router.get("/logs", response_class=HTMLResponse)
 def integration_logs(request: Request, db: Session = Depends(get_db)):
     user = _management(request, db)
