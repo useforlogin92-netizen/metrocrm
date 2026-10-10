@@ -19,7 +19,7 @@ def test_template_has_blank_import_sheet_source_dropdown_and_separate_example():
     example = workbook["Example"]
     assert [cell.value for cell in leads[1]] == LEAD_FIELDS
     assert all(cell.value is None for cell in leads[2])
-    assert example["C2"].value == "Rahul Sharma"
+    assert example["D2"].value == "Rahul Sharma"
     assert leads.data_validations.dataValidation
     source_column = LEAD_FIELDS.index("source") + 1
     expected_letter = leads.cell(row=1, column=source_column).column_letter
