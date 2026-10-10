@@ -245,3 +245,41 @@ Do not store secrets, tokens, passwords, customer personal data, or production d
 - Full regression suite passes on the exact PR head commit.
 - Deployment is not claimed until Render reports the matching commit as live and a smoke test succeeds.
 - OM Krishna Group files, services, database and deployment remain untouched.
+
+
+## User-category folders (role-by-role ownership)
+
+The dashboard's role categories must also have distinct homes. Initial role names are taken from the existing `Role` enum in `app/permissions.py`—not invented display labels:
+
+```text
+app/features/users/categories/
+  super_admin/
+  admin/
+  manager/
+  tl/
+  sales_executive/
+  telecaller/
+  accountant/
+  hr/
+```
+
+Each category currently contains a boundary README only; these are scaffolding directories, not migrated application code. Use the matching category folder for role-specific routes, service orchestration, schemas, templates and tests as migration proceeds. Keep the role-specific work separate while preserving common implementations.
+
+### Critical distinction: category code vs shared security
+
+- `SUPER_ADMIN` and other categories may own their screens and workflows.
+- Password validation, sessions, CSRF, permissions, database session handling and audit recording must remain centralized shared services. Do not make eight separate copies of authentication code.
+- Folder placement is organizational only. Server-side route/service authorization remains mandatory.
+- A category-specific feature must not edit another category's files unless a shared dependency change is documented and tested.
+- Before migrating existing role-dependent routes out of `app/main.py`, map all call sites, shared template context, role checks and URL contracts. Keep existing URLs stable during the first migration.
+- A new role/category must be added to the canonical role manifest and checked against `app/permissions.py`; CI should flag missing or stale categories.
+
+### Recommended category-specific change workflow
+
+1. Identify category and function ID.
+2. Inspect only that category plus its declared shared dependencies.
+3. Write/update focused tests for the category route/service.
+4. Run permission, CSRF, audit and data-scope tests as applicable.
+5. Run the full suite and route/template checks.
+6. Review changed files; explain any cross-category/shared change.
+7. Merge/deploy only after CI and the target release are verified.
