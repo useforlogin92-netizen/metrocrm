@@ -20,6 +20,10 @@ from app.crm_plus_models import (
 
 router = APIRouter(tags=["crm-plus"])
 
+CRM_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+TARGET_VIEW_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE"}
+POST_BOOKING_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE"}
+
 
 def now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -113,7 +117,7 @@ def page(title: str, body: str) -> HTMLResponse:
 @router.get("/crm/advanced", response_class=HTMLResponse)
 def advanced_hub(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor:
+    if not actor or actor.role not in CRM_ROLES:
         return RedirectResponse("/", status_code=303)
     ids = team_ids(actor, db)
     lead_count = db.scalar(select(func.count(Lead.id)).where(Lead.assigned_user_id.in_(ids))) or 0
@@ -145,7 +149,18 @@ def advanced_hub(request: Request, db: Session = Depends(get_db)):
     body += "<div class='card'><h2>Lead Intelligence</h2><p class='muted'>Score leads from 0–100 using source, freshness and captured qualification data.</p>"
     body += f"<form method='post' action='/crm/advanced/score-leads'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn' type='submit'>Recalculate Lead Scores</button></form></div>"
     body += "<div class='grid'>"
-    links = [("Tasks & Follow-up", "/crm/advanced/tasks"), ("Sales Targets", "/crm/advanced/targets"), ("Marketing Campaigns", "/crm/advanced/campaigns"), ("Channel Partners", "/crm/advanced/partners"), ("Payment Milestones", "/crm/advanced/payments"), ("Customer Service", "/crm/advanced/tickets"), ("Possession Checklist", "/crm/advanced/possession")]
+    links = [("Tasks & Follow-up", "/crm/advanced/tasks")]
+    if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE"}:
+        links.append(("Sales Targets", "/crm/advanced/targets"))
+        links.extend([
+            ("Payment Milestones", "/crm/advanced/payments"),
+            ("Customer Service", "/crm/advanced/tickets"),
+            ("Possession Checklist", "/crm/advanced/possession"),
+        ])
+    if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER"}:
+        links.append(("Channel Partners", "/crm/advanced/partners"))
+    if actor.role in {"SUPER_ADMIN", "ADMIN"}:
+        links.append(("Marketing Campaigns", "/crm/advanced/campaigns"))
     for label, href in links:
         body += f"<div class='card'><h2>{escape(label)}</h2><a class='btn' href='{href}'>Open</a></div>"
     body += "</div>"
@@ -155,7 +170,7 @@ def advanced_hub(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/score-leads", dependencies=[Depends(require_csrf)])
 def recalculate_scores(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor:
+    if not actor or actor.role not in CRM_ROLES:
         return RedirectResponse("/", status_code=303)
     score_all(actor, db)
     return RedirectResponse("/crm/advanced", status_code=303)
@@ -164,7 +179,7 @@ def recalculate_scores(request: Request, db: Session = Depends(get_db)):
 @router.get("/crm/advanced/tasks", response_class=HTMLResponse)
 def tasks_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor:
+    if not actor or actor.role not in CRM_ROLES:
         return RedirectResponse("/", status_code=303)
     ids = team_ids(actor, db)
     rows = db.scalars(select(CRMTask).where(CRMTask.assigned_user_id.in_(ids)).order_by(CRMTask.due_at.asc()).limit(100)).all()
@@ -183,7 +198,7 @@ def tasks_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/tasks", dependencies=[Depends(require_csrf)])
 def create_task(request: Request, title: str = Form(...), due_at: str = Form(...), assigned_user_id: int = Form(...), priority: str = Form("MEDIUM"), description: str = Form(""), db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor or not can_manage_team(actor, assigned_user_id, db):
+    if not actor or actor.role not in CRM_ROLES or not can_manage_team(actor, assigned_user_id, db):
         return RedirectResponse("/crm/advanced/tasks", status_code=303)
     task = CRMTask(title=title.strip(), description=description.strip() or None, assigned_user_id=assigned_user_id, due_at=datetime.fromisoformat(due_at), priority=priority.upper(), created_by_id=actor.id)
     db.add(task); db.commit()
@@ -194,7 +209,7 @@ def create_task(request: Request, title: str = Form(...), due_at: str = Form(...
 def done_task(task_id: int, request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
     task = db.get(CRMTask, task_id)
-    if not actor or not task or task.assigned_user_id not in team_ids(actor, db):
+    if not actor or actor.role not in CRM_ROLES or not task or task.assigned_user_id not in team_ids(actor, db):
         return RedirectResponse("/crm/advanced/tasks", status_code=303)
     task.status = "DONE"; task.completed_at = now(); db.commit()
     return RedirectResponse("/crm/advanced/tasks", status_code=303)
@@ -203,10 +218,12 @@ def done_task(task_id: int, request: Request, db: Session = Depends(get_db)):
 @router.get("/crm/advanced/targets", response_class=HTMLResponse)
 def targets_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor: return RedirectResponse("/", status_code=303)
+    if not actor or actor.role not in TARGET_VIEW_ROLES: return RedirectResponse("/dashboard", status_code=303)
     ids = team_ids(actor, db); rows = db.scalars(select(SalesTarget).where(SalesTarget.user_id.in_(ids)).order_by(SalesTarget.period.desc())).all()
     csrf = csrf_token(request); users = db.scalars(select(User).where(User.id.in_(ids)).order_by(User.username)).all()
-    body = "<div class='card'><h2>Set monthly targets</h2><form method='post' action='/crm/advanced/targets'><input type='hidden' name='csrf_token' value='"+csrf+"'><div class='two'><div><label>User</label><select name='user_id'>"+"".join(f"<option value='{u.id}'>{escape(u.username)} ({escape(str(u.role))})</option>" for u in users)+"</select></div><div><label>Period (YYYY-MM)</label><input name='period' placeholder='2026-09' required></div><div><label>Lead target</label><input type='number' name='lead_target' min='0' value='0'></div><div><label>Visit target</label><input type='number' name='visit_target' min='0' value='0'></div><div><label>Booking target</label><input type='number' name='booking_target' min='0' value='0'></div><div><label>Sales target</label><input type='number' step='0.01' name='sales_target' min='0' value='0'></div></div><button class='btn' style='margin-top:10px' type='submit'>Save Target</button></form></div>"
+    body = ""
+    if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
+        body += "<div class='card'><h2>Set monthly targets</h2><form method='post' action='/crm/advanced/targets'><input type='hidden' name='csrf_token' value='"+csrf+"'><div class='two'><div><label>User</label><select name='user_id'>"+"".join(f"<option value='{u.id}'>{escape(u.username)} ({escape(str(u.role))})</option>" for u in users)+"</select></div><div><label>Period (YYYY-MM)</label><input name='period' placeholder='2026-09' required></div><div><label>Lead target</label><input type='number' name='lead_target' min='0' value='0'></div><div><label>Visit target</label><input type='number' name='visit_target' min='0' value='0'></div><div><label>Booking target</label><input type='number' name='booking_target' min='0' value='0'></div><div><label>Sales target</label><input type='number' step='0.01' name='sales_target' min='0' value='0'></div></div><button class='btn' style='margin-top:10px' type='submit'>Save Target</button></form></div>"
     body += "<div class='card'><h2>Targets</h2><table><tr><th>User</th><th>Period</th><th>Leads</th><th>Visits</th><th>Bookings</th><th>Sales</th></tr>"+"".join(f"<tr><td>{escape(db.get(User,r.user_id).username)}</td><td>{escape(r.period)}</td><td>{r.lead_target}</td><td>{r.visit_target}</td><td>{r.booking_target}</td><td>₹ {float(r.sales_target):,.2f}</td></tr>" for r in rows if db.get(User,r.user_id))+"</table></div>"
     return page("Sales Targets", body)
 
@@ -264,7 +281,7 @@ def create_partner(request: Request, name: str = Form(...), company: str = Form(
 @router.get("/crm/advanced/payments", response_class=HTMLResponse)
 def payments_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor: return RedirectResponse("/", status_code=303)
+    if not actor or actor.role not in POST_BOOKING_ROLES: return RedirectResponse("/dashboard", status_code=303)
     ids = team_ids(actor, db); bookings = db.scalars(select(Booking).where(or_(Booking.employee_id.in_(ids), Booking.manager_id.in_(ids))).order_by(Booking.id.desc()).limit(100)).all(); booking_ids = [b.id for b in bookings]
     rows = db.scalars(select(PaymentMilestone).where(PaymentMilestone.booking_id.in_(booking_ids)).order_by(PaymentMilestone.due_date.asc())).all() if booking_ids else []
     csrf = csrf_token(request)
@@ -276,14 +293,14 @@ def payments_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/payments", dependencies=[Depends(require_csrf)])
 def create_payment_milestone(request: Request, booking_id: int = Form(...), milestone_name: str = Form(...), due_date: str = Form(...), due_amount: Decimal = Form(...), db: Session = Depends(get_db)):
     actor = current_user(request, db); booking = db.get(Booking, booking_id)
-    if not actor or not booking or booking.employee_id not in team_ids(actor, db) and booking.manager_id not in team_ids(actor, db): return RedirectResponse("/crm/advanced/payments", status_code=303)
+    if not actor or actor.role not in POST_BOOKING_ROLES or not booking or (booking.employee_id not in team_ids(actor, db) and booking.manager_id not in team_ids(actor, db)): return RedirectResponse("/crm/advanced/payments", status_code=303)
     db.add(PaymentMilestone(booking_id=booking_id, milestone_name=milestone_name.strip(), due_date=datetime.fromisoformat(due_date), due_amount=due_amount)); db.commit(); return RedirectResponse("/crm/advanced/payments", status_code=303)
 
 
 @router.get("/crm/advanced/tickets", response_class=HTMLResponse)
 def tickets_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor: return RedirectResponse("/", status_code=303)
+    if not actor or actor.role not in POST_BOOKING_ROLES: return RedirectResponse("/dashboard", status_code=303)
     scoped_customer_ids = customer_ids(actor, db)
     rows = db.scalars(select(ServiceTicket).where(ServiceTicket.customer_id.in_(scoped_customer_ids)).order_by(ServiceTicket.id.desc()).limit(100)).all() if scoped_customer_ids else []
     customers = db.scalars(select(Customer).where(Customer.id.in_(scoped_customer_ids)).order_by(Customer.name).limit(100)).all() if scoped_customer_ids else []
@@ -296,14 +313,14 @@ def tickets_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/tickets", dependencies=[Depends(require_csrf)])
 def create_ticket(request: Request, customer_id: int = Form(...), category: str = Form(...), subject: str = Form(...), priority: str = Form("MEDIUM"), description: str = Form(""), db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor or customer_id not in customer_ids(actor, db): return RedirectResponse("/crm/advanced/tickets", status_code=303)
+    if not actor or actor.role not in POST_BOOKING_ROLES or customer_id not in customer_ids(actor, db): return RedirectResponse("/crm/advanced/tickets", status_code=303)
     db.add(ServiceTicket(customer_id=customer_id, assigned_user_id=actor.id, category=category.upper(), subject=subject.strip(), priority=priority.upper(), description=description.strip() or None)); db.commit(); return RedirectResponse("/crm/advanced/tickets", status_code=303)
 
 
 @router.get("/crm/advanced/possession", response_class=HTMLResponse)
 def possession_page(request: Request, db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor: return RedirectResponse("/", status_code=303)
+    if not actor or actor.role not in POST_BOOKING_ROLES: return RedirectResponse("/dashboard", status_code=303)
     ids = team_ids(actor, db); bookings = db.scalars(select(Booking).where(or_(Booking.employee_id.in_(ids), Booking.manager_id.in_(ids))).order_by(Booking.id.desc()).limit(100)).all(); booking_ids=[b.id for b in bookings]
     rows = db.scalars(select(PossessionChecklist).where(PossessionChecklist.booking_id.in_(booking_ids)).order_by(PossessionChecklist.booking_id, PossessionChecklist.id)).all() if booking_ids else []
     csrf=csrf_token(request)
@@ -315,5 +332,5 @@ def possession_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/possession", dependencies=[Depends(require_csrf)])
 def add_possession_item(request: Request, booking_id: int = Form(...), item: str = Form(...), db: Session = Depends(get_db)):
     actor=current_user(request,db); booking=db.get(Booking,booking_id); ids=team_ids(actor,db) if actor else set()
-    if not actor or not booking or (booking.employee_id not in ids and booking.manager_id not in ids): return RedirectResponse("/crm/advanced/possession", status_code=303)
+    if not actor or actor.role not in POST_BOOKING_ROLES or not booking or (booking.employee_id not in ids and booking.manager_id not in ids): return RedirectResponse("/crm/advanced/possession", status_code=303)
     db.add(PossessionChecklist(booking_id=booking_id,item=item.strip())); db.commit(); return RedirectResponse("/crm/advanced/possession", status_code=303)

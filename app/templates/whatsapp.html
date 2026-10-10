@@ -3,9 +3,9 @@
 {% block header_title %}WhatsApp{% endblock %}
 {% block breadcrumb %}WhatsApp{% endblock %}
 {% block content %}
-<div class="card" style="max-width:980px">
+<div class="card" style="max-width:1100px">
   <h2 style="margin-top:0">WhatsApp Communication</h2>
-  <p style="color:#64748b">Send approved CRM messages to a lead or share a selected property with a customer. Customer numbers and provider credentials stay server-side.</p>
+  <p style="color:#64748b">Send a message to a customer or share an available property. The lead selector is limited to your assigned leads or your permitted reporting team.</p>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin:18px 0">
     <span style="padding:7px 10px;border-radius:999px;background:#f1f5f9;font-size:12px;font-weight:700">Gateway: {{ 'Enabled' if whatsapp_enabled else 'Test / Not enabled' }}</span>
     <span style="padding:7px 10px;border-radius:999px;background:#f1f5f9;font-size:12px;font-weight:700">Mode: {{ whatsapp_mode|upper }}</span>
@@ -14,20 +14,58 @@
   <form method="post" action="/whatsapp/send" style="display:grid;gap:12px;margin-top:22px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h3 style="margin:0">Send Message</h3>
-    <label>Lead ID<input name="lead_id" type="number" min="1" required placeholder="Lead ID"></label>
-    <label>Message<textarea name="message" rows="5" required placeholder="Type the customer message here"></textarea></label>
+    <label>Customer Lead *
+      <select name="lead_id" required>
+        <option value="">Select an assigned lead</option>
+        {% for lead in leads %}
+        {% set customer = customers.get(lead.customer_id) %}
+        <option value="{{ lead.id }}">#{{ lead.id }} · {{ customer.name if customer else 'Unlinked customer' }} · {{ lead.source or 'Unknown source' }} · {{ lead.status or 'NEW' }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Message<textarea name="message" rows="5" required maxlength="4096" placeholder="Type the customer message here"></textarea></label>
     <button type="submit" style="width:max-content">Send WhatsApp Message</button>
+    {% if not leads %}<p style="color:#64748b">No leads are available in your permitted scope.</p>{% endif %}
   </form>
 
   <hr style="margin:28px 0;border:0;border-top:1px solid #e2e8f0">
-  <form method="post" action="/whatsapp/property-share" style="display:grid;gap:12px">
+  <form method="post" action="/whatsapp/property-share" id="whatsapp-property-form" style="display:grid;gap:12px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h3 style="margin:0">Share Property</h3>
-    <p style="color:#64748b;margin:0">Creates a controlled customer-facing property link and sends the property summary through WhatsApp.</p>
-    <label>Lead ID<input name="lead_id" type="number" min="1" required></label>
-    <label>Project ID<input name="project_id" type="number" min="1" required></label>
-    <label>Unit ID<input name="unit_id" type="number" min="1" required></label>
+    <p style="color:#64748b;margin:0">Choose a customer lead and an available inventory unit. Sold, booked, reserved, or inactive units are excluded from the list.</p>
+    <label>Customer Lead *
+      <select name="lead_id" required>
+        <option value="">Select an assigned lead</option>
+        {% for lead in leads %}
+        {% set customer = customers.get(lead.customer_id) %}
+        <option value="{{ lead.id }}">#{{ lead.id }} · {{ customer.name if customer else 'Unlinked customer' }} · {{ lead.source or 'Unknown source' }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="project_id" id="whatsapp-project-id">
+    <label>Available Property *
+      <select name="unit_id" id="whatsapp-unit-id" required>
+        <option value="">Select an available property</option>
+        {% for item in available_properties %}
+        <option value="{{ item.id }}" data-project-id="{{ item.project_id }}">{{ item.project_name }} · {{ item.unit_number }} · {{ item.bhk or item.property_type or 'Configuration not specified' }} · {{ item.locality or item.city or 'Location not specified' }} · {% if item.price is not none %}₹{{ "{:,.0f}".format(item.price) }}{% else %}Price not listed{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
     <button type="submit" style="width:max-content">Share Property on WhatsApp</button>
+    {% if not available_properties %}<p style="color:#64748b">No available inventory is currently listed for sharing.</p>{% endif %}
   </form>
 </div>
+<script>
+(function () {
+  const unit = document.getElementById("whatsapp-unit-id");
+  const project = document.getElementById("whatsapp-project-id");
+  if (!unit || !project) return;
+  function syncProject() {
+    const selected = unit.options[unit.selectedIndex];
+    project.value = selected ? (selected.dataset.projectId || "") : "";
+  }
+  unit.addEventListener("change", syncProject);
+  syncProject();
+})();
+</script>
 {% endblock %}
