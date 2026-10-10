@@ -85,3 +85,38 @@ def test_email_workspace_get_route_is_registered_on_live_app():
     routes = {(getattr(route, "path", None), tuple(sorted(getattr(route, "methods", set()) or set()))) for route in app.routes}
     assert ("/email", ("GET",)) in routes
     assert ("/email/property-share", ("POST",)) in routes
+
+
+
+def test_email_property_share_rejects_sold_inventory(db_session, monkeypatch):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from app.models import Customer, Developer, Project, Unit
+    from app.routers import email
+
+    actor = User(username="email-sold-check", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Email Sold Customer", email="sold@example.com")
+    developer = Developer(name="Email Sold Developer")
+    db_session.add_all([actor, customer, developer])
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="NEW", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.flush()
+    project = Project(developer_id=developer.id, name="Email Sold Residency", city="Mumbai")
+    db_session.add(project)
+    db_session.flush()
+    sold = Unit(project_id=project.id, unit_number="S-201", status="SOLD")
+    db_session.add(sold)
+    db_session.commit()
+
+    request = Request({"type": "http", "method": "POST", "path": "/email/property-share", "headers": [], "query_string": b""})
+    monkeypatch.setattr(email, "_user", lambda request, db: actor)
+    monkeypatch.setattr(email, "require_csrf", lambda request, token: None)
+
+    try:
+        email.share_property_email(request, lead.id, project.id, sold.id, "test", db_session)
+    except HTTPException as exc:
+        assert exc.status_code == 409
+        assert exc.detail == "property_unavailable"
+    else:
+        raise AssertionError("Sold inventory must not be emailed")
