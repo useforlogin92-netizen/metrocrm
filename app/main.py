@@ -295,6 +295,17 @@ def change_password(request: Request, current_password: str = Form(...), new_pas
     request.session.clear()
     return RedirectResponse("/", status_code=303)
 
+@app.get("/super-admin")
+def super_admin_entry(request: Request, db: Session = Depends(get_db)):
+    """Compatibility entry point for users opening the Super Admin base URL."""
+    user = _current_user(request, db)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+    if user.role != "SUPER_ADMIN":
+        return RedirectResponse("/dashboard", status_code=303)
+    return RedirectResponse("/dashboard", status_code=303)
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     user = _current_user(request, db)
