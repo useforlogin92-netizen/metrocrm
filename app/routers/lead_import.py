@@ -202,6 +202,24 @@ def _find_or_create_customer(db: Session, raw: dict, existing_customer_id: int |
     return customer
 
 
+def _lead_import_signature(lead: Lead) -> tuple[str, ...]:
+    def normal(value):
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)):
+            try:
+                return format(Decimal(str(value)).normalize(), "f")
+            except (InvalidOperation, ValueError):
+                pass
+        return str(value).strip().casefold()
+
+    return (
+        normal(lead.source), normal(lead.requirement), normal(lead.preferred_location),
+        normal(lead.budget_min), normal(lead.budget_max), normal(lead.bhk),
+        normal(lead.property_type), normal(lead.buy_rent),
+    )
+
+
 def _import_leads(content: bytes, actor: User, db: Session):
     wb = load_workbook(BytesIO(content), data_only=True)
     if "Leads" not in wb.sheetnames:
@@ -216,6 +234,8 @@ def _import_leads(content: bytes, actor: User, db: Session):
     users = {u.id for u in db.scalars(select(User)).all()}
     created = updated = 0
     errors: list[str] = []
+    seen_signatures: set[tuple[int, tuple[str, ...]]] = set()
+    terminal_statuses = {"LOST", "NOT_INTERESTED", "INVALID", "DUPLICATE", "CLOSED", "BOOKED"}
     try:
         for row_no, values in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             row_values = values[1:] if has_serial_column else values
@@ -247,6 +267,18 @@ def _import_leads(content: bytes, actor: User, db: Session):
                 lead.bhk = str(raw.get("bhk") or "").strip() or None
                 lead.property_type = str(raw.get("property_type") or "").strip() or None
                 lead.buy_rent = str(raw.get("buy_rent") or "").strip() or None
+                if not lead_id:
+                    signature = (customer.id, _lead_import_signature(lead))
+                    if signature in seen_signatures:
+                        raise ValueError("duplicate lead row in this workbook for the same customer and requirement")
+                    seen_signatures.add(signature)
+                    existing_leads = db.scalars(select(Lead).where(Lead.customer_id == customer.id)).all()
+                    duplicate = next((
+                        item for item in existing_leads
+                        if item.status not in terminal_statuses and _lead_import_signature(item) == signature[1]
+                    ), None)
+                    if duplicate:
+                        raise ValueError(f"possible duplicate of existing lead_id {duplicate.id}; use lead_id to update it")
                 db.add(lead)
                 if lead_id:
                     updated += 1
@@ -257,12 +289,14 @@ def _import_leads(content: bytes, actor: User, db: Session):
                 break
         if errors:
             db.rollback()
+            created = updated = 0
         else:
             db.flush()
             db.add(AuditEvent(actor_user_id=actor.id, action="LEADS_IMPORTED", entity_type="Lead", entity_id=None, details=json.dumps({"created": created, "updated": updated, "mode": "offline_excel"})))
             db.commit()
     except Exception as exc:
         db.rollback()
+        created = updated = 0
         errors.append(f"Lead import validation failed: {exc}")
     return created, updated, errors
 
