@@ -133,10 +133,12 @@ def _property_rows(db: Session, customer: dict[str, Any]) -> list[dict[str, Any]
 
 def _speech_details(property_: dict[str, Any]) -> list[tuple[str, Any]]:
     details: list[tuple[str, Any]] = []
-    for label, value in (("configuration", property_.get("bhk")), ("carpet area", property_.get("carpet_area")),
+    for label, value in (("developer", property_.get("developer")), ("property type", property_.get("property_type")),
+                         ("configuration", property_.get("bhk")), ("carpet area", property_.get("carpet_area")),
                          ("rate", property_.get("price_per_sqft")), ("all-inclusive price", property_.get("price")),
-                         ("parking", property_.get("parking")), ("negotiable", property_.get("negotiable")),
-                         ("possession", property_.get("possession")), ("RERA", property_.get("rera"))):
+                         ("parking", property_.get("parking")), ("furnishing", property_.get("furnishing")),
+                         ("negotiable", property_.get("negotiable")), ("possession", property_.get("possession")),
+                         ("RERA", property_.get("rera"))):
         if value in (None, ""):
             continue
         if label == "carpet area":
