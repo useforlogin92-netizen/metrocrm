@@ -117,6 +117,12 @@ def advanced_hub(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     ids = team_ids(actor, db)
     lead_count = db.scalar(select(func.count(Lead.id)).where(Lead.assigned_user_id.in_(ids))) or 0
+    source_rows = db.execute(
+        select(Lead.source, func.count(Lead.id))
+        .where(Lead.assigned_user_id.in_(ids))
+        .group_by(Lead.source)
+        .order_by(func.count(Lead.id).desc())
+    ).all()
     open_tasks = db.scalar(select(func.count(CRMTask.id)).where(CRMTask.assigned_user_id.in_(ids), CRMTask.status != "DONE")) or 0
     overdue_tasks = db.scalar(select(func.count(CRMTask.id)).where(CRMTask.assigned_user_id.in_(ids), CRMTask.status != "DONE", CRMTask.due_at < now())) or 0
     scoped_customer_ids = customer_ids(actor, db)
@@ -125,6 +131,16 @@ def advanced_hub(request: Request, db: Session = Depends(get_db)):
     for label, value in [("Scoped Leads", lead_count), ("Open Tasks", open_tasks), ("Overdue Tasks", overdue_tasks), ("Open Service Tickets", open_tickets or 0)]:
         body += f"<div class='stat'><div class='muted'>{label}</div><div class='value'>{value}</div></div>"
     body += "</div></div>"
+    source_summary = "".join(
+        f"<tr><td>{escape(str(source or 'UNSPECIFIED'))}</td><td>{count}</td></tr>"
+        for source, count in source_rows
+    ) or "<tr><td colspan='2'>No leads are currently visible in your assigned scope.</td></tr>"
+    body += "<div class='card'><h2>Lead Operations</h2><p class='muted'>Manage real-estate enquiries, capture lead sources, and import leads using the standard Excel template.</p><div class='row' style='margin-bottom:14px'><a class='btn' href='/caller/leads'>Open Lead Management</a>"
+    if actor.role in {"SUPER_ADMIN", "ADMIN"}:
+        import_path = "/super-admin/leads/offline-import" if actor.role == "SUPER_ADMIN" else "/admin/leads/offline-import"
+        template_path = import_path + "/template"
+        body += f"<a class='btn secondary' href='{import_path}'>Upload Leads (Excel)</a><a class='btn secondary' href='{template_path}'>Download Excel Template</a>"
+    body += "</div><h3>Lead Source Summary</h3><table><tr><th>Lead Source</th><th>Lead Count</th></tr>" + source_summary + "</table><p class='muted'>Source totals include leads assigned within your permitted team scope.</p></div>"
     csrf = csrf_token(request)
     body += "<div class='card'><h2>Lead Intelligence</h2><p class='muted'>Score leads from 0–100 using source, freshness and captured qualification data.</p>"
     body += f"<form method='post' action='/crm/advanced/score-leads'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn' type='submit'>Recalculate Lead Scores</button></form></div>"

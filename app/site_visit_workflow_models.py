@@ -28,3 +28,13 @@ class SiteVisitReview(Base):
     other_project_required: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class DeveloperSalesContact(Base):
+    """Developer-side sales manager contact entered for a specific site visit."""
+    __tablename__ = "site_visit_developer_contacts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    visit_id: Mapped[int] = mapped_column(ForeignKey("site_visits.id"), unique=True, index=True)
+    sm_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    sm_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

@@ -105,12 +105,16 @@ def user_allows(
     action: Access,
     permissions: Mapping[str, object] | None = None,
 ) -> bool:
-    """Resolve role defaults, then apply per-user additions/restrictions.
+    """Resolve role defaults and per-user overrides.
 
-    Supported JSON shape:
+    SUPER_ADMIN is always unrestricted: per-user deny overrides cannot remove
+    any default Super Admin right. Other roles support:
       {"allow": {"leads": ["VIEW"]}, "deny": {"leads": ["EDIT"]}}
-    A deny always wins, allowing an administrator to restrict a role default.
+    For non-Super-Admin roles, deny takes precedence over role defaults.
     """
+    if role == Role.SUPER_ADMIN:
+        return True
+
     permissions = permissions or {}
     allowed = role_allows(role, module, action)
     allow = permissions.get("allow", {})
