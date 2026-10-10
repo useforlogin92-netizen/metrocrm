@@ -49,3 +49,12 @@ def test_property_message_contains_selected_core_details():
     assert "A-1204" in body
     assert "2 BHK" in body
     assert "https://crm.example/catalog/view/token" in body
+
+
+
+def test_sales_executive_is_allowed_to_use_whatsapp_crm():
+    from app.routers.whatsapp import SEND_ROLES
+
+    assert "SALES_EXECUTIVE" in SEND_ROLES
+    assert "TELECALLER" in SEND_ROLES
+    assert "USER" in SEND_ROLES  # Preserve the existing legacy role.
