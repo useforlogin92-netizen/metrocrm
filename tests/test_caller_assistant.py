@@ -100,3 +100,87 @@ def test_admin_scope_can_open_any_lead():
     assert _lead_in_scope(admin, lead, FakeDB([])) is True
 
 # CI regression coverage for caller lead isolation.
+
+
+
+def _post_request():
+    from starlette.requests import Request
+    return Request({"type": "http", "method": "POST", "path": "/test", "headers": [], "query_string": b""})
+
+
+def test_optional_amount_parser_validates_budget_values():
+    from decimal import Decimal
+    import pytest
+    from app.routers.caller_assistant import _parse_optional_amount
+
+    assert _parse_optional_amount("5000000", "Minimum budget") == Decimal("5000000")
+    assert _parse_optional_amount("", "Minimum budget") is None
+    with pytest.raises(ValueError):
+        _parse_optional_amount("-1", "Minimum budget")
+    with pytest.raises(ValueError):
+        _parse_optional_amount("not-a-number", "Minimum budget")
+
+
+def test_sales_executive_can_update_customer_and_requirement_for_assigned_lead(db_session, monkeypatch):
+    from app.models import Customer, CustomerRequirement, Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="sales-workbench", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Old Customer", mobile="9876500000")
+    db_session.add_all([actor, customer])
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="NEW", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_lead_requirements(
+        lead_id=lead.id, request=_post_request(), customer_name="Updated Customer",
+        mobile="9876512345", alternate_mobile="9123456780", email="CUSTOMER@example.com",
+        customer_notes="Prefers evening calls", requirement_text="Ready possession near station",
+        budget_min="5000000", budget_max="8500000", preferred_locations="Borivali, Kandivali",
+        bhk="2 BHK", property_type="Apartment", buy_rent="BUY",
+        requirement_notes="Loan required", csrf_token_value="test", db=db_session,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(customer)
+    db_session.refresh(lead)
+    requirement = db_session.query(CustomerRequirement).filter_by(customer_id=customer.id, is_active=True).one()
+    assert customer.name == "Updated Customer"
+    assert customer.mobile == "9876512345"
+    assert customer.email == "customer@example.com"
+    assert lead.budget_min == 5000000
+    assert lead.budget_max == 8500000
+    assert lead.preferred_location == "Borivali, Kandivali"
+    assert requirement.bhk == "2 BHK"
+    assert requirement.buy_rent == "BUY"
+    assert "Borivali" in requirement.locations_json
+
+
+def test_sales_executive_can_schedule_followup_for_assigned_lead(db_session, monkeypatch):
+    from app.models import Customer, FollowUp, Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="sales-followup", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Follow-up Customer", mobile="9876501111")
+    db_session.add_all([actor, customer])
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="REFERRAL", status="CONTACTED", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.schedule_lead_followup(
+        lead_id=lead.id, request=_post_request(), due_at="2026-10-12T10:00",
+        purpose="Call follow-up", notes="Confirm site visit interest",
+        csrf_token_value="test", db=db_session,
+    )
+
+    followup = db_session.query(FollowUp).filter_by(lead_id=lead.id).one()
+    assert response.status_code == 303
+    assert followup.assigned_user_id == actor.id
+    assert followup.completed is False
+    assert followup.purpose == "Call follow-up"
