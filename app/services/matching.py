@@ -29,6 +29,10 @@ BHK_WEIGHT = 15.0
 PROPERTY_TYPE_WEIGHT = 10.0
 AREA_WEIGHT = 10.0
 POSSESSION_WEIGHT = 10.0
+PROJECT_PREFERENCE_WEIGHT = 8.0
+DEVELOPER_PREFERENCE_WEIGHT = 5.0
+FURNISHING_WEIGHT = 3.0
+PARKING_WEIGHT = 3.0
 
 
 def _normalise(value: object) -> str:
@@ -205,6 +209,18 @@ def score_match(customer: dict, property_: dict) -> MatchCandidate:
     if _possession_matches(customer, property_):
         score += POSSESSION_WEIGHT
         reasons.append("possession")
+
+    for customer_key, property_key, weight, reason in (
+        ("project_preference", "project", PROJECT_PREFERENCE_WEIGHT, "preferred_project"),
+        ("developer_preference", "developer", DEVELOPER_PREFERENCE_WEIGHT, "preferred_developer"),
+        ("furnishing", "furnishing", FURNISHING_WEIGHT, "furnishing"),
+        ("parking", "parking", PARKING_WEIGHT, "parking"),
+    ):
+        requested = customer.get(customer_key)
+        actual = property_.get(property_key)
+        if requested and actual and _contains_any(str(actual), [str(value) for value in _values(requested)]):
+            score += weight
+            reasons.append(reason)
 
     has_location_filter = _has_explicit_location_filter(customer)
     location_category = "Selected Location" if location_score else ("Other" if has_location_filter else "All")
