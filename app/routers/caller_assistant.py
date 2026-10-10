@@ -94,7 +94,7 @@ def _property_rows(db: Session, customer: dict[str, Any]) -> list[dict[str, Any]
     for unit, project, tower in db.execute(stmt).all():
         location = " ".join(filter(None, [project.locality, project.sector, project.address]))
         properties.append({
-            "id": unit.id, "title": f"{project.name} - {unit.unit_number}", "project": project.name,
+            "id": unit.id, "project_id": project.id, "title": f"{project.name} - {unit.unit_number}", "project": project.name,
             "developer": None, "tower": tower.name if tower else None, "location": location,
             "locality": project.locality, "city": project.city, "district": project.district, "state": project.state,
             "pincode": project.pincode, "bhk": unit.bhk, "property_type": unit.property_type,
