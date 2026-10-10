@@ -234,5 +234,47 @@
       "target_root": "app/core",
       "tests": []
     }
+  ],
+  "user_categories": [
+    {
+      "role": "SUPER_ADMIN",
+      "folder": "app/features/users/categories/super_admin",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "ADMIN",
+      "folder": "app/features/users/categories/admin",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "MANAGER",
+      "folder": "app/features/users/categories/manager",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "TL",
+      "folder": "app/features/users/categories/tl",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "SALES_EXECUTIVE",
+      "folder": "app/features/users/categories/sales_executive",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "TELECALLER",
+      "folder": "app/features/users/categories/telecaller",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "ACCOUNTANT",
+      "folder": "app/features/users/categories/accountant",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "HR",
+      "folder": "app/features/users/categories/hr",
+      "current_role_source": "app/permissions.py"
+    }
   ]
 }
