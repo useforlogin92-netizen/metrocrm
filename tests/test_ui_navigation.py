@@ -27,3 +27,13 @@ def test_navigation_injection_is_idempotent():
 def test_non_html_or_bodyless_content_is_unchanged():
     for source in ("plain text", "<html><head></head></html>", ""):
         assert add_history_navigation(source) == source
+
+
+
+def test_existing_dashboard_link_is_not_duplicated():
+    source = "<html><head></head><body><a href='/dashboard'>Dashboard</a><main>Page</main></body></html>"
+
+    result = add_history_navigation(source)
+
+    assert result.count("href='/dashboard'") == 1
+    assert 'class="metrocrm-page-navigation"' in result

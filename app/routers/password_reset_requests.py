@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
+from app.ui_navigation import add_history_navigation
 from app.database import get_db
 from app.models import AuditEvent, DataRequest, User
 from app.security import hash_password, verify_password
@@ -27,8 +28,8 @@ STAFF_ROLES = {"MANAGER", "TL", "TELECALLER", "USER"}
 APPROVER_ROLES = {"ADMIN", "SUPER_ADMIN"}
 
 
-def _page(title: str, body: str) -> HTMLResponse:
-    return HTMLResponse(
+def _page(title: str, body: str, *, with_navigation: bool = False) -> HTMLResponse:
+    document = (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>MetroCRM | {title}</title>"
@@ -36,6 +37,7 @@ def _page(title: str, body: str) -> HTMLResponse:
         f"<main class='card'>{body}</main></body></html>"
     )
 
+    return HTMLResponse(add_history_navigation(document) if with_navigation else document)
 
 def _rate_key(request: Request, username: str) -> str:
     host = request.client.host if request.client else "unknown"
@@ -286,7 +288,7 @@ def password_reset_requests(request: Request, db: Session = Depends(get_db)):
     if not cards:
         cards = ["<div class='ok'>No pending password recovery requests for your role.</div>"]
     body = "<h1>Password Recovery Requests</h1><p>Approve only requests you can independently verify. Approval never reveals the old password; it only opens a one-time password reset capability for the requester.</p>" + "".join(cards) + "<a class='back' href='/dashboard'>← Back to Dashboard</a>"
-    return _page("Password Recovery Requests", body)
+    return _page("Password Recovery Requests", body, with_navigation=True)
 
 
 @router.post("/password-reset-requests/approve", dependencies=[Depends(require_csrf)])
