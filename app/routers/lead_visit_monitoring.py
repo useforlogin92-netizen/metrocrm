@@ -137,9 +137,9 @@ body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0
 {''.join(f"<div class='alert'>Overdue follow-up · {escape((customer_map.get(f.customer_id).name if f.customer_id and customer_map.get(f.customer_id) else 'Lead follow-up'))} · Caller {escape(user_map.get(f.assigned_user_id, 'Unassigned'))} · Due {_dt(f.due_at)}</div>" for f in overdue_calls[:50]) or "<p>No overdue follow-ups currently recorded.</p>"}
 {''.join(f"<div class='alert'>Visit requires status update · Visit #{v.id} · {escape(customer_map.get(v.customer_id).name if v.customer_id and customer_map.get(v.customer_id) else 'Customer not linked')} · Scheduled {_dt(v.scheduled_at)} · Current status {escape(v.status or 'SCHEDULED')}</div>" for v in missed_visits[:50]) or "<p>No past-due visits requiring status update.</p>"}
 </div>
-<div class='card'><h2>{'All leads & reassignment' if _can_reassign(actor) else 'My assigned leads'}</h2><p class='muted'>Lead source is shown on every row. {('Team scope applies.' if actor.role in TEAM_ROLES else 'Only your assigned leads are shown.')} Reassignment records the acting manager/admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>Assign / reassign</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="7">No leads found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>{'All leads & reassignment' if _can_reassign(actor) else 'My assigned leads'}</h2><p class='muted'>Lead source is shown on every row. {('Team scope applies.' if actor.role in TEAM_ROLES else 'Only your assigned leads are shown.')} Reassignment records the acting manager/admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>{'Assign / reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="7">No leads found.</td></tr>'}</tbody></table></div></div>
 <div class='card'><h2>Call follow-ups</h2><div class='tablewrap'><table><thead><tr><th>Alert</th><th>Customer</th><th>Source</th><th>Caller</th><th>Due</th><th>Purpose</th><th>Notes</th></tr></thead><tbody>{''.join(follow_rows) or '<tr><td colspan="7">No open follow-ups found.</td></tr>'}</tbody></table></div></div>
-<div class='card'><h2>{'Site visit monitoring & backup assignment' if _can_reassign(actor) else 'My site visits'}</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>Reassign</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>{'Site visit monitoring & backup assignment' if _can_reassign(actor) else 'My site visits'}</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>{'Reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
 </main></body></html>"""
     return HTMLResponse(body)
 
@@ -169,7 +169,7 @@ def reassign_lead(request: Request, lead_id: int = Form(...), assigned_user_id: 
 def reassign_visit(request: Request, visit_id: int = Form(...), assigned_user_id: int = Form(...), reason: str = Form(""), csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db)):
     require_csrf(request, csrf_token_value)
     actor = _actor(request, db)
-    if not actor or actor.role not in MANAGERS:
+    if not actor or not _can_reassign(actor):
         return RedirectResponse("/", status_code=303)
     visit = db.get(SiteVisit, visit_id)
     target = db.get(User, assigned_user_id)
