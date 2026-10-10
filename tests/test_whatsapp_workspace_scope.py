@@ -30,6 +30,7 @@ def test_whatsapp_workspace_lists_only_assigned_leads_and_available_inventory(db
     db_session.commit()
 
     monkeypatch.setattr(whatsapp, "_user", lambda request, db: actor)
+    monkeypatch.setattr(whatsapp, "csrf_token", lambda request: "test-csrf")
     response = whatsapp.whatsapp_page(_request(), db_session)
     html = response.body.decode()
 
