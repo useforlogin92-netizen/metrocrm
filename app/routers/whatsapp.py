@@ -6,6 +6,7 @@ import secrets
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.catalog_models import CatalogShare
@@ -13,7 +14,7 @@ from app.routers.catalog_sharing import _token_hash as catalog_token_hash
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Customer, Lead, Project, Unit, User
-from app.routers.caller_assistant import _lead_in_scope
+from app.routers.caller_assistant import _lead_in_scope, _unit_is_unavailable
 from app.services.catalog_sharing import build_share_payload
 from app.services.whatsapp import build_property_message, destination_hash, send_text
 from app.whatsapp_models import WhatsAppMessage
@@ -47,6 +48,19 @@ def _lead_for_user(lead_id: int, user: User, db: Session) -> tuple[Lead, Custome
     return lead, customer
 
 
+def _scope_user_ids(user: User, db: Session) -> set[int]:
+    if user.role in {"SUPER_ADMIN", "ADMIN"}:
+        return set(db.scalars(select(User.id)).all())
+    ids = {user.id}
+    if user.role in {"MANAGER", "TL"}:
+        frontier = {user.id}
+        while frontier:
+            children = db.scalars(select(User.id).where(User.reporting_manager_id.in_(frontier))).all()
+            frontier = {int(uid) for uid in children if int(uid) not in ids}
+            ids.update(frontier)
+    return ids
+
+
 def _shell(request: Request, user: User) -> dict:
     return {
         "request": request, "username": user.username, "role": user.role,
@@ -64,6 +78,28 @@ def whatsapp_page(request: Request, db: Session = Depends(get_db)):
     from app.config import settings
     user = _user(request, db)
     context = _shell(request, user)
+    scope_ids = _scope_user_ids(user, db)
+    leads = db.scalars(
+        select(Lead).where(Lead.assigned_user_id.in_(scope_ids)).order_by(Lead.created_at.desc()).limit(500)
+    ).all()
+    context["leads"] = leads
+    context["customers"] = {
+        customer.id: customer
+        for customer in db.scalars(
+            select(Customer).where(Customer.id.in_({lead.customer_id for lead in leads if lead.customer_id is not None}))
+        ).all()
+    } if any(lead.customer_id is not None for lead in leads) else {}
+    available_properties = []
+    for unit, project in db.execute(
+        select(Unit, Project).join(Project, Unit.project_id == Project.id).order_by(Project.name, Unit.unit_number).limit(2000)
+    ).all():
+        if not _unit_is_unavailable(unit, project):
+            available_properties.append({
+                "id": unit.id, "project_id": project.id, "unit_number": unit.unit_number,
+                "project_name": project.name, "bhk": unit.bhk, "property_type": unit.property_type,
+                "locality": project.locality, "city": project.city, "price": unit.price,
+            })
+    context["available_properties"] = available_properties
     context.update({"whatsapp_enabled": bool(settings.whatsapp_enabled), "whatsapp_mode": settings.whatsapp_mode})
     return templates.TemplateResponse("whatsapp.html", context)
 
@@ -95,13 +131,15 @@ def send_whatsapp(request: Request, lead_id: int = Form(...), message: str = For
 
 
 @router.post("/property-share", dependencies=[Depends(require_csrf)])
-def share_property_whatsapp(request: Request, lead_id: int = Form(...), project_id: int = Form(...), unit_id: int = Form(...), db: Session = Depends(get_db)):
+def share_property_whatsapp(request: Request, lead_id: int = Form(...), unit_id: int = Form(...), project_id: int | None = Form(None), db: Session = Depends(get_db)):
     user = _user(request, db)
     lead, customer = _lead_for_user(lead_id, user, db)
-    project = db.get(Project, project_id)
     unit = db.get(Unit, unit_id)
+    project = db.get(Project, project_id) if project_id else (db.get(Project, unit.project_id) if unit else None)
     if not project or not unit or unit.project_id != project.id:
         raise HTTPException(404, "property_not_found")
+    if _unit_is_unavailable(unit, project):
+        raise HTTPException(409, "property_unavailable")
     property_data = {
         "project_name": project.name, "unit_number": unit.unit_number,
         "property_type": unit.property_type, "bhk": unit.bhk,
