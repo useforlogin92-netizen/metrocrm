@@ -88,10 +88,28 @@ def _money(value: Any) -> str:
         return str(value)
 
 
+def _unit_is_unavailable(unit: Unit, project: Project) -> bool:
+    unavailable_states = {
+        "sold", "sold_out", "booked", "reserved", "unavailable",
+        "not_available", "inactive", "archived", "deleted", "blocked",
+        "on_hold", "hold",
+    }
+    unit_states = {
+        str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+        for value in (unit.status, unit.availability)
+    }
+    project_state = str(project.construction_status or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    return bool(unit_states & unavailable_states) or project_state in {
+        "sold", "sold_out", "unavailable", "inactive", "archived", "deleted",
+    }
+
+
 def _property_rows(db: Session, customer: dict[str, Any]) -> list[dict[str, Any]]:
     stmt = select(Unit, Project, Tower).join(Project, Unit.project_id == Project.id).outerjoin(Tower, Unit.tower_id == Tower.id)
     properties: list[dict[str, Any]] = []
     for unit, project, tower in db.execute(stmt).all():
+        if _unit_is_unavailable(unit, project):
+            continue
         location = " ".join(filter(None, [project.locality, project.sector, project.address]))
         properties.append({
             "id": unit.id, "project_id": project.id, "title": f"{project.name} - {unit.unit_number}", "project": project.name,

@@ -205,3 +205,45 @@ def test_matched_property_rows_include_project_id_for_whatsapp_share(db_session)
 
     match = next(item for item in properties if item["id"] == unit.id)
     assert match["project_id"] == project.id
+
+
+
+def test_customer_matching_excludes_sold_units_even_when_project_is_ready_to_move(db_session):
+    from app.models import Developer, Project, Unit
+    from app.routers.caller_assistant import _property_rows
+
+    developer = Developer(name="Inventory Developer")
+    db_session.add(developer)
+    db_session.flush()
+    project = Project(developer_id=developer.id, name="Inventory Residency", city="Mumbai", locality="Kandivali", construction_status="READY_TO_MOVE")
+    db_session.add(project)
+    db_session.flush()
+    sold = Unit(project_id=project.id, unit_number="A-101", bhk="2 BHK", property_type="Apartment", price=8000000, status="SOLD")
+    available = Unit(project_id=project.id, unit_number="A-102", bhk="2 BHK", property_type="Apartment", price=8200000, status="AVAILABLE")
+    db_session.add_all([sold, available])
+    db_session.commit()
+
+    properties = _property_rows(db_session, {"city": "Mumbai", "preferred_locations": ["Kandivali"], "construction_statuses": []})
+
+    ids = {item["id"] for item in properties}
+    assert sold.id not in ids
+    assert available.id in ids
+
+
+def test_customer_matching_excludes_sold_out_project_inventory(db_session):
+    from app.models import Developer, Project, Unit
+    from app.routers.caller_assistant import _property_rows
+
+    developer = Developer(name="Sold Out Developer")
+    db_session.add(developer)
+    db_session.flush()
+    project = Project(developer_id=developer.id, name="Sold Out Residency", city="Mumbai", locality="Borivali", construction_status="SOLD_OUT")
+    db_session.add(project)
+    db_session.flush()
+    unit = Unit(project_id=project.id, unit_number="B-201", bhk="2 BHK", property_type="Apartment", price=9000000, status="AVAILABLE")
+    db_session.add(unit)
+    db_session.commit()
+
+    properties = _property_rows(db_session, {"city": "Mumbai", "preferred_locations": ["Borivali"], "construction_statuses": []})
+
+    assert unit.id not in {item["id"] for item in properties}
