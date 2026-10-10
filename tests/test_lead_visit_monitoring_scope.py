@@ -39,3 +39,20 @@ def test_team_lead_scope_includes_its_descendants_only(db_session):
 
     assert _lead_in_scope(team_lead, assigned, db_session)
     assert not _lead_in_scope(team_lead, unrelated, db_session)
+
+
+
+def test_sales_executive_monitoring_scope_is_only_their_own_user_id(db_session):
+    from app.routers.lead_visit_monitoring import _can_reassign
+
+    executive = User(username="monitor-own-only", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add(executive)
+    db_session.flush()
+    child = User(username="monitor-child", password_hash="x", role="TELECALLER", reporting_manager_id=executive.id, is_active=True, is_approved=True)
+    db_session.add(child)
+    db_session.commit()
+
+    assert _scope_user_ids(executive, db_session) == {executive.id}
+    assert not _can_reassign(executive)
+    manager = User(username="monitor-manager-assign", password_hash="x", role="MANAGER", is_active=True, is_approved=True)
+    assert _can_reassign(manager)
