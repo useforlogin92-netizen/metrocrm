@@ -254,7 +254,7 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
         "requirement": requirement, "locations": locations, "properties": properties, "followups": followups,
         "opening_speeches": _opening_speeches(user, lead, customer, locations),
         "property_speeches": {str(p["id"]): _property_speeches(p, customer) for p in properties},
-        "csrf_token": csrf_token(request), "now": datetime.now().strftime("%d %b %Y %H:%M"),
+        "csrf_token": csrf_token(request), "now": datetime.now().strftime("%d %b %Y %H:%M"), "now_datetime": datetime.now(),
     })
 
 
