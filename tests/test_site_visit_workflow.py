@@ -49,3 +49,45 @@ def test_manager_can_manage_visit_for_reporting_tree_member(db_session):
 
     assert _visible_lead(manager, team_lead_lead, db_session)
     assert not _visible_lead(manager, outside_lead, db_session)
+
+
+
+def test_sales_executive_staff_scope_excludes_unrelated_users(db_session):
+    from app.models import User
+    from app.routers.site_visit_workflow import _staff_visible_to
+
+    actor = User(username="scope-exec", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    teammate = User(username="scope-exec-other", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add_all([actor, teammate])
+    db_session.flush()
+
+    assert _staff_visible_to(actor, actor, db_session)
+    assert not _staff_visible_to(actor, teammate, db_session)
+
+
+def test_manager_staff_scope_allows_reporting_tree_only(db_session):
+    from app.models import User
+    from app.routers.site_visit_workflow import _staff_visible_to
+
+    manager = User(username="scope-manager", password_hash="x", role="MANAGER", is_active=True, is_approved=True)
+    db_session.add(manager)
+    db_session.flush()
+    team_member = User(username="scope-member", password_hash="x", role="SALES_EXECUTIVE", reporting_manager_id=manager.id, is_active=True, is_approved=True)
+    outsider = User(username="scope-outsider", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add_all([team_member, outsider])
+    db_session.flush()
+
+    assert _staff_visible_to(manager, team_member, db_session)
+    assert not _staff_visible_to(manager, outsider, db_session)
+
+
+def test_inactive_staff_is_never_selectable_for_site_visit(db_session):
+    from app.models import User
+    from app.routers.site_visit_workflow import _staff_visible_to
+
+    admin = User(username="scope-admin", password_hash="x", role="ADMIN", is_active=True, is_approved=True)
+    inactive = User(username="scope-inactive", password_hash="x", role="SALES_EXECUTIVE", is_active=False, is_approved=True)
+    db_session.add_all([admin, inactive])
+    db_session.flush()
+
+    assert not _staff_visible_to(admin, inactive, db_session)

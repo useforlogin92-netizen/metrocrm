@@ -35,6 +35,15 @@ def _team_user_ids(actor: User, db: Session) -> set[int]:
     return ids
 
 
+
+def _staff_visible_to(actor: User, staff_user: User, db: Session) -> bool:
+    if not staff_user.is_active:
+        return False
+    if actor.role in {"SUPER_ADMIN", "ADMIN"}:
+        return True
+    return staff_user.id in _team_user_ids(actor, db)
+
+
 def _visible_lead(actor: User, lead: Lead, db: Session | None = None) -> bool:
     if actor.role in {"SUPER_ADMIN", "ADMIN"}:
         return True
@@ -56,7 +65,10 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
     leads = db.scalars(leads_query).all()
     customers = {c.id: c for c in db.scalars(select(Customer)).all()}
     projects = db.scalars(select(Project).order_by(Project.name)).all()
-    staff = db.scalars(select(User).where(User.is_active.is_(True), User.role.in_({"SUPER_ADMIN","ADMIN","MANAGER","TL","SALES_EXECUTIVE","TELECALLER"})).order_by(User.username)).all()
+    staff_query = select(User).where(User.is_active.is_(True), User.role.in_({"SUPER_ADMIN","ADMIN","MANAGER","TL","SALES_EXECUTIVE","TELECALLER"})).order_by(User.username)
+    if actor.role not in {"SUPER_ADMIN", "ADMIN"}:
+        staff_query = staff_query.where(User.id.in_(_team_user_ids(actor, db)))
+    staff = db.scalars(staff_query).all()
     query = select(SiteVisit).order_by(SiteVisit.scheduled_at.desc()).limit(200)
     if actor.role not in {"SUPER_ADMIN", "ADMIN"}:
         query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(Lead.assigned_user_id.in_(_team_user_ids(actor, db))).order_by(SiteVisit.scheduled_at.desc()).limit(200)
@@ -88,16 +100,18 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
     lead_opts = "".join(f'<option value="{l.id}">#{l.id} · {escape(customers[l.customer_id].name if l.customer_id in customers else "Customer not linked")} · {escape(l.source or "Unknown source")}</option>' for l in leads)
     project_opts = "".join(f'<option value="{p.id}">{escape(p.name)} — {escape(p.locality or p.city or "")}</option>' for p in projects)
     staff_opts = "".join(f'<option value="{u.id}">{escape(u.username)} ({escape(u.role)})</option>' for u in staff)
+    monitoring_href = "/admin/lead-monitoring" if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} else "/caller/leads"
+    monitoring_label = "Lead & Visit Monitoring" if actor.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"} else "My Leads"
     body = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MetroCRM | Site Visit Workflow</title>
 <style>body{{font:14px Arial,sans-serif;background:#f4f7fb;color:#172033;margin:0;padding:22px}}main{{max-width:1500px;margin:auto}}.card{{background:#fff;border:1px solid #e1e7f0;border-radius:14px;padding:20px;margin-bottom:16px}}.grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}label{{display:block;font-weight:700;margin:8px 0 5px}}input,select,textarea{{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box}}select[multiple]{{min-height:120px}}textarea{{min-height:75px}}button,.btn{{background:#1d4ed8;color:#fff;padding:10px 14px;border:0;border-radius:8px;font-weight:700;text-decoration:none;cursor:pointer}}table{{width:100%;border-collapse:collapse;min-width:1100px}}th,td{{padding:10px;border-bottom:1px solid #e8edf4;text-align:left;vertical-align:top}}th{{background:#f8fafc}}.scroll{{overflow:auto}}.hint{{color:#64748b;font-size:12px}}@media(max-width:800px){{.grid{{grid-template-columns:1fr}}body{{padding:10px}}}}</style></head><body><main>
-<div class="card"><h1>Site Visit & Post-Visit Workflow</h1><p>Record the caller, visit coordinator, developer Sales Manager contact, customer and project details, visit feedback, deal status, and next follow-up. Multiple projects can be scheduled for the same customer at the same date and time.</p><p><a class="btn" href="/dashboard">Dashboard</a> <a class="btn" href="/admin/lead-monitoring">Lead & Visit Monitoring</a></p></div>
+<div class="card"><h1>Site Visit & Post-Visit Workflow</h1><p>Record the caller, visit coordinator, developer Sales Manager contact, customer and project details, visit feedback, deal status, and next follow-up. Multiple projects can be scheduled for the same customer at the same date and time.</p><p><a class="btn" href="/dashboard">Dashboard</a> <a class="btn" href="{monitoring_href}">{monitoring_label}</a></p></div>
 <div class="card"><h2>Schedule Site Visit</h2><form method="post" action="/site-visits/create"><input type="hidden" name="csrf_token" value="{csrf}"><div class="grid">
 <div><label>Lead / Customer *</label><select name="lead_id" required><option value="">Select lead</option>{lead_opts}</select></div>
 <div><label>Visit date & time *</label><input name="scheduled_at" type="datetime-local" required></div>
 <div><label>Call Arranged By *</label><select name="called_by_id" required><option value="">Select caller</option>{staff_opts}</select></div>
 <div><label>Visit Coordinator *</label><select name="conducted_by_id" required><option value="">Select visit coordinator</option>{staff_opts}</select></div>
-<div><label>Developer SM ka naam</label><input name="developer_sm_name" maxlength="160" placeholder="Developer sales manager name"></div>
-<div><label>Developer SM ka mobile number</label><input name="developer_sm_phone" type="tel" maxlength="30" pattern="[0-9+() -]{7,30}" placeholder="Developer SM contact number"></div>
+<div><label>Developer Sales Manager Name</label><input name="developer_sm_name" maxlength="160" placeholder="Developer sales manager name"></div>
+<div><label>Developer Sales Manager Phone</label><input name="developer_sm_phone" type="tel" maxlength="30" pattern="[0-9+() -]{7,30}" placeholder="Developer SM contact number"></div>
 <div><label>Initial notes</label><input name="notes" maxlength="1000" placeholder="Customer requirement / meeting notes"></div>
 <div style="grid-column:1/-1"><label>Projects to visit * (multiple select supported)</label><select name="project_ids" multiple required>{project_opts}</select><p class="hint">Use Ctrl/⌘ to select multiple projects. A separate visit record will be created for each project, linked to the same customer, date/time, and visit batch.</p></div>
 </div><p><button type="submit">Create Visit Plan</button></p></form></div>
@@ -135,8 +149,8 @@ def create_visit_batch(
         return HTMLResponse("Select at least one project without duplicates.", status_code=400)
     for uid in [called_by_id, conducted_by_id]:
         user = db.get(User, uid)
-        if not user or not user.is_active:
-            return HTMLResponse("Selected staff member is unavailable.", status_code=400)
+        if not user or not user.is_active or not _staff_visible_to(actor, user, db):
+            return HTMLResponse("Selected staff member is unavailable or outside your permitted team.", status_code=400)
     projects = [db.get(Project, pid) for pid in project_ids]
     if any(p is None for p in projects):
         return HTMLResponse("One or more selected projects were not found.", status_code=400)
@@ -174,7 +188,10 @@ def visit_feedback_page(visit_id: int, request: Request, db: Session = Depends(g
     customer = db.get(Customer, visit.customer_id) if visit.customer_id else None
     project = db.get(Project, visit.project_id) if visit.project_id else None
     review = db.scalar(select(SiteVisitReview).where(SiteVisitReview.visit_id == visit.id))
-    users = db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.username)).all()
+    users_query = select(User).where(User.is_active.is_(True)).order_by(User.username)
+    if actor.role not in {"SUPER_ADMIN", "ADMIN"}:
+        users_query = users_query.where(User.id.in_(_team_user_ids(actor, db)))
+    users = db.scalars(users_query).all()
     projects = db.scalars(select(Project).order_by(Project.name)).all()
     csrf = escape(csrf_token(request))
     user_opts = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
