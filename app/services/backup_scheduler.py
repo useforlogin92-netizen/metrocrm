@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -26,7 +27,7 @@ def _retry_job() -> None:
                 if result.get("status") != "success":
                     notify_backup_failure(result, "backup_destination_retry_still_failed")
 
-        now = datetime.now().astimezone()
+        now = datetime.now(ZoneInfo(settings.backup_timezone))
         grace = max(0, settings.backup_missed_cycle_grace_minutes)
         expected_label = "start" if now.hour == 11 and now.minute >= grace else "end" if now.hour == 19 and now.minute >= grace else None
         if expected_label:

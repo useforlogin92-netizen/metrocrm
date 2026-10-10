@@ -154,3 +154,35 @@ def test_backup_scheduler_registers_11am_and_7pm(monkeypatch):
     assert [str(cron_field(job[1], "minute")) for job in scheduler.jobs[:2]] == ["0", "0"]
     assert str(cron_field(scheduler.jobs[2][1], "minute")) == "*/10"
     module.stop_backup_scheduler()
+
+
+
+def test_retry_job_uses_backup_timezone_for_missed_cycle_alert(monkeypatch):
+    from datetime import datetime as real_datetime, timezone
+    from app.config import settings
+    import app.services.backup_scheduler as module
+
+    alerts = []
+
+    class FrozenDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            # Simulate the Render host clock in UTC while the backup schedule is
+            # configured for Asia/Kolkata. The scheduled cycle is 19:10 local.
+            if tz is None:
+                return real_datetime(2026, 10, 10, 13, 40, tzinfo=timezone.utc)
+            return real_datetime(2026, 10, 10, 19, 10, tzinfo=tz)
+
+    monkeypatch.setattr(module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(settings, "backup_timezone", "Asia/Kolkata")
+    monkeypatch.setattr(settings, "backup_missed_cycle_grace_minutes", 10)
+    monkeypatch.setattr(module, "retry_pending_backups", lambda: [])
+    monkeypatch.setattr(module, "notify_backup_failure", lambda result, reason: alerts.append((result, reason)))
+    monkeypatch.setattr(module, "_last_missed_alert", None)
+
+    module._retry_job()
+
+    assert len(alerts) == 1
+    result, reason = alerts[0]
+    assert reason == "scheduled_backup_cycle_missing_after_grace_period"
+    assert result["label"] == "end"
