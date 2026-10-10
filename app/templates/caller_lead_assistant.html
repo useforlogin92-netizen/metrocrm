@@ -54,7 +54,7 @@
 <label>Customer Notes<input name="customer_notes" value="{{ customer.notes if customer and customer.notes else '' }}" maxlength="2000"></label>
 <label style="grid-column:1/-1">Requirement Notes<textarea name="requirement_notes" rows="2">{{ requirement.notes if requirement and requirement.notes else '' }}</textarea></label>
 </div>
-<p><button class="btn" type="submit">Save Customer & Requirement</button> <a class="btn" href="/whatsapp">Open WhatsApp</a></p>
+<p><button class="btn" type="submit">Save Customer & Requirement</button> {% if customer and customer.mobile %}<a class="btn" href="tel:{{ customer.mobile }}">Call Customer</a>{% endif %} <a class="btn" href="/whatsapp">Open WhatsApp</a></p>
 </form></div>
 
 <div class="card"><h2>Call Follow-ups</h2>
