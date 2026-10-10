@@ -50,3 +50,18 @@ def test_telecaller_advanced_hub_shows_followup_tools_without_sales_management_l
     assert "Payment Milestones" not in html
     assert "Marketing Campaigns" not in html
     assert "Channel Partners" not in html
+
+
+
+def test_sales_executive_can_view_but_not_set_sales_targets(db_session, monkeypatch):
+    actor = SimpleNamespace(role="SALES_EXECUTIVE", username="sales-exec-target-view", id=777)
+    monkeypatch.setattr(crm_plus, "current_user", lambda request, db: actor)
+    monkeypatch.setattr(crm_plus, "csrf_token", lambda request: "test-csrf")
+
+    response = crm_plus.targets_page(_request("/crm/advanced/targets"), db_session)
+    html = response.body.decode()
+
+    assert response.status_code == 200
+    assert "Sales Targets" in html
+    assert "Set monthly targets" not in html
+    assert "Save Target" not in html
