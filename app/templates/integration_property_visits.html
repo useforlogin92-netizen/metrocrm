@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Property Visits{% endblock %}
+{% block header_title %}Property Visits{% endblock %}
+{% block breadcrumb %}Integrations / Property Visits{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Property Visits</h1>
+  <p>Recent property visit alerts recorded by MetroCRM.</p>
+  <p><a href="/integrations/providers">Back to Integrations</a></p>
+  <table>
+    <thead><tr><th>ID</th><th>Project</th><th>Unit</th><th>Lead</th><th>Status</th><th>Notified</th><th>Created</th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr><td>{{ row.id }}</td><td>{{ row.project_id or '—' }}</td><td>{{ row.unit_id or '—' }}</td><td>{{ row.lead_id or '—' }}</td><td>{{ row.status }}</td><td>{{ 'Yes' if row.notified else 'No' }}</td><td>{{ row.created_at }}</td></tr>
+    {% else %}
+      <tr><td colspan="7">No property visit alerts have been recorded yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
