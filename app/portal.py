@@ -5,6 +5,7 @@ import secrets
 
 from fastapi import Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from app.ui_navigation import add_history_navigation
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -263,7 +264,7 @@ def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
         for item, target, portal in rows:
             html += f"<div class='row'><div><strong>{target.username}</strong><div class='muted'>Role: {target.role} · Portal: {portal} · Request #{item.id}</div></div><div class='actions'><form method='post' action='/super-admin/login-requests/{item.id}/approve'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn approve'>Approve</button></form><form method='post' action='/super-admin/login-requests/{item.id}/reject'><input type='hidden' name='csrf_token' value='{csrf}'><button class='btn reject'>Reject</button></form></div></div>"
     html += "</div></div></body></html>"
-    return HTMLResponse(html)
+    return HTMLResponse(add_history_navigation(html))
 
 
 @app.post("/super-admin/login-requests/{request_id}/approve")
