@@ -31,7 +31,7 @@ def _dt(value: datetime | None) -> str:
 
 def _scope_user_ids(actor: User, db: Session) -> set[int]:
     if actor.role in ADMIN_ROLES:
-        return set(db.scalars(select(User.id)).all()
+        return set(db.scalars(select(User.id)).all())
     if actor.role not in TEAM_ROLES:
         return {actor.id}
     ids = {actor.id}
