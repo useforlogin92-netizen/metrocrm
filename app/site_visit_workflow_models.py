@@ -38,3 +38,15 @@ class DeveloperSalesContact(Base):
     sm_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     sm_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class SiteVisitCheckIn(Base):
+    """Explicit, one-time GPS check-in record for a scheduled site visit."""
+    __tablename__ = "site_visit_checkins"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    visit_id: Mapped[int] = mapped_column(ForeignKey("site_visits.id"), unique=True, index=True)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    latitude: Mapped[float] = mapped_column(__import__("sqlalchemy").Numeric(10, 7))
+    longitude: Mapped[float] = mapped_column(__import__("sqlalchemy").Numeric(10, 7))
+    accuracy_m: Mapped[float | None] = mapped_column(__import__("sqlalchemy").Numeric(8, 2), nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
