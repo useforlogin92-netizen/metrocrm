@@ -33,6 +33,7 @@ from app.routers.lead_import import router as lead_import_router
 from app.routers.property_social import router as property_social_router
 from app.routers.property_submissions import router as property_submissions_router
 from app.routers.property_update import router as property_update_router
+from app.routers.property_data import router as property_data_router
 from app.routers.marketing import router as marketing_router
 from app.routers.lead_visit_monitoring import router as lead_visit_monitoring_router
 from app.routers.lead_assignment_suggestions import router as lead_assignment_suggestions_router
@@ -59,7 +60,7 @@ async def lifespan(_: FastAPI):
     finally:
         stop_backup_scheduler()
 
-app = FastAPI(title="MetroCRM", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
 
 async def enforce_idle_session(request: Request, call_next):
     session = request.session
@@ -109,6 +110,7 @@ async def enforce_idle_session(request: Request, call_next):
 app.add_middleware(BaseHTTPMiddleware, dispatch=enforce_idle_session)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age, https_only=settings.environment == "production", same_site="lax")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["app_name"] = settings.app_name
 app.include_router(catalog_sharing_router)
 app.include_router(caller_search_router)
 app.include_router(backups_router)
@@ -123,6 +125,7 @@ app.include_router(lead_import_router)
 app.include_router(property_social_router)
 app.include_router(property_submissions_router)
 app.include_router(property_update_router)
+app.include_router(property_data_router)
 app.include_router(marketing_router)
 app.include_router(lead_visit_monitoring_router)
 app.include_router(lead_assignment_suggestions_router)
@@ -197,9 +200,13 @@ def _browser_redirect(request: Request, location: str, fallback: dict | None = N
     return JSONResponse(fallback or {"status": "ok"})
 
 @app.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    if request.session.get("user_id"):
+def root(request: Request, db: Session = Depends(get_db)):
+    user = _current_user(request, db)
+    if user:
         return RedirectResponse("/dashboard", status_code=303)
+    # Clear stale or invalid signed session payloads to prevent / ↔ /dashboard loops.
+    if request.session.get("user_id"):
+        request.session.clear()
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": False})
 
 @app.get("/auth/super-admin/login", response_class=HTMLResponse)
@@ -274,9 +281,13 @@ def update_profile(request: Request, mobile: str = Form(""), email: str = Form("
     user.email = email.strip().lower() or None
     user.category = category.strip() or None
     user.team = team.strip() or None
-    user.security_question = security_question.strip() or None
-    if security_answer.strip():
-        user.security_answer_hash = hash_password(security_answer.strip())
+    if user.role.upper() in {"SUPER_ADMIN", "ADMIN"}:
+        user.security_question = security_question.strip() or None
+        if security_answer.strip():
+            user.security_answer_hash = hash_password(security_answer.strip())
+    else:
+        user.security_question = None
+        user.security_answer_hash = None
     _audit(db, user.id, "PROFILE_UPDATED", user)
     db.commit()
     return RedirectResponse("/profile", status_code=303)
@@ -305,15 +316,6 @@ def super_admin_entry(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/", status_code=303)
     if user.role != "SUPER_ADMIN":
         return RedirectResponse("/dashboard", status_code=303)
-    return RedirectResponse("/dashboard", status_code=303)
-
-
-@app.get("/super-admin")
-def super_admin_entry(request: Request, db: Session = Depends(get_db)):
-    """Compatibility entry point for users opening the Super Admin base URL."""
-    user = _current_user(request, db)
-    if not user:
-        return RedirectResponse("/", status_code=303)
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -381,13 +383,14 @@ def create_user(request: Request, username: str = Form(...), password: str = For
     role = role.upper()
     if not actor or not _can_manage_user(actor, target_role=role):
         return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    if len(password) < 8 or not security_question.strip() or not security_answer.strip():
+    admin_recovery_role = role in {"SUPER_ADMIN", "ADMIN"}
+    if len(password) < 8 or (admin_recovery_role and (not security_question.strip() or not security_answer.strip())):
         return RedirectResponse("/admin/users?error=validation", status_code=303)
     manager = int(manager_id) if manager_id.isdigit() else None
     if not _valid_reporting_manager(actor, manager, None, db):
         return RedirectResponse("/admin/users?error=manager", status_code=303)
     auto_approved = actor.role.upper() == "SUPER_ADMIN"
-    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip(), security_answer_hash=hash_password(security_answer.strip()), is_active=True, is_approved=auto_approved)
+    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip() or None if admin_recovery_role else None, security_answer_hash=hash_password(security_answer.strip()) if admin_recovery_role else None, is_active=True, is_approved=auto_approved)
     db.add(user)
     _audit(db, actor.id, "USER_CREATED", user, {"role": role, "auto_approved": auto_approved})
     if auto_approved:
