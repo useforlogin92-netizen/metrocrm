@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from sqlalchemy import select
@@ -210,7 +211,77 @@ def tool_definitions() -> list[dict[str, Any]]:
     ]
 
 
+def _validate_tool_arguments(tool: str, arguments: dict[str, Any]) -> None:
+    """Enforce the published tool schema on the server, not only at the AI provider."""
+    if not isinstance(arguments, dict):
+        raise ValueError("Tool arguments must be an object")
+
+    schemas = {
+        "search_properties": {
+            "required": set(),
+            "strings": {"bhk", "location", "property_type", "construction_status", "possession", "parking", "furnishing", "facing"},
+            "numbers": {"budget_min", "budget_max", "carpet_area_min", "carpet_area_max"},
+        },
+        "get_property": {"required": {"unit_id"}, "integers": {"unit_id"}},
+        "record_call_outcome": {
+            "required": {"outcome", "summary"},
+            "strings": {"outcome", "summary", "next_action"},
+        },
+        "update_lead_status": {"required": {"status"}, "strings": {"status"}},
+    }
+    schema = schemas.get(tool)
+    if schema is None:
+        raise ValueError("Tool not allowed")
+
+    allowed = set().union(*(set(schema.get(key, set())) for key in ("strings", "numbers", "integers")))
+    unknown = set(arguments) - allowed
+    if unknown:
+        raise ValueError("Unexpected tool argument")
+    missing = schema["required"] - set(arguments)
+    if missing:
+        raise ValueError("Missing required tool argument")
+
+    for key in schema.get("strings", set()):
+        if key not in arguments:
+            continue
+        value = arguments[key]
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string")
+        max_length = 4000 if key == "summary" else 1000 if key == "next_action" else 200
+        if len(value) > max_length:
+            raise ValueError(f"{key} exceeds the maximum length")
+        if key in {"outcome", "status"}:
+            allowed_values = (
+                {"INTERESTED", "FOLLOW_UP", "SITE_VISIT", "NOT_INTERESTED", "CALLBACK", "NO_RESPONSE", "ESCALATE"}
+                if key == "outcome"
+                else {"NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP", "SITE_VISIT", "NOT_INTERESTED", "CLOSED"}
+            )
+            if value not in allowed_values:
+                raise ValueError(f"Invalid {key}")
+    for key in schema.get("numbers", set()):
+        if key not in arguments:
+            continue
+        value = arguments[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"{key} must be a finite number")
+        if value < 0 or value > 1_000_000_000_000:
+            raise ValueError(f"{key} is outside the allowed range")
+    for key in schema.get("integers", set()):
+        if key not in arguments:
+            continue
+        value = arguments[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{key} must be a positive integer")
+
+    if tool == "search_properties":
+        if arguments.get("budget_min") is not None and arguments.get("budget_max") is not None and arguments["budget_min"] > arguments["budget_max"]:
+            raise ValueError("budget_min cannot exceed budget_max")
+        if arguments.get("carpet_area_min") is not None and arguments.get("carpet_area_max") is not None and arguments["carpet_area_min"] > arguments["carpet_area_max"]:
+            raise ValueError("carpet_area_min cannot exceed carpet_area_max")
+
+
 def execute_tool(db: Session, lead_id: int, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    _validate_tool_arguments(tool, arguments)
     lead = db.get(Lead, lead_id)
     if not lead:
         raise ValueError("Lead not found")
