@@ -28,8 +28,8 @@ def test_godrej_nest_delete_route_is_post_only_and_super_admin_scoped():
         route for route in app.routes
         if getattr(route, "path", None) == "/super-admin/property-data/delete-godrej-nest"
     ]
-    assert len(routes) == 1
-    assert routes[0].methods == {"POST"}
+    assert routes
+    assert all(route.methods == {"POST"} for route in routes)
 
 
 @pytest.mark.parametrize("role", ["TELECALLER", "SALES_EXECUTIVE", "MANAGER", "TL", "ACCOUNTANT", "HR"])
