@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import Unit
+from app.models import Unit, Tower
 from app.realestate_finance_models import CostSheet, PropertyQuotation
 from app.routers.accounting import router as accounting_router
 
@@ -52,6 +52,47 @@ def create_cost_sheet(request: Request, unit_id: int = Form(...), base_price: De
     db.add(CostSheet(unit_id=unit_id, base_price=base_price, plc=plc, floor_rise=floor_rise, parking=parking, gst=gst, stamp_duty=stamp_duty, registration=registration, other_charges=other_charges, total_amount=total, created_by_id=actor.id)); db.commit()
     return RedirectResponse("/crm/advanced/cost-sheets", status_code=303)
 
+
+def _unit_status_bucket(unit: Unit) -> str:
+    raw = str(unit.status or unit.availability or "").strip().upper()
+    if raw in {"BOOKED", "SOLD", "ALLOCATED", "CLOSED"} or "BOOKED" in raw:
+        return "BOOKED"
+    if "HOLD" in raw or "RESERVED" in raw:
+        return "HOLD"
+    if raw in {"AVAILABLE", "VACANT", "OPEN"}:
+        return "AVAILABLE"
+    return "UNKNOWN"
+
+
+@router.get("/crm/advanced/unit-matrix", response_class=HTMLResponse)
+def unit_matrix(request: Request, db: Session = Depends(get_db)):
+    actor = current_user(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    units = db.scalars(select(Unit).order_by(Unit.tower_id, Unit.floor, Unit.unit_number)).all()
+    tower_ids = {unit.tower_id for unit in units if unit.tower_id is not None}
+    towers = db.scalars(select(Tower).where(Tower.id.in_(tower_ids))).all() if tower_ids else []
+    tower_names = {tower.id: tower.name for tower in towers}
+    cells = []
+    tower_options = sorted({tower_names.get(unit.tower_id, "No tower") for unit in units})
+    floor_options = sorted({str(unit.floor) if unit.floor is not None else "Unknown" for unit in units})
+    for unit in units:
+        status = _unit_status_bucket(unit)
+        tower = tower_names.get(unit.tower_id, "No tower")
+        floor = str(unit.floor) if unit.floor is not None else "Unknown"
+        cells.append(f"<article class=unit data-status=\"{status}\" data-tower=\"{escape(tower)}\" data-floor=\"{escape(floor)}\"><strong>{escape(unit.unit_number)}</strong><span>{escape(tower)} · Floor {escape(floor)}</span><b class=status-{status.lower()}>{status}</b><small>{escape(unit.bhk or unit.property_type or \"Configuration not set\")}</small></article>")
+    tower_select = "".join(f"<option value=\"{escape(t)}\">{escape(t)}</option>" for t in tower_options)
+    floor_select = "".join(f"<option value=\"{escape(f)}\">{escape(f)}</option>" for f in floor_options)
+    body = f"""<section class=card><h2>Live Property Unit Matrix</h2><p>Inventory status is read from the existing unit records. Unknown or blank statuses are shown as UNKNOWN rather than assumed available.</p>
+<div class=filters><label>Status<select id=status-filter><option value="">All statuses</option><option>AVAILABLE</option><option>BOOKED</option><option>HOLD</option><option>UNKNOWN</option></select></label>
+<label>Tower / Wing<select id=tower-filter><option value="">All towers</option>{tower_select}</select></label>
+<label>Floor<select id=floor-filter><option value="">All floors</option>{floor_select}</select></label></div>
+<div class=legend><span class=available>Available</span><span class=booked>Booked</span><span class=hold>Hold</span><span class=unknown>Unknown</span></div>
+<div id=unit-grid class=unit-grid>{"".join(cells) or "<p>No units found. Import property inventory first.</p>"}</div><p id=empty-state hidden>No units match these filters.</p>
+<p><a class=btn href=/crm/advanced/cost-sheets>Open Cost Sheets</a> <a class=btn href=/dashboard>Dashboard</a></p></section>
+<style>.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.filters label{font-weight:700}.filters select{display:block;width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;margin-top:5px}.unit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.unit{border:1px solid #dbe4ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:7px;background:#fff}.unit span,.unit small{font-size:12px;color:#64748b}.status-available{color:#166534}.status-booked{color:#991b1b}.status-hold{color:#92400e}.status-unknown{color:#475569}.legend{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.legend span{padding:5px 9px;border-radius:20px;font-size:12px}.available{background:#dcfce7;color:#166534}.booked{background:#fee2e2;color:#991b1b}.hold{background:#fef3c7;color:#92400e}.unknown{background:#e2e8f0;color:#334155}@media(max-width:650px){.filters{grid-template-columns:1fr}}</style>
+<script>(function(){const filters=["status","tower","floor"].map(k=>document.getElementById(k+"-filter"));const cards=Array.from(document.querySelectorAll(".unit"));const empty=document.getElementById("empty-state");function apply(){let shown=0;cards.forEach(card=>{const ok=filters.every((input,i)=>!input.value||card.dataset[["status","tower","floor"][i]]===input.value);card.hidden=!ok;if(ok)shown++;});empty.hidden=shown>0;}filters.forEach(input=>input.addEventListener("change",apply));})();</script>"""
+    return page(body)
 
 @router.get("/crm/advanced/quotations", response_class=HTMLResponse)
 def quotations_page(request: Request, db: Session = Depends(get_db)):
