@@ -32,6 +32,7 @@ from app.routers.whatsapp import router as whatsapp_router
 from app.routers.email import router as email_router
 from app.routers.whatsapp_property_import import router as whatsapp_property_import_router
 from app.routers.backup_devices import router as backup_devices_router
+from app.routers.branding_settings import router as branding_settings_router
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -83,6 +84,7 @@ app.include_router(password_reset_requests_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(backup_devices_router)
+app.include_router(branding_settings_router)
 
 # Emergency offline foundation. The service worker only provides a safe shell;
 # authenticated CRM data is deliberately not cached until encrypted offline
