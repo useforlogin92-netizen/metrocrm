@@ -155,3 +155,62 @@ def test_unassigned_caller_cannot_record_another_callers_gps_checkin(db_session,
     )
     assert response.status_code == 404
     assert db_session.query(SiteVisitCheckIn).filter_by(visit_id=visit.id).count() == 0
+
+
+
+def test_invalid_gps_coordinates_are_rejected_before_persistence(db_session, monkeypatch):
+    actor = User(
+        username="gps-checkin-invalid-coordinates",
+        password_hash="x",
+        role="SALES_EXECUTIVE",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(actor)
+    db_session.flush()
+    visit = SiteVisit(
+        sales_employee_id=actor.id,
+        conducted_by_id=actor.id,
+        scheduled_at=datetime(2026, 10, 11, 10, 0),
+        status="SCHEDULED",
+    )
+    db_session.add(visit)
+    db_session.commit()
+    monkeypatch.setattr(workflow, "_actor", lambda request, db: actor)
+
+    response = workflow.record_visit_checkin(
+        visit.id, _request(f"/site-visits/{visit.id}/check-in"),
+        latitude=91, longitude=72.8777, accuracy_m=12.5,
+        csrf_token_value="test-csrf", db=db_session,
+    )
+    assert response.status_code == 422
+    assert db_session.query(SiteVisitCheckIn).filter_by(visit_id=visit.id).count() == 0
+
+
+def test_no_show_visit_cannot_record_gps_checkin(db_session, monkeypatch):
+    actor = User(
+        username="gps-checkin-no-show",
+        password_hash="x",
+        role="SALES_EXECUTIVE",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(actor)
+    db_session.flush()
+    visit = SiteVisit(
+        sales_employee_id=actor.id,
+        conducted_by_id=actor.id,
+        scheduled_at=datetime(2026, 10, 11, 10, 0),
+        status="NO_SHOW",
+    )
+    db_session.add(visit)
+    db_session.commit()
+    monkeypatch.setattr(workflow, "_actor", lambda request, db: actor)
+
+    response = workflow.record_visit_checkin(
+        visit.id, _request(f"/site-visits/{visit.id}/check-in"),
+        latitude=19.0760, longitude=72.8777, accuracy_m=12.5,
+        csrf_token_value="test-csrf", db=db_session,
+    )
+    assert response.status_code == 409
+    assert db_session.query(SiteVisitCheckIn).filter_by(visit_id=visit.id).count() == 0
