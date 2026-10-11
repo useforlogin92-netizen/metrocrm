@@ -58,6 +58,7 @@ class ProjectSearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
 
 
+@router.get("/super-admin/property-data/open-source-search", response_class=HTMLResponse)
 @router.get("/admin/property-data/open-source-search", response_class=HTMLResponse)
 def open_source_project_search_page(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
@@ -71,6 +72,7 @@ def open_source_project_search_page(request: Request, db: Session = Depends(get_
     })
 
 
+@router.post("/super-admin/property-data/open-source-search/api", dependencies=[Depends(require_csrf_header)])
 @router.post("/admin/property-data/open-source-search/api", dependencies=[Depends(require_csrf_header)])
 def search_open_source_projects(payload: ProjectSearchRequest, request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
