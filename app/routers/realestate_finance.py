@@ -80,7 +80,8 @@ def unit_matrix(request: Request, db: Session = Depends(get_db)):
         status = _unit_status_bucket(unit)
         tower = tower_names.get(unit.tower_id, "No tower")
         floor = str(unit.floor) if unit.floor is not None else "Unknown"
-        cells.append(f"<article class=unit data-status=\"{status}\" data-tower=\"{escape(tower)}\" data-floor=\"{escape(floor)}\"><strong>{escape(unit.unit_number)}</strong><span>{escape(tower)} · Floor {escape(floor)}</span><b class=status-{status.lower()}>{status}</b><small>{escape(unit.bhk or unit.property_type or \"Configuration not set\")}</small></article>")
+        configuration = escape(unit.bhk or unit.property_type or "Configuration not set")
+        cells.append(f"<article class='unit' data-status='{status}' data-tower='{escape(tower)}' data-floor='{escape(floor)}'><strong>{escape(unit.unit_number)}</strong><span>{escape(tower)} · Floor {escape(floor)}</span><b class='status-{status.lower()}'>{status}</b><small>{configuration}</small></article>")
     tower_select = "".join(f"<option value=\"{escape(t)}\">{escape(t)}</option>" for t in tower_options)
     floor_select = "".join(f"<option value=\"{escape(f)}\">{escape(f)}</option>" for f in floor_options)
     body = f"""<section class=card><h2>Live Property Unit Matrix</h2><p>Inventory status is read from the existing unit records. Unknown or blank statuses are shown as UNKNOWN rather than assumed available.</p>
