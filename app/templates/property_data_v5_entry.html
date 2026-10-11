@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Complete Property Entry{% endblock %}
+{% block header_title %}Complete Property Entry{% endblock %}
+{% block breadcrumb %}Property Data / Complete Entry{% endblock %}
+{% block content %}
+<style>
+.v5-wrap{max-width:1200px;margin:auto}.v5-card{background:#fff;border:1px solid #e2e8f0;border-radius:15px;padding:20px;margin-bottom:16px;box-shadow:0 5px 18px rgba(15,23,42,.04)}
+.v5-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.v5-wide{grid-column:1/-1}
+.v5-field label{display:block;font-size:11px;font-weight:800;color:#475569;margin:0 0 5px}.v5-field input,.v5-field select,.v5-field textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #dbe3ef;border-radius:9px;font:inherit;background:#fff}.v5-field textarea{min-height:90px;resize:vertical}
+.v5-actions{display:flex;gap:10px;flex-wrap:wrap}.v5-btn{border:1px solid #dbe3ef;background:#fff;border-radius:9px;padding:10px 14px;font-weight:800;text-decoration:none;cursor:pointer}.v5-primary{background:#2563eb;color:#fff;border-color:#2563eb}.v5-danger{background:#fff1f2;color:#b42318;border-color:#fecdd3}
+.v5-table{width:100%;border-collapse:collapse;font-size:11px}.v5-table th,.v5-table td{padding:7px;border-bottom:1px solid #eef2f7}.v5-table input,.v5-table select{width:100%;box-sizing:border-box;padding:8px;border:1px solid #dbe3ef;border-radius:7px}
+.v5-note{font-size:12px;color:#64748b;line-height:1.55}.v5-title{margin:0 0 4px}.v5-sub{margin:0;color:#64748b;font-size:12px}
+@media(max-width:900px){.v5-grid{grid-template-columns:1fr}.v5-wide{grid-column:auto}.v5-table-wrap{overflow:auto}}
+</style>
+<div class="v5-wrap">
+  {% if error %}<div class="v5-card" style="border-color:#fecdd3;background:#fff1f2;color:#b42318"><b>{{ error }}</b></div>{% endif %}
+  <div class="v5-card">
+    <h2 class="v5-title">🧾 Complete Property Entry — V5</h2>
+    <p class="v5-sub">Manual entry uses the same structured model as Excel and WhatsApp. Blank information remains blank; nothing is guessed.</p>
+    <div class="v5-actions" style="margin-top:14px">
+      <a class="v5-btn" href="{{ base }}/property-data?entity=Projects">← Property Data</a>
+      <a class="v5-btn" href="{{ base }}/property-data/template">⬇ Download V5 Excel Template</a>
+    </div>
+  </div>
+
+  <form method="post" action="{{ base }}/property-data/v5-save" id="v5-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="project_id" value="{{ project_id or '' }}">
+
+    <div class="v5-card">
+      <h3>1. Property / Project Identity</h3>
+      <div class="v5-grid">
+        <div class="v5-field"><label>Developer / Builder *</label><input name="developer" value="{{ values.developer or '' }}" required></div>
+        <div class="v5-field"><label>Project Name *</label><input name="project_name" value="{{ values.project_name or '' }}" required></div>
+        <div class="v5-field"><label>Property Type</label><select name="property_type"><option>Residential</option><option>Commercial</option><option>Plot</option><option>Office</option><option>Shop</option><option>Warehouse</option><option>Other</option></select></div>
+        <div class="v5-field"><label>Listing Status</label><select name="listing_status"><option value="">Select</option><option>Active</option><option>Draft</option><option>Inactive</option><option>Verified</option><option>Needs Verification</option></select></div>
+        <div class="v5-field"><label>Availability</label><select name="availability"><option value="">Select</option><option>Available</option><option>Limited</option><option>HOLD</option><option>Booked</option><option>Sold</option><option>Coming Soon</option><option>Unknown</option></select></div>
+        <div class="v5-field"><label>Project Status</label><select name="project_status"><option value="">Select</option><option>ACTIVE</option><option>UPCOMING</option><option>UNDER CONSTRUCTION</option><option>COMPLETED</option><option>ON HOLD</option><option>CANCELLED</option></select></div>
+      </div>
+    </div>
+
+    <div class="v5-card">
+      <h3>2. Location</h3>
+      <div class="v5-grid">
+        <div class="v5-field"><label>State</label><input name="state" value="{{ values.state or 'Maharashtra' }}"></div>
+        <div class="v5-field"><label>District</label><input name="district" value="{{ values.district or '' }}"></div>
+        <div class="v5-field"><label>City</label><select name="city"><option>Mumbai</option><option>Thane</option><option>Navi Mumbai</option><option>Panvel</option><option>Pune</option><option>Other</option></select></div>
+        <div class="v5-field"><label>Locality / Area</label><input name="locality" value="{{ values.locality or '' }}"></div>
+        <div class="v5-field"><label>Sub-locality / Sector</label><input name="sub_locality" value="{{ values.sub_locality or '' }}"></div>
+        <div class="v5-field"><label>PIN Code</label><input name="pincode" inputmode="numeric" value="{{ values.pincode or '' }}"></div>
+        <div class="v5-field v5-wide"><label>Full Address</label><textarea name="address">{{ values.address or '' }}</textarea></div>
+        <div class="v5-field"><label>Google Maps Link</label><input name="maps_link" type="url"></div>
+        <div class="v5-field"><label>Nearby Connectivity / Landmarks</label><input name="nearby_connectivity"></div>
+      </div>
+    </div>
+
+    <div class="v5-card">
+      <h3>3. Configurations & Pricing</h3>
+      <p class="v5-note">One row = one BHK/configuration + one carpet area. Add multiple rows when the same BHK has different carpet sizes.</p>
+      <div class="v5-table-wrap"><table class="v5-table"><thead><tr><th>BHK / Configuration</th><th>Carpet Area</th><th>Rate / Sq Ft</th><th>Total Price</th><th>Parking</th><th>Furnishing</th><th>Availability</th><th></th></tr></thead>
+      <tbody id="config-body"></tbody></table></div>
+      <div class="v5-actions" style="margin-top:10px"><button type="button" class="v5-btn" onclick="addConfig()">+ Add Configuration</button></div>
+    </div>
+
+    <div class="v5-card">
+      <h3>4. Tower / Wing</h3>
+      <div class="v5-table-wrap"><table class="v5-table"><thead><tr><th>Tower / Wing</th><th>Total Floors</th><th>Possession</th><th>Construction Status</th><th></th></tr></thead><tbody id="tower-body"></tbody></table></div>
+      <div class="v5-actions" style="margin-top:10px"><button type="button" class="v5-btn" onclick="addTower()">+ Add Tower / Wing</button></div>
+    </div>
+
+    <div class="v5-card">
+      <h3>5. Unit / Flat Inventory</h3>
+      <p class="v5-note">Optional. Use this when unit-level inventory is available.</p>
+      <div class="v5-table-wrap"><table class="v5-table"><thead><tr><th>Unit No.</th><th>Tower</th><th>Floor</th><th>BHK</th><th>Carpet</th><th>Price</th><th>Parking</th><th>Furnishing</th><th>Availability</th><th></th></tr></thead><tbody id="unit-body"></tbody></table></div>
+      <div class="v5-actions" style="margin-top:10px"><button type="button" class="v5-btn" onclick="addUnit()">+ Add Unit</button></div>
+    </div>
+
+    <div class="v5-card">
+      <h3>6. Amenities & Buyer Information</h3>
+      <div class="v5-grid">
+        <div class="v5-field v5-wide"><label>Amenities</label><textarea name="amenities" placeholder="Gym, Swimming Pool, Club House, CCTV, Garden, Children's Play Area..."></textarea></div>
+        <div class="v5-field"><label>Possession Date</label><input name="possession_date" type="date"></div>
+        <div class="v5-field"><label>RERA Number</label><input name="rera"></div>
+        <div class="v5-field"><label>RERA Project URL</label><input name="rera_url" type="url"></div>
+        <div class="v5-field"><label>Approved Banks</label><input name="approved_banks"></div>
+        <div class="v5-field"><label>Maintenance Estimate</label><input name="maintenance"></div>
+        <div class="v5-field"><label>Payment Plan / Charges</label><input name="payment_plan"></div>
+        <div class="v5-field"><label>CP Commission %</label><input name="cp_commission" inputmode="decimal"></div>
+        <div class="v5-field"><label>Data Source</label><select name="data_source"><option>Manual</option><option>WhatsApp</option><option>Excel</option><option>Developer</option><option>Channel Partner</option><option>Website</option><option>RERA</option><option>AI Research</option></select></div>
+        <div class="v5-field v5-wide"><label>Description / Notes</label><textarea name="description"></textarea></div>
+      </div>
+    </div>
+
+    <div class="v5-card">
+      <h3>7. Nearby Locations</h3>
+      <div class="v5-table-wrap"><table class="v5-table"><thead><tr><th>Category</th><th>Name</th><th>Distance</th><th>Travel Time</th><th>Transport</th><th></th></tr></thead><tbody id="nearby-body"></tbody></table></div>
+      <div class="v5-actions" style="margin-top:10px"><button type="button" class="v5-btn" onclick="addNearby()">+ Add Nearby Location</button></div>
+    </div>
+
+    <div class="v5-card">
+      <div class="v5-actions"><button class="v5-btn v5-primary" type="submit">💾 Save to Property Master</button><a class="v5-btn" href="{{ base }}/property-data?entity=Projects">Cancel</a></div>
+      <p class="v5-note" style="margin-bottom:0">Save creates/updates the Developer and Project, then stores configurations, towers, units and nearby locations in the same Metro Property Master.</p>
+    </div>
+  </form>
+</div>
+
+<script>
+function opt(name, items){return '<select name="'+name+'">'+items.map(function(x){return '<option>'+x+'</option>';}).join('')+'</select>'}
+function addConfig(){
+ const tr=document.createElement('tr');
+ tr.innerHTML='<td>'+opt('config_bhk',['1 RK','1 BHK','1.5 BHK','2 BHK','2.5 BHK','3 BHK','3.5 BHK','4 BHK','4.5 BHK','5 BHK','5+ BHK','Studio','Duplex','Triplex','Penthouse','Jodi / Combination','Other'])+'</td><td><input name="config_area" inputmode="decimal"></td><td><input name="config_rate" inputmode="decimal"></td><td><input name="config_total" inputmode="decimal"></td><td>'+opt('config_parking',['No Parking','1 Car','2 Cars','3 Cars','Open','Covered','Podium','Basement','Mechanical','EV','To Verify'])+'</td><td>'+opt('config_furnishing',['Unfurnished','Semi Furnished','Furnished','Part Furnished','Bare Shell','To Verify'])+'</td><td>'+opt('config_availability',['Available','Limited','HOLD','Booked','Sold','Coming Soon','Unknown'])+'</td><td><button type="button" class="v5-btn v5-danger" onclick="this.closest(\'tr\').remove()">×</button></td>';
+ document.getElementById('config-body').appendChild(tr);
+}
+function addTower(){
+ const tr=document.createElement('tr');
+ tr.innerHTML='<td><input name="tower_name"></td><td><input name="tower_floors" inputmode="numeric"></td><td><input name="tower_possession" type="date"></td><td>'+opt('tower_status',['PLANNED','LAUNCHED','UNDER CONSTRUCTION','NEAR COMPLETION','COMPLETED','ON HOLD'])+'</td><td><button type="button" class="v5-btn v5-danger" onclick="this.closest(\'tr\').remove()">×</button></td>';
+ document.getElementById('tower-body').appendChild(tr);
+}
+function addUnit(){
+ const tr=document.createElement('tr');
+ tr.innerHTML='<td><input name="unit_number"></td><td><input name="unit_tower"></td><td><input name="unit_floor" inputmode="numeric"></td><td><input name="unit_bhk"></td><td><input name="unit_area" inputmode="decimal"></td><td><input name="unit_price" inputmode="decimal"></td><td><input name="unit_parking"></td><td><input name="unit_furnishing"></td><td>'+opt('unit_availability',['Available','Limited','HOLD','Booked','Sold','Unknown'])+'</td><td><button type="button" class="v5-btn v5-danger" onclick="this.closest(\'tr\').remove()">×</button></td>';
+ document.getElementById('unit-body').appendChild(tr);
+}
+function addNearby(){
+ const tr=document.createElement('tr');
+ tr.innerHTML='<td>'+opt('nearby_category',['Railway Station','Metro Station','Bus','School','College','Hospital','Mall','Market','Bank','ATM','Restaurant','Office District','Airport','Highway','Expressway','Landmark','Other'])+'</td><td><input name="nearby_name"></td><td><input name="nearby_distance"></td><td><input name="nearby_time"></td><td><input name="nearby_transport"></td><td><button type="button" class="v5-btn v5-danger" onclick="this.closest(\'tr\').remove()">×</button></td>';
+ document.getElementById('nearby-body').appendChild(tr);
+}
+addConfig(); addTower(); addNearby();
+</script>
+{% endblock %}
