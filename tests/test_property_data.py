@@ -4,14 +4,20 @@ from app.models import DataRequest
 from app.routers.property_data import PROPERTY_SHEETS, _property_workbook
 
 
-def test_property_template_contains_only_property_sheets():
+def test_property_template_contains_complete_v5_sheets():
     workbook = load_workbook(_property_workbook(), data_only=True)
-    assert workbook.sheetnames == ["Instructions", "Property Master", "Property Configurations", "Property Towers", "Examples"]
-    assert workbook["Property Master"]["A1"].value == "property_id"
-    assert workbook["Property Configurations"]["C1"].value == "configuration"
-    assert workbook["Property Towers"]["C1"].value == "tower_name"
-    assert "unit_number" not in [cell.value for cell in workbook["Property Master"][1]]
-    assert "floor" not in [cell.value for cell in workbook["Property Master"][1]]
+    assert workbook.sheetnames == [
+        "Instructions", "QuickImport", "Developers", "Projects", "Configurations",
+        "Towers", "Units", "NearbyLocations", "Contacts", "LegalCompliance",
+        "PricingCharges", "MediaDocuments", "SourcesVerification", "Lists",
+        "Examples", "ImportMap",
+    ]
+    assert workbook["QuickImport"]["A1"].value == "Developer / Builder"
+    assert workbook["Projects"]["A1"].value == "id"
+    assert workbook["Configurations"]["A1"].value == "id"
+    assert workbook["Towers"]["A1"].value == "id"
+    assert "unit_number" not in [cell.value for cell in workbook["Projects"][1]]
+    assert "floor" not in [cell.value for cell in workbook["Projects"][1]]
     assert set(PROPERTY_SHEETS) == {"Developers", "Projects", "Towers", "Units", "NearbyLocations"}
 
 
@@ -49,7 +55,7 @@ def test_property_data_ui_has_role_aware_import_export_and_online_edit_controls(
     assert "property_data_base }}/export/download/" in template
     assert "csrf_token" in template
     assert "Edit" in template
-    assert "Download Property Template" in template
+    assert "Download Complete V5 Excel Template" in template
 
 
 def test_super_admin_property_data_path_is_explicitly_bridged_to_admin_handler():
