@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.catalog_models import PropertyMedia
 from app.database import get_db
-from app.models import Project, PropertyConfiguration, Tower, Unit, User
+from app.models import Customer, CustomerRequirement, Lead, Project, PropertyConfiguration, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
 from app.services.caller_search import BHK_OPTIONS, BUDGET_SLABS, CONSTRUCTION_OPTIONS, JODI_OPTIONS, SIDE_OPTIONS, filter_and_rank_properties
 from app.services.property_pricing import format_property_value, format_rate_per_sqft
@@ -44,6 +44,7 @@ class CallerSearchRequest(BaseModel):
     construction_statuses: list[str] = Field(default_factory=list)
     possession_by: int | None = None
     preferred_locations: list[str] = Field(default_factory=list)
+    project_name: str | None = Field(default=None, max_length=200)
 
 
 def _user(request: Request, db: Session) -> User | None:
@@ -207,6 +208,58 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
         if project_row["id"] not in project_ids_with_units and project_row["project"] not in configured_project_names:
             rows.append(project_row)
     return rows
+
+
+@router.get("/search/requirements")
+def caller_search_requirements(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Return saved requirements only for leads visible to the signed-in user."""
+    user = _user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not _can_use_search(user):
+        raise HTTPException(status_code=403, detail="caller_search_not_permitted")
+
+    lead_stmt = select(Lead).order_by(Lead.created_at.desc())
+    if user.role not in {"SUPER_ADMIN", "ADMIN"}:
+        visible_user_ids = {user.id}
+        if user.role in {"MANAGER", "TL"}:
+            frontier = {user.id}
+            while frontier:
+                children = db.scalars(select(User.id).where(User.reporting_manager_id.in_(frontier))).all()
+                frontier = {int(uid) for uid in children if int(uid) not in visible_user_ids}
+                visible_user_ids.update(frontier)
+        lead_stmt = lead_stmt.where(Lead.assigned_user_id.in_(visible_user_ids))
+
+    leads = db.scalars(lead_stmt.limit(500)).all()
+    items: list[dict[str, Any]] = []
+    for lead in leads:
+        if not lead.customer_id:
+            continue
+        customer = db.get(Customer, lead.customer_id)
+        if not customer:
+            continue
+        requirement = db.scalar(
+            select(CustomerRequirement)
+            .where(CustomerRequirement.customer_id == customer.id, CustomerRequirement.is_active.is_(True))
+            .order_by(CustomerRequirement.updated_at.desc(), CustomerRequirement.id.desc())
+            .limit(1)
+        )
+        if not requirement:
+            continue
+        items.append({
+            "lead_id": lead.id,
+            "label": f"Lead #{lead.id} — {customer.name}",
+            "locations": _json_list(requirement.locations_json),
+            "budget_min": _decimal(requirement.budget_min),
+            "budget_max": _decimal(requirement.budget_max),
+            "bhk": requirement.bhk,
+            "property_type": requirement.property_type or requirement.property_category,
+            "project_preference": requirement.project_preference,
+            "possession_requirement": requirement.possession_requirement,
+            "carpet_area_min": _decimal(requirement.carpet_area_min),
+            "carpet_area_max": _decimal(requirement.carpet_area_max),
+        })
+    return {"requirements": items}
 
 
 @router.get("/options")
