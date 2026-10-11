@@ -42,3 +42,17 @@ def test_backup_status_redirects_expired_or_invalid_sessions():
     assert 'if not user:' in source
     assert 'request.session.clear()' in source
     assert 'RedirectResponse("/super-admin/login", status_code=303)' in source
+
+
+from decimal import Decimal
+from app.routers.realestate_finance import _valid_cost_components
+
+
+def test_cost_sheet_amount_validation_accepts_zero_and_positive_values():
+    assert _valid_cost_components(Decimal("0"), Decimal("1.25"), Decimal("9000"))
+
+
+def test_cost_sheet_amount_validation_rejects_negative_and_non_finite_values():
+    assert not _valid_cost_components(Decimal("-0.01"))
+    assert not _valid_cost_components(Decimal("NaN"))
+    assert not _valid_cost_components(Decimal("Infinity"))
