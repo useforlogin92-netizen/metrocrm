@@ -24,6 +24,10 @@ def current_user(request: Request, db: Session):
     return _current_user(request, db)
 
 
+def _valid_cost_components(*values: Decimal) -> bool:
+    """Reject negative, NaN, and infinite values before persisting a cost sheet."""
+    return all(value.is_finite() and value >= Decimal("0") for value in values)
+
 def page(body: str) -> HTMLResponse:
     return HTMLResponse("<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | Cost Sheet</title><style>body{font-family:Arial;background:#f5f7fb;padding:24px;color:#10213f}.wrap{max-width:1100px;margin:auto}.card{background:#fff;padding:20px;border:1px solid #e5eaf2;border-radius:15px;margin-bottom:18px}h1{margin-top:0}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;font-size:12px;font-weight:700;margin:8px 0 4px}input,select,textarea{width:100%;box-sizing:border-box;padding:9px;border:1px solid #cbd5e1;border-radius:8px}.btn{display:inline-block;border:0;border-radius:8px;padding:9px 13px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;text-decoration:none;margin-top:10px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px;border-bottom:1px solid #eef2f7;text-align:left}th{background:#f8fafc}@media(max-width:700px){.two{grid-template-columns:1fr}}</style></head><body><div class='wrap'><h1>Cost Sheet & Quotations</h1>{body}</div></body></html>")
 
@@ -47,7 +51,10 @@ def cost_sheets_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/crm/advanced/cost-sheets", dependencies=[Depends(require_csrf)])
 def create_cost_sheet(request: Request, unit_id: int = Form(...), base_price: Decimal = Form(0), plc: Decimal = Form(0), floor_rise: Decimal = Form(0), parking: Decimal = Form(0), gst: Decimal = Form(0), stamp_duty: Decimal = Form(0), registration: Decimal = Form(0), other_charges: Decimal = Form(0), db: Session = Depends(get_db)):
     actor = current_user(request, db)
-    if not actor or not db.get(Unit, unit_id): return RedirectResponse("/crm/advanced/cost-sheets", status_code=303)
+    if not actor or not db.get(Unit, unit_id):
+        return RedirectResponse("/crm/advanced/cost-sheets", status_code=303)
+    if not _valid_cost_components(base_price, plc, floor_rise, parking, gst, stamp_duty, registration, other_charges):
+        return HTMLResponse("All cost components must be finite, non-negative amounts.", status_code=422)
     total = sum((base_price, plc, floor_rise, parking, gst, stamp_duty, registration, other_charges), Decimal("0"))
     db.add(CostSheet(unit_id=unit_id, base_price=base_price, plc=plc, floor_rise=floor_rise, parking=parking, gst=gst, stamp_duty=stamp_duty, registration=registration, other_charges=other_charges, total_amount=total, created_by_id=actor.id)); db.commit()
     return RedirectResponse("/crm/advanced/cost-sheets", status_code=303)
