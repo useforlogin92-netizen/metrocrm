@@ -74,7 +74,14 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
             developer = Developer(name=developer_name); db.add(developer); db.flush()
         project = Project(developer_id=developer.id, name=canonical["project_name"]); db.add(project); db.flush()
     project.name = canonical.get("project_name") or project.name
-    for attr, key in (("address","full_address"),("city","city"),("locality","locality"),("pincode","pincode"),("rera","rera_registration_number")):
+    for attr, key in (
+        ("address", "full_address"),
+        ("city", "city"),
+        ("locality", "locality"),
+        ("pincode", "pincode"),
+        ("rera", "rera_registration_number"),
+        ("construction_status", "project_status"),
+    ):
         value = canonical.get(key)
         if value is not None: setattr(project, attr, str(value))
     parsed = _parse_date(canonical.get("possession_date"))
