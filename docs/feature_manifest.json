@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "repository": "useforlogin92-netizen/metrocrm",
+  "baseline_commit": "f95e5c6f1891b8c67188391d9dea80bc6aaec16c",
+  "note": "Initial manually reviewed map. Current paths are real repository paths; target paths are planned and must not be required to exist until migration phase.",
+  "features": [
+    {
+      "id": "dashboard",
+      "label": "Dashboard",
+      "current_paths": [
+        "app/main.py",
+        "app/templates/dashboard.html",
+        "app/templates/base.html"
+      ],
+      "target_root": "app/features/dashboard",
+      "tests": []
+    },
+    {
+      "id": "auth-login",
+      "label": "Login and Super Admin authentication",
+      "current_paths": [
+        "app/main.py",
+        "app/auth.py",
+        "app/security.py",
+        "app/csrf.py",
+        "app/permissions.py",
+        "app/templates/login.html",
+        "app/templates/admin_login.html"
+      ],
+      "target_root": "app/features/auth",
+      "tests": []
+    },
+    {
+      "id": "caller-property-search",
+      "label": "Caller Property Search",
+      "current_paths": [
+        "app/routers/caller_search.py",
+        "app/services/caller_search.py",
+        "app/location_catalog.py",
+        "app/templates/caller_search.html"
+      ],
+      "target_root": "app/features/callers/property_search",
+      "tests": []
+    },
+    {
+      "id": "property-data",
+      "label": "Property Data",
+      "current_paths": [
+        "app/routers/property_data.py",
+        "app/routers/property_data_super_admin.py",
+        "app/property_catalog.py",
+        "app/property_management_ui.py",
+        "app/property_master.py",
+        "app/services/property_pricing.py",
+        "app/templates/property_data.html"
+      ],
+      "target_root": "app/features/properties/data",
+      "tests": []
+    },
+    {
+      "id": "property-submissions",
+      "label": "SM and Sales Property Submissions",
+      "current_paths": [
+        "app/routers/property_submissions.py",
+        "app/routers/sales_property.py",
+        "app/property_submission_models.py",
+        "app/templates/property_submission.html",
+        "app/templates/property_submission_create.html",
+        "app/templates/sales_property_form.html",
+        "app/templates/sales_property_submissions.html"
+      ],
+      "target_root": "app/features/properties/submissions",
+      "tests": []
+    },
+    {
+      "id": "user-management",
+      "label": "User Management and approvals",
+      "current_paths": [
+        "app/main.py",
+        "app/routers/user_management_compat.py",
+        "app/models.py",
+        "app/permissions.py",
+        "app/services/approval.py",
+        "app/templates/admin_users.html",
+        "app/templates/pending_users.html"
+      ],
+      "target_root": "app/features/users",
+      "tests": []
+    },
+    {
+      "id": "integrations",
+      "label": "Integrations",
+      "current_paths": [
+        "app/routers/integrations.py",
+        "app/integrations",
+        "app/integration_models.py",
+        "app/services/integrations.py",
+        "app/services/integration_secrets.py",
+        "app/templates/integrations_providers.html",
+        "app/templates/integration_logs.html",
+        "app/templates/integration_property_visits.html"
+      ],
+      "target_root": "app/features/integrations",
+      "tests": []
+    },
+    {
+      "id": "lead-visit-monitoring",
+      "label": "Lead and Visit Monitoring",
+      "current_paths": [
+        "app/routers/lead_visit_monitoring.py",
+        "app/models.py",
+        "app/permissions.py"
+      ],
+      "target_root": "app/features/leads/monitoring",
+      "tests": []
+    },
+    {
+      "id": "backups",
+      "label": "Backup and Restore",
+      "current_paths": [
+        "app/routers/backups.py",
+        "app/routers/backup_devices.py",
+        "app/services/backup.py",
+        "app/services/backup_alerts.py",
+        "app/services/backup_application.py",
+        "app/services/backup_destinations.py",
+        "app/services/backup_devices.py",
+        "app/services/backup_restore.py",
+        "app/services/backup_scheduler.py",
+        "app/templates/backup_status.html"
+      ],
+      "target_root": "app/features/backups",
+      "tests": []
+    },
+    {
+      "id": "reports",
+      "label": "Reports",
+      "current_paths": [
+        "app/routers/advanced_reports.py"
+      ],
+      "target_root": "app/features/reports",
+      "tests": []
+    },
+    {
+      "id": "accounting",
+      "label": "Accounting and Expenses",
+      "current_paths": [
+        "app/routers/accounting.py",
+        "app/accounting_logic.py",
+        "app/accounting_models.py",
+        "app/realestate_finance_models.py"
+      ],
+      "target_root": "app/features/accounting",
+      "tests": []
+    },
+    {
+      "id": "whatsapp-property-import",
+      "label": "WhatsApp Property Import",
+      "current_paths": [
+        "app/routers/whatsapp.py",
+        "app/routers/whatsapp_property_import.py",
+        "app/services/whatsapp.py",
+        "app/services/whatsapp_property_import.py",
+        "app/services/property_import.py",
+        "app/templates/whatsapp.html"
+      ],
+      "target_root": "app/features/properties/imports",
+      "tests": []
+    },
+    {
+      "id": "caller-assistant",
+      "label": "Caller Assistant and AI Caller",
+      "current_paths": [
+        "app/routers/ai_caller.py",
+        "app/routers/caller_assistant.py",
+        "app/routers/caller_speech.py",
+        "app/routers/caller_speech_settings.py",
+        "app/services/ai_caller.py"
+      ],
+      "target_root": "app/features/callers/assistant",
+      "tests": []
+    },
+    {
+      "id": "lead-import",
+      "label": "Lead Offline Import",
+      "current_paths": [
+        "app/routers/lead_import.py"
+      ],
+      "target_root": "app/features/leads/imports",
+      "tests": []
+    },
+    {
+      "id": "property-update",
+      "label": "Property Update",
+      "current_paths": [
+        "app/routers/property_update.py",
+        "app/services/property_update_engine.py"
+      ],
+      "target_root": "app/features/properties/updates",
+      "tests": []
+    },
+    {
+      "id": "marketing",
+      "label": "Marketing",
+      "current_paths": [
+        "app/routers/marketing.py",
+        "app/marketing_models.py",
+        "app/marketing_security.py"
+      ],
+      "target_root": "app/features/marketing",
+      "tests": []
+    },
+    {
+      "id": "catalog-media",
+      "label": "Catalog Sharing and Media Catalog",
+      "current_paths": [
+        "app/routers/catalog_sharing.py",
+        "app/routers/media_catalog.py",
+        "app/services/catalog_sharing.py",
+        "app/services/catalog_renderer.py"
+      ],
+      "target_root": "app/features/catalog",
+      "tests": []
+    },
+    {
+      "id": "health-storage",
+      "label": "Health and System Storage",
+      "current_paths": [
+        "app/routers/health.py",
+        "app/routers/system_storage.py",
+        "app/database.py",
+        "app/config.py"
+      ],
+      "target_root": "app/core",
+      "tests": []
+    }
+  ],
+  "user_categories": [
+    {
+      "role": "SUPER_ADMIN",
+      "folder": "app/features/users/categories/super_admin",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "ADMIN",
+      "folder": "app/features/users/categories/admin",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "MANAGER",
+      "folder": "app/features/users/categories/manager",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "TL",
+      "folder": "app/features/users/categories/tl",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "SALES_EXECUTIVE",
+      "folder": "app/features/users/categories/sales_executive",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "TELECALLER",
+      "folder": "app/features/users/categories/telecaller",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "ACCOUNTANT",
+      "folder": "app/features/users/categories/accountant",
+      "current_role_source": "app/permissions.py"
+    },
+    {
+      "role": "HR",
+      "folder": "app/features/users/categories/hr",
+      "current_role_source": "app/permissions.py"
+    }
+  ]
+}
