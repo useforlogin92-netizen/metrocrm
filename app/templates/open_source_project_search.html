@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}MetroCRM | Project Search via Open Sources{% endblock %}
+{% block header_title %}Project Search via Open Sources{% endblock %}
+{% block breadcrumb %}<a href="{{ '/super-admin/property-data' if role == 'SUPER_ADMIN' else '/admin/property-data' }}">Property Data</a> › Project Search via Open Sources{% endblock %}
+{% block content %}
+<style>
+.os-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:14px}.os-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin-bottom:16px}.os-card h2{font-size:17px;margin:0 0 12px}.os-field label{display:block;font-size:12px;font-weight:750;margin:10px 0 5px}.os-field input,.os-field select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:white}.os-btn{border:0;border-radius:8px;padding:11px 16px;font-weight:800;cursor:pointer;background:#2563eb;color:white}.os-btn:disabled{opacity:.55}.os-muted{color:#64748b;font-size:12px;line-height:1.5}.os-result{border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin:12px 0}.os-result h3{margin:0 0 7px;font-size:15px}.os-result a{overflow-wrap:anywhere}.os-links{display:flex;gap:8px;flex-wrap:wrap}.os-links a{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;text-decoration:none;font-size:12px;font-weight:750}.os-status{padding:12px;border-radius:9px;background:#f1f5f9;margin:12px 0;font-size:13px}.os-note{background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px;font-size:12px;line-height:1.5}@media(max-width:750px){.os-grid{grid-template-columns:1fr}}
+</style>
+<div class="os-card">
+<h2>Find missing projects from public sources</h2>
+<p class="os-muted">Search for project listings by city, locality, side and construction status. Results retain source links for verification. This tool does not automatically write to your Property Master.</p>
+<div class="os-grid">
+<div class="os-field"><label for="city">City</label><input id="city" value="Mumbai" maxlength="80"></div>
+<div class="os-field"><label for="locality">Locality / Area *</label><input id="locality" value="Kandivali" maxlength="100" required></div>
+<div class="os-field"><label for="side">Location Side</label><select id="side"><option>Both</option><option>East</option><option>West</option></select></div>
+<div class="os-field"><label for="status">Project Status</label><select id="status"><option value="all">All statuses</option><option value="ready_to_move">Ready to Move</option><option value="under_construction">Under Construction / Ongoing</option><option value="upcoming">Upcoming / New Launch</option><option value="completed">Completed</option></select></div>
+<div class="os-field"><label for="developer">Developer (optional)</label><input id="developer" maxlength="100" placeholder="Developer name"></div>
+<div class="os-field"><label for="rera">MahaRERA number (optional)</label><input id="rera" maxlength="40" placeholder="e.g. P518000..."></div>
+</div>
+<p style="margin-top:16px"><button id="searchBtn" class="os-btn" type="button" onclick="searchProjects()">🔎 Search Online Sources</button></p>
+<div class="os-note"><b>Verification rule:</b> search snippets are not proof of current availability, possession or price. Verify MahaRERA registration, developer source and last-updated details. No project is imported or overwritten automatically.</div>
+<div id="statusBox" class="os-status" aria-live="polite">Ready to search.</div>
+<div id="sourceLinks" class="os-links"></div>
+</div>
+<div class="os-card"><h2>Online results</h2><div id="results"><p class="os-muted">Enter the locality and click Search Online Sources.</p></div></div>
+<script>
+const csrfToken={{ csrf_token|tojson }};
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function searchProjects(){
+ const locality=document.getElementById('locality').value.trim();
+ if(locality.length<2){document.getElementById('statusBox').textContent='Enter a locality with at least 2 characters.';return;}
+ const btn=document.getElementById('searchBtn');btn.disabled=true;document.getElementById('statusBox').textContent='Searching selected public sources…';
+ document.getElementById('results').innerHTML='';document.getElementById('sourceLinks').innerHTML='';
+ try{
+  const response=await fetch('{{ "/super-admin/property-data/open-source-search/api" if role == "SUPER_ADMIN" else "/admin/property-data/open-source-search/api" }}',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},body:JSON.stringify({city:document.getElementById('city').value.trim(),locality,side:document.getElementById('side').value,status:document.getElementById('status').value,developer:document.getElementById('developer').value.trim()||null,rera:document.getElementById('rera').value.trim()||null,limit:10})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Search request failed');
+  document.getElementById('statusBox').textContent=data.message||'Search completed.';
+  document.getElementById('sourceLinks').innerHTML=(data.links||[]).map(x=>'<a target="_blank" rel="noopener noreferrer" href="'+esc(x.url)+'">'+esc(x.name)+'</a>').join('');
+  if(!data.results?.length){document.getElementById('results').innerHTML='<p class="os-muted">'+(data.status==='provider_not_configured'?'Automated search is not configured yet. Use the links above to search public sources. Configure BRAVE_SEARCH_API_KEY on the server to display results here.':'No search results returned. Try broader criteria or use the source links above.')+'</p>';return;}
+  document.getElementById('results').innerHTML=data.results.map((x,i)=>'<article class="os-result"><h3>'+esc(x.title||'Untitled result')+'</h3><p class="os-muted">'+esc(x.source||'Public web source')+(x.age?' · '+esc(x.age):'')+'</p><p>'+esc(x.description||'No summary available.')+'</p><p><a target="_blank" rel="noopener noreferrer" href="'+esc(x.url)+'">Open original source ↗</a></p><p class="os-muted">Review required · Search result '+(i+1)+'</p></article>').join('');
+ }catch(e){document.getElementById('statusBox').textContent='Search could not be completed: '+e.message;}
+ finally{btn.disabled=false;}
+}
+</script>
+{% endblock %}
