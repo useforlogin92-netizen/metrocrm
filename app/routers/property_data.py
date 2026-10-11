@@ -167,6 +167,7 @@ def _display_value(value):
     return "" if value is None else str(value)
 
 
+@router.get("/admin/property-data", response_class=HTMLResponse)
 @router.get("/super-admin/property-data", response_class=HTMLResponse)
 def property_data_page(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -226,6 +227,7 @@ def property_data_page(request: Request, db: Session = Depends(get_db)):
     })
 
 
+@router.post("/admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
 def load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
     """Explicitly load the reviewed Godrej Nest test inventory into Property Data."""
@@ -242,6 +244,7 @@ def load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(f"/admin/property-data?entity=Projects&message=Godrej+Nest+test+property+loaded+%28project+%23{project_id}%2C+{unit_count}+units%2C+{gallery_count}+gallery+images%29", status_code=303)
 
 
+@router.get("/admin/property-data/template")
 @router.get("/super-admin/property-data/template")
 def download_property_template(request: Request, db: Session = Depends(get_db)):
     if not _guard(request, db):
@@ -250,6 +253,7 @@ def download_property_template(request: Request, db: Session = Depends(get_db)):
     return StreamingResponse(workbook, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Property_Data_Template.xlsx"})
 
 
+@router.post("/admin/property-data/import", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data/import", dependencies=[Depends(require_csrf)])
 async def import_property_data(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -404,6 +408,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
     return RedirectResponse(f"/admin/property-data?message=Imported+{created}+new+and+updated+{updated}+properties+using+Property+Master+format", status_code=303)
 
 
+@router.post("/admin/property-data/bulk-modify", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data/bulk-modify", dependencies=[Depends(require_csrf)])
 async def bulk_modify_property_data(request: Request, db: Session = Depends(get_db)):
     """Apply explicitly supplied fields to multiple selected Projects."""
@@ -484,6 +489,7 @@ def _delete_single_property_data(project_id: int, actor: User, db: Session):
     return RedirectResponse("/super-admin/property-data?entity=Projects&message=Property+" + str(project_id) + "+deleted+successfully", status_code=303)
 
 
+@router.post("/admin/property-data/save", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data/save", dependencies=[Depends(require_csrf)])
 async def save_property_data(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -545,6 +551,7 @@ def _create_export_request(actor: User, db: Session):
     return True
 
 
+@router.get("/admin/property-data/export")
 @router.get("/super-admin/property-data/export")
 def export_property_data(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -559,6 +566,7 @@ def export_property_data(request: Request, db: Session = Depends(get_db)):
     return StreamingResponse(workbook, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Property_Data_Export.xlsx"})
 
 
+@router.post("/admin/property-data/export/request", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data/export/request", dependencies=[Depends(require_csrf)])
 def request_property_export(request: Request, db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -572,6 +580,7 @@ def request_property_export(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/admin/property-data?message=Export+request+sent+to+Super+Admin+for+approval", status_code=303)
 
 
+@router.get("/admin/property-data/export/download/{request_id}")
 @router.get("/super-admin/property-data/export/download/{request_id}")
 def download_approved_property_export(request: Request, request_id: int, db: Session = Depends(get_db)):
     actor = _guard(request, db)
@@ -593,6 +602,7 @@ def download_approved_property_export(request: Request, request_id: int, db: Ses
     return StreamingResponse(workbook, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=MetroCRM_Property_Data_Export.xlsx"})
 
 
+@router.get("/admin/property-data-export-requests", response_class=HTMLResponse)
 @router.get("/super-admin/property-data-export-requests", response_class=HTMLResponse)
 def property_export_requests(request: Request, db: Session = Depends(get_db)):
     actor = _user(request, db)
@@ -630,11 +640,13 @@ def _decide_property_export(actor: User | None, request_id: int, approve: bool, 
     return RedirectResponse("/super-admin/property-data-export-requests", status_code=303)
 
 
+@router.post("/admin/property-data-export-requests/{request_id}/approve", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data-export-requests/{request_id}/approve", dependencies=[Depends(require_csrf)])
 def approve_property_export(request: Request, request_id: int, db: Session = Depends(get_db)):
     return _decide_property_export(_user(request, db), request_id, True, db)
 
 
+@router.post("/admin/property-data-export-requests/{request_id}/reject", dependencies=[Depends(require_csrf)])
 @router.post("/super-admin/property-data-export-requests/{request_id}/reject", dependencies=[Depends(require_csrf)])
 def reject_property_export(request: Request, request_id: int, db: Session = Depends(get_db)):
     return _decide_property_export(_user(request, db), request_id, False, db)
