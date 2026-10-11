@@ -30,6 +30,8 @@ def _canonical_payload():
                 "configuration": "2 BHK",
                 "carpet_area": 850,
                 "price_including_all": 18000000,
+                "rate_per_sqft": 21176.47,
+                "bundle_rate": 18000000,
                 "negotiation": "Yes",
                 "availability": "Available",
             }
@@ -89,3 +91,19 @@ def test_configuration_pricing_auto_calculates_missing_side():
     rows = payload["configurations"]
     assert rows[0]["rate_per_sqft"] == round(8450000 / 650, 2)
     assert rows[1]["price_including_all"] == 9800000.0
+
+
+def test_bundle_rate_is_preserved_and_can_seed_total_price():
+    payload = normalize_property_payload(
+        {
+            "Project Name": "Bundle Test",
+            "Property Type": "Residential",
+            "Configuration Details": [
+                {"configuration": "2 BHK", "carpet_area": 700, "bundle_rate": 17500000}
+            ],
+        },
+        source="BULK",
+    )
+    row = payload["configurations"][0]
+    assert row["bundle_rate"] == 17500000.0
+    assert row["price_including_all"] == 17500000.0

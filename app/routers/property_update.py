@@ -37,12 +37,12 @@ async def property_update_submit(request: Request, db: Session = Depends(get_db)
     configs = []
     i = 0
     while i <= 100:
-        keys = [f"configurations[{i}][{x}]" for x in ("configuration","carpet_area","price_including_all","rate_per_sqft","negotiation","availability")]
+        keys = [f"configurations[{i}][{x}]" for x in ("configuration","carpet_area","price_including_all","rate_per_sqft","bundle_rate","negotiation","availability")]
         vals = [str(form.get(k) or "").strip() for k in keys]
         if not any(vals):
             if i == 0: i += 1; continue
             break
-        configs.append(dict(zip(("configuration","carpet_area","price_including_all","rate_per_sqft","negotiation","availability"), vals)))
+        configs.append(dict(zip(("configuration","carpet_area","price_including_all","rate_per_sqft","bundle_rate","negotiation","availability"), vals)))
         i += 1
     if configs: payload["configurations"] = configs
     towers = []
