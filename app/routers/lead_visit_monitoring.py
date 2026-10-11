@@ -187,3 +187,109 @@ def reassign_visit(request: Request, visit_id: int = Form(...), assigned_user_id
     db.add(AuditEvent(actor_user_id=actor.id, action="SITE_VISIT_REASSIGNED", entity_type="SiteVisit", entity_id=str(visit.id), details=f"from={previous};to={target.id};reason={reason[:300]}"))
     db.commit()
     return RedirectResponse("/admin/lead-monitoring", status_code=303)
+
+@router.get("/report/{lead_id}", response_class=HTMLResponse)
+def caller_lead_report(lead_id: int, request: Request, db: Session = Depends(get_db)):
+    """Show the lead's status, follow-up notes and full assignment trail."""
+    actor = _actor(request, db)
+    if not actor or actor.role not in MONITOR_ROLES:
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    if not lead or not _lead_in_scope(actor, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    customer = db.get(Customer, lead.customer_id) if lead.customer_id else None
+    users = {u.id: u.username for u in db.scalars(select(User)).all()}
+    history = db.scalars(
+        select(LeadAssignmentHistory).where(LeadAssignmentHistory.lead_id == lead.id)
+        .order_by(LeadAssignmentHistory.created_at.desc(), LeadAssignmentHistory.id.desc())
+    ).all()
+    followups = db.scalars(
+        select(FollowUp).where(FollowUp.lead_id == lead.id)
+        .order_by(FollowUp.due_at.desc(), FollowUp.id.desc())
+    ).all()
+    history_rows = "".join(
+        f"<tr><td>{_dt(h.created_at)}</td><td>{escape(users.get(h.from_user_id, 'Unassigned'))}</td>"
+        f"<td>{escape(users.get(h.to_user_id, 'Unassigned'))}</td><td>{escape(users.get(h.assigned_by_id, 'Unknown'))}</td>"
+        f"<td>{escape(h.reason or '—')}</td></tr>" for h in history
+    ) or "<tr><td colspan='5'>No assignment history recorded.</td></tr>"
+    follow_rows = "".join(
+        f"<tr><td>{_dt(f.due_at)}</td><td>{escape('Completed' if f.completed else 'Pending')}</td>"
+        f"<td>{escape(users.get(f.assigned_user_id, 'Unassigned'))}</td><td>{escape(f.purpose or 'Call follow-up')}</td>"
+        f"<td>{escape(f.notes or '—')}</td></tr>" for f in followups
+    ) or "<tr><td colspan='5'>No follow-ups recorded.</td></tr>"
+    target_users = db.scalars(select(User).where(
+        User.is_active.is_(True), User.role.in_({"SALES_EXECUTIVE", "TELECALLER"})
+    ).order_by(User.username)).all()
+    options = "".join(f"<option value='{u.id}'>{escape(u.username)}</option>" for u in target_users if u.id != lead.assigned_user_id)
+    transfer = ""
+    if _can_reassign(actor):
+        transfer = f"""
+        <section><h2>Transfer lead to another caller</h2>
+        <p>Previous call notes and follow-up history remain attached. Pending follow-ups will be reassigned to the new caller.</p>
+        <form method='post' action='/admin/lead-monitoring/transfer-lead'>
+        <input type='hidden' name='csrf_token' value='{escape(csrf_token(request))}'>
+        <input type='hidden' name='lead_id' value='{lead.id}'>
+        <select name='assigned_user_id' required><option value=''>Select caller</option>{options}</select>
+        <textarea name='reason' required minlength='3' maxlength='500' placeholder='Transfer reason / handover notes (required)'></textarea>
+        <button type='submit'>Transfer lead with history</button></form></section>"""
+    body = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>Caller Report — Lead #{lead.id}</title><style>
+    body{{font:14px Arial,sans-serif;background:#f4f7fb;color:#17243a;padding:20px}}main{{max-width:1250px;margin:auto}}section{{background:white;border:1px solid #e1e8f0;border-radius:12px;padding:18px;margin-bottom:16px}}table{{border-collapse:collapse;width:100%}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #e8edf4;vertical-align:top}}textarea,select,button{{font:inherit;padding:9px;margin:4px;border:1px solid #cbd5e1;border-radius:7px}}textarea{{display:block;width:min(700px,95%);min-height:75px}}button{{background:#1d4ed8;color:white;border:0;font-weight:700}}.wrap{{overflow:auto}}</style></head><body><main>
+    <p><a href='/admin/lead-monitoring'>← Lead & Visit Monitoring</a> · <a href='/caller/leads'>Caller Leads</a></p>
+    <section><h1>Caller Report — Lead #{lead.id}</h1><p><b>Customer:</b> {escape(customer.name if customer else 'Unlinked')} · <b>Source:</b> {escape(lead.source or 'Unknown')} · <b>Status:</b> {escape(lead.status or 'NEW')} · <b>Caller:</b> {escape(users.get(lead.assigned_user_id, 'Unassigned'))}</p>
+    <p><b>Location:</b> {escape(lead.preferred_location or '—')} · <b>BHK:</b> {escape(lead.bhk or '—')} · <b>Requirement:</b> {escape(lead.requirement or '—')}</p></section>
+    <section><h2>Assignment & transfer history</h2><div class='wrap'><table><thead><tr><th>Date</th><th>From caller</th><th>To caller</th><th>Assigned by</th><th>Reason / handover comment</th></tr></thead><tbody>{history_rows}</tbody></table></div></section>
+    <section><h2>Follow-up report</h2><div class='wrap'><table><thead><tr><th>Due</th><th>Status</th><th>Caller</th><th>Purpose</th><th>Notes / comments</th></tr></thead><tbody>{follow_rows}</tbody></table></div></section>
+    {transfer}</main></body></html>"""
+    return HTMLResponse(add_history_navigation(body))
+
+
+@router.post("/transfer-lead", dependencies=[Depends(require_csrf)])
+def transfer_lead(
+    request: Request,
+    lead_id: int = Form(...),
+    assigned_user_id: int = Form(...),
+    reason: str = Form(..., min_length=3, max_length=500),
+    db: Session = Depends(get_db),
+):
+    actor = _actor(request, db)
+    if not actor or not _can_reassign(actor):
+        return RedirectResponse("/", status_code=303)
+    lead = db.get(Lead, lead_id)
+    target = db.get(User, assigned_user_id)
+    scope_ids = _scope_user_ids(actor, db)
+    if not lead or not _lead_in_scope(actor, lead, db):
+        return HTMLResponse("Lead not found or outside your permitted scope.", status_code=404)
+    if not target or not target.is_active or target.role not in {"SALES_EXECUTIVE", "TELECALLER"} or target.id not in scope_ids:
+        return HTMLResponse("Select an active caller within your permitted team.", status_code=400)
+    if target.id == lead.assigned_user_id:
+        return HTMLResponse("Lead is already assigned to this caller.", status_code=409)
+    handover = reason.strip()
+    if len(handover) < 3:
+        return HTMLResponse("A transfer reason and handover comment are required.", status_code=422)
+    previous = lead.assigned_user_id
+    pending_followups = db.scalars(
+        select(FollowUp).where(FollowUp.lead_id == lead.id, FollowUp.completed.is_(False))
+    ).all()
+    lead.assigned_user_id = target.id
+    if lead.original_owner_id is None:
+        lead.original_owner_id = previous or target.id
+    for followup in pending_followups:
+        followup.assigned_user_id = target.id
+        # Keep existing notes intact; the handover comment is stored in assignment history.
+    db.add(LeadAssignmentHistory(
+        lead_id=lead.id, from_user_id=previous, to_user_id=target.id,
+        assigned_by_id=actor.id, reason=handover,
+    ))
+    db.add(AuditEvent(
+        actor_user_id=actor.id, action="LEAD_TRANSFERRED_WITH_HANDOVER",
+        entity_type="Lead", entity_id=str(lead.id),
+        details=f"from={previous};to={target.id};pending_followups_reassigned={len(pending_followups)};handover={handover}",
+    ))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return HTMLResponse("Transfer failed; no changes were saved. Please retry or contact an administrator.", status_code=500)
+    return RedirectResponse(f"/admin/lead-monitoring/report/{lead.id}", status_code=303)
+
