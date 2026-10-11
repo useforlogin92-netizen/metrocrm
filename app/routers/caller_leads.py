@@ -40,11 +40,15 @@ def caller_leads(request: Request, db: Session = Depends(get_db)):
     visible_user_ids = _visible_user_ids(user, db)
     lead_query = select(Lead).order_by(Lead.created_at.desc()).limit(200)
     if visible_user_ids is not None:
-        lead_query = select(Lead).where(Lead.assigned_user_id.in_(visible_user_ids)).order_by(Lead.created_at.desc()).limit(200)
+        lead_query = select(Lead).where((Lead.assigned_user_id.in_(visible_user_ids)) | (Lead.assigned_user_id.is_(None) & (user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}))).order_by(Lead.created_at.desc()).limit(200)
     leads = db.scalars(lead_query).all()
     assignable_users = []
     if user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
-        assignable_users = db.scalars(select(User).where(User.is_active.is_(True), User.role.in_(["SALES_EXECUTIVE", "TELECALLER"])).order_by(User.username.asc())).all()
+        assignable_query = select(User).where(User.is_active.is_(True), User.role.in_(["SALES_EXECUTIVE", "TELECALLER"])).order_by(User.username.asc())
+        if user.role in {"MANAGER", "TL"}:
+            team_ids = _visible_user_ids(user, db) or {user.id}
+            assignable_query = assignable_query.where(User.id.in_(team_ids))
+        assignable_users = db.scalars(assignable_query).all()
     rows = []
     for lead in leads:
         customer = db.get(Customer, lead.customer_id) if lead.customer_id else None
