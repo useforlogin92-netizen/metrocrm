@@ -33,6 +33,8 @@ from app.routers.lead_import import router as lead_import_router
 from app.routers.property_social import router as property_social_router
 from app.routers.property_submissions import router as property_submissions_router
 from app.routers.property_update import router as property_update_router
+from app.routers.property_data import router as property_data_router
+from app.routers.open_source_project_search import router as open_source_project_search_router
 from app.routers.marketing import router as marketing_router
 from app.routers.lead_visit_monitoring import router as lead_visit_monitoring_router
 from app.routers.lead_assignment_suggestions import router as lead_assignment_suggestions_router
@@ -123,6 +125,8 @@ app.include_router(lead_import_router)
 app.include_router(property_social_router)
 app.include_router(property_submissions_router)
 app.include_router(property_update_router)
+app.include_router(property_data_router)
+app.include_router(open_source_project_search_router)
 app.include_router(marketing_router)
 app.include_router(lead_visit_monitoring_router)
 app.include_router(lead_assignment_suggestions_router)
