@@ -1,5 +1,4 @@
 from datetime import datetime
-from types import SimpleNamespace
 
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
