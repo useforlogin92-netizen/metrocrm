@@ -242,8 +242,10 @@ def caller_lead_report(lead_id: int, request: Request, db: Session = Depends(get
         f"<td>{escape(users.get(f.assigned_user_id, 'Unassigned'))}</td><td>{escape(f.purpose or 'Call follow-up')}</td>"
         f"<td>{escape(f.notes or '—')}</td></tr>" for f in followups
     ) or "<tr><td colspan='5'>No follow-ups recorded.</td></tr>"
+    transfer_scope_ids = _scope_user_ids(actor, db)
     target_users = db.scalars(select(User).where(
-        User.is_active.is_(True), User.role.in_({"SALES_EXECUTIVE", "TELECALLER"})
+        User.is_active.is_(True), User.id.in_(transfer_scope_ids),
+        User.role.in_({"SALES_EXECUTIVE", "TELECALLER"})
     ).order_by(User.username)).all()
     options = "".join(f"<option value='{u.id}'>{escape(u.username)}</option>" for u in target_users if u.id != lead.assigned_user_id)
     transfer = ""
