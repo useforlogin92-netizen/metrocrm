@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lead Excel Upload | MetroCRM</title>
+  <style>
+    :root{color-scheme:light;--navy:#172554;--blue:#2563eb;--line:#dbe3ef;--muted:#64748b}
+    *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#0f172a;font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    header{background:var(--navy);color:white;padding:18px 24px}header strong{font-size:20px}header p{margin:3px 0 0;color:#cbd5e1}
+    main{max-width:920px;margin:28px auto;padding:0 16px}.card{background:white;border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:18px;box-shadow:0 4px 18px #0f172a0a}
+    h1{font-size:26px;margin:0 0 8px}h2{font-size:18px;margin:0 0 10px}.muted{color:var(--muted)}.actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:18px}
+    a.btn,button{display:inline-block;border:0;border-radius:8px;padding:11px 16px;font-weight:650;text-decoration:none;cursor:pointer;font-size:14px}
+    .primary{background:var(--blue);color:white}.secondary{background:#eaf0ff;color:#1d4ed8}label{display:block;font-weight:650;margin-bottom:8px}
+    input[type=file]{display:block;width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+    .notice{padding:12px 14px;border-radius:8px;margin:14px 0}.error{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}.success{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+    li{margin:6px 0}footer{max-width:920px;margin:0 auto 30px;padding:0 16px;color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <header><strong>MetroCRM</strong><p>Lead management workspace</p></header>
+  <main>
+    <section class="card">
+      <h1>Lead Excel Upload</h1>
+      <p class="muted">Upload an offline lead workbook using the MetroCRM Excel template.</p>
+      {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+      {% if message %}<div class="notice success" role="status">{{ message }}</div>{% endif %}
+      <div class="actions">
+        <a class="btn secondary" href="/super-admin/leads/offline-import/template">Download Excel Template</a>
+        <a class="btn secondary" href="/dashboard">Back to Dashboard</a>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Upload workbook</h2>
+      <p class="muted">Only .xlsx files are supported. Maximum file size: 10 MB. The workbook is validated before database changes are committed.</p>
+      <form method="post" action="/super-admin/leads/offline-import" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="file">Select Excel file (.xlsx)</label>
+        <input id="file" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        <div class="actions"><button class="primary" type="submit">Validate and Import Leads</button></div>
+      </form>
+    </section>
+    <section class="card">
+      <h2>Before importing</h2>
+      <ul>
+        <li>Keep the column names on the <strong>Leads</strong> worksheet unchanged.</li>
+        <li>Leave <code>lead_id</code> blank to create a lead; use an existing ID to update one.</li>
+        <li>Check assigned user IDs and customer contact details before upload.</li>
+        <li>Rows are validated as a batch; if a validation error occurs, the import is rolled back.</li>
+      </ul>
+    </section>
+  </main>
+  <footer>Signed in as {{ username }} · Role: {{ role }}</footer>
+</body>
+</html>
