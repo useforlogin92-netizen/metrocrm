@@ -38,7 +38,7 @@ from app.routers.lead_visit_monitoring import router as lead_visit_monitoring_ro
 from app.routers.lead_assignment_suggestions import router as lead_assignment_suggestions_router
 from app.routers.site_visit_workflow import router as site_visit_workflow_router
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
-from app.services.property_submission_schema import ensure_property_submission_schema
+from app.services.property_submission_schema import ensure_property_submission_schema, ensure_property_master_schema
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
 import app.site_visit_workflow_models  # noqa: F401
@@ -53,6 +53,7 @@ import app.marketing_models  # noqa: F401
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_property_submission_schema()
+    ensure_property_master_schema()
     start_backup_scheduler()
     try:
         yield

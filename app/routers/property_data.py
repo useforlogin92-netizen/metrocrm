@@ -75,6 +75,7 @@ def _property_workbook() -> BytesIO:
         ["Property Configurations","carpet_area","850"],
         ["Property Configurations","price_including_all","12500000"],
         ["Property Configurations","rate_per_sqft","14705.88"],
+        ["Property Configurations","bundle_rate","12500000"],
         ["Property Configurations","negotiation","Yes"],
         ["Property Configurations","availability","Available"],
         ["Property Towers","tower_name","Tower A"],
@@ -133,6 +134,7 @@ def _source_configuration_rows(raw_config: dict, availability: str | None) -> li
             "carpet_area": _parse_source_area(area_text),
             "price_including_all": price,
             "rate_per_sqft": rate,
+            "bundle_rate": price,
             "negotiation": "YES" if "negotiat" in str(price_text or "").lower() else None,
             "availability": str(availability or "").strip() or None,
             "_source_details": raw_config,
@@ -331,7 +333,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
         master_headers = [str(x.value).strip() if x.value is not None else "" for x in master_ws[1]]
         cfg_headers = [str(x.value).strip() if x.value is not None else "" for x in cfg_ws[1]] if cfg_ws else []
         master_allowed = {"property_id"} | {field.key for field in PROPERTY_MASTER_FIELDS if field.key not in {"configurations", "tower_details"}}
-        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "negotiation", "availability"}
+        cfg_allowed = {"property_id", "property_ref", "configuration", "carpet_area", "price_including_all", "rate_per_sqft", "bundle_rate", "negotiation", "availability"}
         if any(h not in master_allowed for h in master_headers if h):
             raise ValueError("Property Master contains unsupported columns")
         if cfg_ws and any(h not in cfg_allowed for h in cfg_headers if h):
@@ -363,6 +365,7 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
                 "carpet_area": raw.get("carpet_area"),
                 "price_including_all": raw.get("price_including_all"),
                 "rate_per_sqft": raw.get("rate_per_sqft"),
+                "bundle_rate": raw.get("bundle_rate"),
                 "negotiation": raw.get("negotiation"),
                 "availability": raw.get("availability"),
             }
