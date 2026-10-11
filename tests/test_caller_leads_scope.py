@@ -5,7 +5,7 @@ from app.routers import caller_leads
 
 
 def _request():
-    return Request({"type": "http", "method": "GET", "path": "/caller/leads", "headers": [], "query_string": b""})
+    return Request({"type": "http", "method": "GET", "path": "/caller/leads", "headers": [], "query_string": b"", "session": {}})
 
 
 def test_manager_lead_workspace_includes_reporting_tree_only(db_session, monkeypatch):
