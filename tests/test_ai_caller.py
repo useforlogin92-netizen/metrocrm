@@ -1,8 +1,10 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from app.routers.ai_caller import _lead_in_scope, _provider_claims, _provider_token
-from app.services.ai_caller import system_prompt, tool_definitions
+from app.services.ai_caller import _validate_tool_arguments, system_prompt, tool_definitions
 
 
 def test_ai_caller_prompt_has_hallucination_guardrails_and_language_support():
@@ -106,3 +108,47 @@ def test_ai_caller_scope_denies_manager_outside_tree():
 def test_ai_caller_scope_allows_admin_any_lead():
     for role in ("ADMIN", "SUPER_ADMIN"):
         assert _lead_in_scope(_user(1, role), _lead(999), _ScopeDB([])) is True
+
+
+
+def test_ai_caller_tool_arguments_are_validated_server_side():
+    _validate_tool_arguments("record_call_outcome", {
+        "outcome": "FOLLOW_UP",
+        "summary": "Customer asked for a callback",
+        "next_action": "Call tomorrow",
+    })
+    _validate_tool_arguments("update_lead_status", {"status": "CONTACTED"})
+    _validate_tool_arguments("search_properties", {
+        "location": "Malad",
+        "budget_min": 5000000,
+        "budget_max": 20000000,
+    })
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("update_lead_status", {"status": "ADMIN"}),
+        ("record_call_outcome", {"outcome": "HACKED", "summary": "bad"}),
+        ("get_property", {"unit_id": True}),
+        ("get_property", {"unit_id": 0}),
+        ("search_properties", {"budget_min": float("inf")}),
+        ("search_properties", {"budget_min": float("nan")}),
+        ("search_properties", {"budget_min": 10**1000}),
+        ("search_properties", {"unexpected": "field"}),
+        ("record_call_outcome", {"outcome": "FOLLOW_UP", "summary": "ok", "extra": "field"}),
+        ("search_properties", {"budget_min": 200, "budget_max": 100}),
+        ("search_properties", {"carpet_area_min": 1000, "carpet_area_max": 100}),
+        ("record_call_outcome", {"outcome": "FOLLOW_UP", "summary": 123}),
+    ],
+)
+def test_ai_caller_tool_arguments_reject_invalid_payloads(tool, arguments):
+    with pytest.raises(ValueError):
+        _validate_tool_arguments(tool, arguments)
+
+
+def test_ai_caller_tool_arguments_reject_unknown_tools_and_missing_required_fields():
+    with pytest.raises(ValueError, match="Tool not allowed"):
+        _validate_tool_arguments("delete_everything", {})
+    with pytest.raises(ValueError, match="Missing required"):
+        _validate_tool_arguments("get_property", {})
