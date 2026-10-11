@@ -11,25 +11,24 @@ def _request(session):
     return SimpleNamespace(session=session)
 
 
-def test_admin_portal_requires_admin_portal_session():
+def test_legacy_portal_session_matcher_remains_strict():
     assert _portal_session_matches(_request({"user_id": 1, "login_portal": "super_admin"}), "admin") is False
     assert _portal_session_matches(_request({"user_id": 1, "login_portal": "staff"}), "admin") is False
     assert _portal_session_matches(_request({"user_id": 1, "login_portal": "admin"}), "admin") is True
 
 
-def test_super_admin_session_does_not_redirect_from_admin_login(monkeypatch):
-    monkeypatch.setattr(portal, "_render", lambda request, error, portal_name: object())
+def test_legacy_admin_login_redirects_authenticated_users_to_dashboard():
     response = admin_login_page(_request({"user_id": 1, "login_portal": "super_admin"}))
-    assert not isinstance(response, RedirectResponse)
+    assert isinstance(response, RedirectResponse)
+    assert response.headers["location"] == "/dashboard"
 
 
-def test_admin_session_does_not_redirect_from_super_admin_login(monkeypatch):
-    monkeypatch.setattr(portal, "_render", lambda request, error, portal_name: object())
+def test_legacy_super_admin_login_redirects_authenticated_users_to_dashboard():
     response = super_admin_login_page(_request({"user_id": 1, "login_portal": "admin"}))
-    assert not isinstance(response, RedirectResponse)
+    assert isinstance(response, RedirectResponse)
+    assert response.headers["location"] == "/dashboard"
 
 
-def test_unauthenticated_dedicated_login_pages_still_render(monkeypatch):
-    monkeypatch.setattr(portal, "_render", lambda request, error, portal_name: object())
-    assert not isinstance(admin_login_page(_request({})), RedirectResponse)
-    assert not isinstance(super_admin_login_page(_request({})), RedirectResponse)
+def test_unauthenticated_legacy_login_urls_redirect_to_common_login():
+    assert admin_login_page(_request({})).headers["location"] == "/"
+    assert super_admin_login_page(_request({})).headers["location"] == "/"
