@@ -17,6 +17,7 @@ from app.models import AuditEvent, Customer, Lead, Project, Unit, User
 from app.routers.caller_assistant import _lead_in_scope, _unit_is_unavailable
 from app.services.catalog_sharing import build_share_payload
 from app.services.whatsapp import build_property_message, destination_hash, send_text
+from app.routers.branding_settings import BrandingSettings, render_message_template
 from app.whatsapp_models import WhatsAppMessage
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
@@ -159,6 +160,16 @@ def share_property_whatsapp(request: Request, lead_id: int = Form(...), unit_id:
     from app.config import settings
     share_url = f"{settings.whatsapp_public_base_url.rstrip('/')}/catalog/view/{token}" if settings.whatsapp_public_base_url else f"/catalog/view/{token}"
     body = build_property_message(property_data, share_url)
+    branding = db.get(BrandingSettings, 1)
+    if branding and branding.whatsapp_template.strip():
+        greeting = render_message_template(branding.whatsapp_template, {
+            "Company_Name": branding.company_name,
+            "Project_Name": project.name,
+            "Agent_Name": user.username,
+            "Customer_Name": customer.name,
+        }).strip()
+        if greeting:
+            body = f"{greeting}\\n\\n{body}"
     try:
         result = send_text(customer.mobile, body)
         status = result.get("status", "TEST"); provider_id = result.get("provider_message_id"); error = None
