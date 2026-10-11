@@ -99,7 +99,10 @@ async def enforce_idle_session(request: Request, call_next):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Browser geolocation is needed only for the explicit site-visit check-in workflow.
+        # Keep camera/microphone denied and geolocation denied everywhere else.
+        geolocation_policy = "geolocation=(self)" if request.url.path == "/site-visits" or request.url.path.startswith("/site-visits/") else "geolocation=()"
+        response.headers["Permissions-Policy"] = f"camera=(), microphone=(), {geolocation_policy}"
     return response
 
 # SessionMiddleware is declared after idle enforcement because Starlette's
