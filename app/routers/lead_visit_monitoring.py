@@ -29,6 +29,29 @@ def _dt(value: datetime | None) -> str:
     return value.strftime("%d %b %Y, %I:%M %p") if value else "—"
 
 
+def _lead_health_score(lead: Lead, followups: list[FollowUp], now: datetime) -> tuple[int, list[str]]:
+    """Transparent rule-based signal; managers make the final reassignment decision."""
+    score = 100
+    reasons: list[str] = []
+    related = [f for f in followups if f.lead_id == lead.id and not f.completed]
+    overdue = [f for f in related if f.due_at <= now]
+    if not lead.assigned_user_id:
+        score -= 20
+        reasons.append("Unassigned")
+    if overdue:
+        score -= min(45, 20 + 10 * (len(overdue) - 1))
+        reasons.append(f"{len(overdue)} overdue follow-up(s)")
+    age_days = max(0, (now - lead.created_at).days) if lead.created_at else 0
+    if age_days >= 3 and not related and (lead.status or "").upper() not in {"WON", "LOST", "CLOSED", "CONVERTED"}:
+        score -= 25
+        reasons.append("No pending follow-up scheduled")
+    if age_days >= 2 and (lead.status or "").upper() in {"NEW", "ASSIGNED"}:
+        score -= 15
+        reasons.append("Lead status has not progressed")
+    if not reasons:
+        reasons.append("No rule-based risk flags")
+    return max(0, min(100, score)), reasons
+
 
 def _scope_user_ids(actor: User, db: Session) -> set[int]:
     if actor.role in ADMIN_ROLES:
@@ -85,6 +108,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     for lead in leads:
         customer = customer_map.get(lead.customer_id)
         owner = user_map.get(lead.assigned_user_id, "Unassigned")
+        health, health_reasons = _lead_health_score(lead, followups, now)
+        health_label = "Needs review" if health < 60 else ("Watch" if health < 80 else "Healthy")
         options = "".join(f'<option value="{u.id}">{escape(u.username)}</option>' for u in users)
         action_cell = (
             f"<td><form method='post' action='/admin/lead-monitoring/reassign-lead'>"
@@ -99,7 +124,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "<tr>"
             f"<td><a href='/admin/lead-monitoring/report/{lead.id}'>#{lead.id} · Caller Report</a></td><td>{escape(customer.name if customer else 'Unlinked')}</td>"
             f"<td>{escape(lead.source or 'Unknown')}</td><td>{escape(owner)}</td>"
-            f"<td>{escape(lead.status or 'NEW')}</td><td>{_dt(lead.created_at)}</td>"
+            f"<td>{escape(lead.status or 'NEW')}</td><td title='{escape('; '.join(health_reasons))}'>{health}/100 · {escape(health_label)}</td><td>{_dt(lead.created_at)}</td>"
             f"{action_cell}</tr>"
         )
 
@@ -140,7 +165,7 @@ body{{font:14px Inter,Arial,sans-serif;background:#f4f7fb;color:#152238;margin:0
 {''.join(f"<div class='alert'>Overdue follow-up · {escape((customer_map.get(f.customer_id).name if f.customer_id and customer_map.get(f.customer_id) else 'Lead follow-up'))} · Caller {escape(user_map.get(f.assigned_user_id, 'Unassigned'))} · Due {_dt(f.due_at)}</div>" for f in overdue_calls[:50]) or "<p>No overdue follow-ups currently recorded.</p>"}
 {''.join(f"<div class='alert'>Visit requires status update · Visit #{v.id} · {escape(customer_map.get(v.customer_id).name if v.customer_id and customer_map.get(v.customer_id) else 'Customer not linked')} · Scheduled {_dt(v.scheduled_at)} · Current status {escape(v.status or 'SCHEDULED')}</div>" for v in missed_visits[:50]) or "<p>No past-due visits requiring status update.</p>"}
 </div>
-<div class='card'><h2>{'All leads & reassignment' if _can_reassign(actor) else 'My assigned leads'}</h2><p class='muted'>Lead source is shown on every row. {('Team scope applies.' if actor.role in TEAM_ROLES else 'Only your assigned leads are shown.')} Reassignment records the acting manager/admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead / Caller Report</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>{'Assign / reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="7">No leads found.</td></tr>'}</tbody></table></div></div>
+<div class='card'><h2>{'All leads & reassignment' if _can_reassign(actor) else 'My assigned leads'}</h2><p class='muted'>Lead source is shown on every row. {('Team scope applies.' if actor.role in TEAM_ROLES else 'Only your assigned leads are shown.')} Reassignment records the acting manager/admin and reason in the audit log.</p><div class='tablewrap'><table><thead><tr><th>Lead / Caller Report</th><th>Customer</th><th>Source</th><th>Assigned caller</th><th>Status</th><th>Received</th><th>{'Assign / reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(lead_rows) or '<tr><td colspan="8">No leads found.</td></tr>'}</tbody></table></div></div>
 <div class='card'><h2>Call follow-ups</h2><div class='tablewrap'><table><thead><tr><th>Alert</th><th>Customer</th><th>Source</th><th>Caller</th><th>Due</th><th>Purpose</th><th>Notes</th></tr></thead><tbody>{''.join(follow_rows) or '<tr><td colspan="7">No open follow-ups found.</td></tr>'}</tbody></table></div></div>
 <div class='card'><h2>{'Site visit monitoring & backup assignment' if _can_reassign(actor) else 'My site visits'}</h2><div class='tablewrap'><table><thead><tr><th>Visit</th><th>Customer</th><th>Visit owner</th><th>Scheduled time</th><th>Status / alert</th><th>Outcome</th><th>{'Reassign' if _can_reassign(actor) else 'Action'}</th></tr></thead><tbody>{''.join(visit_rows) or '<tr><td colspan="7">No site visits found.</td></tr>'}</tbody></table></div></div>
 </main></body></html>"""
@@ -238,7 +263,7 @@ def caller_lead_report(lead_id: int, request: Request, db: Session = Depends(get
     <p><a href='/admin/lead-monitoring'>← Lead & Visit Monitoring</a> · <a href='/caller/leads'>Caller Leads</a></p>
     <section><h1>Caller Report — Lead #{lead.id}</h1><p><b>Customer:</b> {escape(customer.name if customer else 'Unlinked')} · <b>Source:</b> {escape(lead.source or 'Unknown')} · <b>Status:</b> {escape(lead.status or 'NEW')} · <b>Caller:</b> {escape(users.get(lead.assigned_user_id, 'Unassigned'))}</p>
     <p><b>Location:</b> {escape(lead.preferred_location or '—')} · <b>BHK:</b> {escape(lead.bhk or '—')} · <b>Requirement:</b> {escape(lead.requirement or '—')}</p></section>
-    <section><h2>Assignment & transfer history</h2><div class='wrap'><table><thead><tr><th>Date</th><th>From caller</th><th>To caller</th><th>Assigned by</th><th>Reason / handover comment</th></tr></thead><tbody>{history_rows}</tbody></table></div></section>
+    <section><h2>Lead Health</h2><p>Rule-based triage only; this score does not automatically reassign a lead. The manager reviews the reasons and decides the next action.</p><p><b>Health score:</b> { _lead_health_score(lead, followups, datetime.now())[0] }/100 · <b>Risk signals:</b> {escape('; '.join(_lead_health_score(lead, followups, datetime.now())[1]))}</p></section><section><h2>Assignment & transfer history</h2><div class='wrap'><table><thead><tr><th>Date</th><th>From caller</th><th>To caller</th><th>Assigned by</th><th>Reason / handover comment</th></tr></thead><tbody>{history_rows}</tbody></table></div></section>
     <section><h2>Follow-up report</h2><div class='wrap'><table><thead><tr><th>Due</th><th>Status</th><th>Caller</th><th>Purpose</th><th>Notes / comments</th></tr></thead><tbody>{follow_rows}</tbody></table></div></section>
     {transfer}</main></body></html>"""
     return HTMLResponse(add_history_navigation(body))
