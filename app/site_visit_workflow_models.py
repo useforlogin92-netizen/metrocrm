@@ -47,6 +47,6 @@ class SiteVisitCheckIn(Base):
     visit_id: Mapped[int] = mapped_column(ForeignKey("site_visits.id"), unique=True, index=True)
     actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     latitude: Mapped[float] = mapped_column(Numeric(10, 7))
-    longitude: Mapped[float] = mapped_column(__import__("sqlalchemy").Numeric(10, 7))
+    longitude: Mapped[float] = mapped_column(Numeric(10, 7))
     accuracy_m: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
