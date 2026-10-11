@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import date, datetime, timezone
+from urllib.parse import quote_plus
 from decimal import Decimal
 from io import BytesIO
 
@@ -21,6 +22,7 @@ from app.models import AuditEvent, Booking, Commission, DataRequest, Developer, 
 from app.routers.data_tools import _convert_excel_value, _export_workbook, _import_workbook, _models, _save_workbook, _template_workbook
 from app.property_master import PropertyUpdateSource
 from app.services.property_update_engine import apply_property_master
+from app.metro_property_v5 import workbook_bytes, import_v5_workbook, _num, _to_date
 from tools.seed_godrej_nest_test import seed_godrej_nest_test
 
 router = APIRouter(tags=["property-data"])
@@ -42,46 +44,8 @@ def _guard(request: Request, db: Session):
 
 
 def _property_workbook() -> BytesIO:
-    from app.property_master import PROPERTY_MASTER_FIELDS, CONFIGURATION_COLUMNS, TOWER_COLUMNS
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Instructions"
-    for row in [
-        ["MetroCRM Fresh Property Master V3"],
-        ["One canonical format: Individual, Bulk Excel, WhatsApp and SM Link."],
-        ["Property Master: one row per property. Existing property_id updates; property_ref identifies new properties."],
-        ["Property Configurations: one row per configuration + carpet area."],
-        ["Property Towers: one row per tower with total floors."],
-        ["Facilities: comma-separated ready-to-tick amenity names. Parking belongs here, not in configuration."],
-        ["Do not use unit number, floor, facing or furnishing in this Property Master."],
-    ]: ws.append(row)
-    ws.column_dimensions["A"].width = 115
-    ws["A1"].font = Font(bold=True, size=16)
-    master_fields = ["property_id"] + [f.key for f in PROPERTY_MASTER_FIELDS if f.key not in {"configurations","tower_details"}]
-    master = wb.create_sheet("Property Master"); master.append(master_fields)
-    cfg = wb.create_sheet("Property Configurations"); cfg.append(["property_id","property_ref"] + [k for k,_ in CONFIGURATION_COLUMNS])
-    towers = wb.create_sheet("Property Towers"); towers.append(["property_id","property_ref"] + [k for k,_ in TOWER_COLUMNS])
-    for sheet in (master,cfg,towers):
-        for cell in sheet[1]:
-            cell.font=Font(bold=True,color="FFFFFF")
-        sheet.freeze_panes="A2"; sheet.auto_filter.ref=sheet.dimensions
-    ex=wb.create_sheet("Examples")
-    for row in [
-        ["Sheet","Field","Example"],
-        ["Property Master","property_ref","P-001"],
-        ["Property Master","project_name","Example Heights"],
-        ["Property Master","facilities","Car Parking, Gym, Lift, CCTV"],
-        ["Property Configurations","configuration","2 BHK"],
-        ["Property Configurations","carpet_area","850"],
-        ["Property Configurations","price_including_all","12500000"],
-        ["Property Configurations","rate_per_sqft","14705.88"],
-        ["Property Configurations","negotiation","Yes"],
-        ["Property Configurations","availability","Available"],
-        ["Property Towers","tower_name","Tower A"],
-        ["Property Towers","total_floors","22"],
-    ]: ex.append(row)
-    return _save_workbook(wb)
-
+    """Return the Metro Properties V5 complete workbook."""
+    return workbook_bytes()
 
 def _split_source_values(value) -> list[str]:
     text = str(value or "").strip()
@@ -224,6 +188,179 @@ def property_data_page(request: Request, db: Session = Depends(get_db)):
     })
 
 
+@router.get("/admin/property-data/v5-entry", response_class=HTMLResponse)
+def property_data_v5_entry(request: Request, db: Session = Depends(get_db)):
+    actor = _guard(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+    project_id = request.query_params.get("project_id", "").strip()
+    values = {}
+    if project_id.isdigit():
+        project = db.get(Project, int(project_id))
+        if project:
+            developer = db.get(Developer, project.developer_id)
+            values = {
+                "developer": developer.name if developer else "",
+                "project_name": project.name,
+                "state": project.state or "",
+                "district": project.district or "",
+                "locality": project.locality or "",
+                "pincode": project.pincode or "",
+                "address": project.address or "",
+            }
+    return templates.TemplateResponse("property_data_v5_entry.html", {
+        "request": request,
+        "username": actor.username,
+        "role": actor.role,
+        "avatar": actor.username[:1].upper(),
+        "csrf_token": csrf_token(request),
+        "project_id": project_id,
+        "values": values,
+        "base": "/super-admin" if actor.role == "SUPER_ADMIN" else "/admin",
+        "error": request.query_params.get("error"),
+        "show_user_management": actor.role in {"SUPER_ADMIN", "ADMIN"},
+        "show_integrations": False,
+        "show_alerts": False,
+        "show_approvals": actor.role in {"SUPER_ADMIN", "ADMIN"},
+    })
+
+
+@router.post("/admin/property-data/v5-save", dependencies=[Depends(require_csrf)])
+async def property_data_v5_save(request: Request, db: Session = Depends(get_db)):
+    actor = _guard(request, db)
+    if not actor:
+        return RedirectResponse("/", status_code=303)
+
+    form = await request.form()
+    def val(name, default=""):
+        value = form.get(name, default)
+        return str(value).strip() if value is not None else default
+    def vals(name):
+        return [str(x).strip() for x in form.getlist(name) if str(x).strip()]
+
+    try:
+        developer_name = val("developer")
+        project_name = val("project_name")
+        if not developer_name or not project_name:
+            raise ValueError("Developer / Builder and Project Name are required")
+
+        developer = db.query(Developer).filter(Developer.name.ilike(developer_name)).first()
+        if developer is None:
+            developer = Developer(name=developer_name)
+            db.add(developer)
+            db.flush()
+        contact_parts = []
+        for key,label in (("developer_contact","Contact"),("developer_whatsapp","WhatsApp"),("developer_email","Email")):
+            x=val(key)
+            if x: contact_parts.append(f"{label}: {x}")
+        if contact_parts:
+            developer.contact=" | ".join(contact_parts)
+
+        project_id = val("project_id")
+        project = db.get(Project, int(project_id)) if project_id.isdigit() else None
+        if project is None:
+            project = db.query(Project).filter(Project.developer_id==developer.id, Project.name.ilike(project_name)).first()
+        if project is None:
+            project = Project(developer_id=developer.id, name=project_name)
+            db.add(project)
+        else:
+            project.developer_id = developer.id
+            project.name = project_name
+
+        def setp(attr,name):
+            x=val(name)
+            if x: setattr(project,attr,x)
+        setp("state","state"); setp("district","district"); setp("city","city")
+        setp("locality","locality"); setp("address","address"); setp("pincode","pincode")
+        setp("rera","rera"); setp("construction_status","tower_status")
+        project.possession_date = _to_date(val("possession_date")) or project.possession_date
+        project.brochure = val("brochure_url") or project.brochure
+        amenities=[x.strip() for x in val("amenities").split(",") if x.strip()]
+        if amenities: project.amenities_json=json.dumps(amenities,ensure_ascii=False)
+
+        metadata={
+            "v5": {
+                "property_type":val("property_type"), "listing_status":val("listing_status"),
+                "availability":val("availability"), "project_status":val("project_status"),
+                "maps_link":val("maps_link"), "sub_locality":val("sub_locality"),
+                "nearby_connectivity":val("nearby_connectivity"), "rera_url":val("rera_url"),
+                "approved_banks":val("approved_banks"), "maintenance":val("maintenance"),
+                "payment_plan":val("payment_plan"), "cp_commission":val("cp_commission"),
+                "data_source":val("data_source"), "description":val("description"),
+            }
+        }
+        project.description=json.dumps(metadata,ensure_ascii=False)
+        db.flush()
+
+        def lists(name): return vals(name)
+        cb,ca,cr,ct,cp,cf,cv,ctx = [lists(x) for x in ("config_bhk","config_area","config_rate","config_total","config_parking","config_furnishing","config_availability","config_tower")]
+        for i in range(max(len(cb),len(ca),len(cr),len(ct),len(cp),len(cf),len(cv),len(ctx))):
+            bhk=cb[i] if i<len(cb) else ""
+            if not bhk: continue
+            area=_num(ca[i] if i<len(ca) else None)
+            cfg=db.query(PropertyConfiguration).filter(PropertyConfiguration.project_id==project.id,PropertyConfiguration.configuration==bhk,PropertyConfiguration.carpet_area==area).first()
+            if cfg is None:
+                cfg=PropertyConfiguration(project_id=project.id,configuration=bhk,carpet_area=area)
+                db.add(cfg)
+            cfg.rate_per_sqft=_num(cr[i] if i<len(cr) else None)
+            cfg.price_including_all=_num(ct[i] if i<len(ct) else None)
+            cfg.availability=cv[i] if i<len(cv) else None
+            cfg.source_details=json.dumps({"parking":cp[i] if i<len(cp) else "", "furnishing":cf[i] if i<len(cf) else "", "tower_wing":ctx[i] if i<len(ctx) else "", "source":val("data_source")},ensure_ascii=False)
+
+        tn,tf,tp,ts=[lists(x) for x in ("tower_name","tower_floors","tower_possession","tower_status")]
+        tower_by_name={}
+        for i in range(max(len(tn),len(tf),len(tp),len(ts))):
+            name=tn[i] if i<len(tn) else ""
+            if not name: continue
+            tower=db.query(Tower).filter(Tower.project_id==project.id,Tower.name.ilike(name)).first()
+            if tower is None:
+                tower=Tower(project_id=project.id,name=name); db.add(tower)
+            if i<len(tf) and tf[i]:
+                try: tower.floors=int(float(tf[i]))
+                except ValueError: pass
+            tower.possession_date=_to_date(tp[i]) if i<len(tp) and tp[i] else tower.possession_date
+            tower.details=json.dumps({"construction_status":ts[i] if i<len(ts) else ""},ensure_ascii=False)
+            db.flush(); tower_by_name[name.casefold()]=tower
+
+        un,ut,uf,ub,ua,up,uk,ufurn,uav=[lists(x) for x in ("unit_number","unit_tower","unit_floor","unit_bhk","unit_area","unit_price","unit_parking","unit_furnishing","unit_availability")]
+        for i in range(max(len(un),len(ut),len(uf),len(ub),len(ua),len(up),len(uk),len(ufurn),len(uav))):
+            number=un[i] if i<len(un) else ""
+            if not number: continue
+            tower_name=ut[i] if i<len(ut) else ""
+            tower=tower_by_name.get(tower_name.casefold()) if tower_name else None
+            if tower is None and tower_name:
+                tower=db.query(Tower).filter(Tower.project_id==project.id,Tower.name.ilike(tower_name)).first()
+            unit=db.query(Unit).filter(Unit.project_id==project.id,Unit.unit_number==number).first()
+            if unit is None:
+                unit=Unit(project_id=project.id,unit_number=number); db.add(unit)
+            if tower: unit.tower_id=tower.id
+            if i<len(uf) and uf[i]:
+                try: unit.floor=int(float(uf[i]))
+                except ValueError: pass
+            for attr,arr in (("bhk",ub),("carpet_area",ua),("price",up),("parking",uk),("furnishing",ufurn),("availability",uav)):
+                if i<len(arr) and arr[i]:
+                    setattr(unit,attr,_num(arr[i]) if attr in {"carpet_area","price"} else arr[i])
+            unit.other_details=json.dumps({"source":val("data_source")},ensure_ascii=False)
+
+        nn,nname,nd,ntime,ntransport=[lists(x) for x in ("nearby_category","nearby_name","nearby_distance","nearby_time","nearby_transport")]
+        for i in range(max(len(nn),len(nname),len(nd),len(ntime),len(ntransport))):
+            category=nn[i] if i<len(nn) else ""
+            name=nname[i] if i<len(nname) else ""
+            if not category or not name: continue
+            nearby=db.query(NearbyLocation).filter(NearbyLocation.project_id==project.id,NearbyLocation.category.ilike(category),NearbyLocation.name.ilike(name)).first()
+            if nearby is None:
+                nearby=NearbyLocation(project_id=project.id,category=category,name=name); db.add(nearby)
+            nearby.distance=nd[i] if i<len(nd) else None
+            nearby.details=json.dumps({"travel_time":ntime[i] if i<len(ntime) else "", "transport_mode":ntransport[i] if i<len(ntransport) else ""},ensure_ascii=False)
+
+        db.add(AuditEvent(actor_user_id=actor.id,action="PROPERTY_V5_MANUAL_SAVE",entity_type="Projects",entity_id=str(project.id),details=json.dumps({"project":project.name,"source":val("data_source")},ensure_ascii=False)))
+        db.commit()
+        return RedirectResponse(f"/admin/property-data?entity=Projects&message=V5+Property+saved+successfully+%28Project+%23{project.id}%29",status_code=303)
+    except Exception as exc:
+        db.rollback()
+        return RedirectResponse("/admin/property-data/v5-entry?error="+quote_plus(str(exc)[:400]),status_code=303)
+
+
 @router.post("/admin/property-data/load-godrej-nest", dependencies=[Depends(require_csrf)])
 def load_godrej_nest_test_data(request: Request, db: Session = Depends(get_db)):
     """Explicitly load the reviewed Godrej Nest test inventory into Property Data."""
@@ -258,6 +395,25 @@ async def import_property_data(request: Request, file: UploadFile = File(...), d
     content = await file.read()
     try:
         wb = load_workbook(BytesIO(content), data_only=True)
+        if "QuickImport" in wb.sheetnames or any(name in wb.sheetnames for name in ("Developers","Projects","Configurations","Towers","Units","NearbyLocations")):
+            created, updated, warnings = import_v5_workbook(
+                db,
+                (Developer, Project, PropertyConfiguration, Tower, Unit, NearbyLocation),
+                wb,
+                actor,
+            )
+            db.add(AuditEvent(
+                actor_user_id=actor.id,
+                action="PROPERTY_V5_WORKBOOK_IMPORTED",
+                entity_type="PropertyData",
+                entity_id=None,
+                details=json.dumps({"created":created,"updated":updated,"warnings":warnings[:100]},ensure_ascii=False),
+            ))
+            db.commit()
+            message=f"V5 import complete: {created} created, {updated} updated"
+            if warnings:
+                message += f", {len(warnings)} warnings"
+            return RedirectResponse("/admin/property-data?entity=Projects&message="+quote_plus(message)[:800], status_code=303)
         if "Property Master" in wb.sheetnames:
             source_ws = wb["Property Master"]
             source_headers = [str(x.value).strip() if x.value is not None else "" for x in source_ws[1]]
