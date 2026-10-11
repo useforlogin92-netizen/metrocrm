@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}MetroCRM | Project Search via Open Sources{% endblock %}
 {% block header_title %}Project Search via Open Sources{% endblock %}
-{% block breadcrumb %}<a href="/admin/property-data">Property Data</a> › Project Search via Open Sources{% endblock %}
+{% block breadcrumb %}<a href="{{ '/super-admin/property-data' if role == 'SUPER_ADMIN' else '/admin/property-data' }}">Property Data</a> › Project Search via Open Sources{% endblock %}
 {% block content %}
 <style>
 .os-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:14px}.os-card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin-bottom:16px}.os-card h2{font-size:17px;margin:0 0 12px}.os-field label{display:block;font-size:12px;font-weight:750;margin:10px 0 5px}.os-field input,.os-field select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:white}.os-btn{border:0;border-radius:8px;padding:11px 16px;font-weight:800;cursor:pointer;background:#2563eb;color:white}.os-btn:disabled{opacity:.55}.os-muted{color:#64748b;font-size:12px;line-height:1.5}.os-result{border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin:12px 0}.os-result h3{margin:0 0 7px;font-size:15px}.os-result a{overflow-wrap:anywhere}.os-links{display:flex;gap:8px;flex-wrap:wrap}.os-links a{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;text-decoration:none;font-size:12px;font-weight:750}.os-status{padding:12px;border-radius:9px;background:#f1f5f9;margin:12px 0;font-size:13px}.os-note{background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px;font-size:12px;line-height:1.5}@media(max-width:750px){.os-grid{grid-template-columns:1fr}}
@@ -32,7 +32,7 @@ async function searchProjects(){
  const btn=document.getElementById('searchBtn');btn.disabled=true;document.getElementById('statusBox').textContent='Searching selected public sources…';
  document.getElementById('results').innerHTML='';document.getElementById('sourceLinks').innerHTML='';
  try{
-  const response=await fetch('/admin/property-data/open-source-search/api',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},body:JSON.stringify({city:document.getElementById('city').value.trim(),locality,side:document.getElementById('side').value,status:document.getElementById('status').value,developer:document.getElementById('developer').value.trim()||null,rera:document.getElementById('rera').value.trim()||null,limit:10})});
+  const response=await fetch('{{ "/super-admin/property-data/open-source-search/api" if role == "SUPER_ADMIN" else "/admin/property-data/open-source-search/api" }}',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},body:JSON.stringify({city:document.getElementById('city').value.trim(),locality,side:document.getElementById('side').value,status:document.getElementById('status').value,developer:document.getElementById('developer').value.trim()||null,rera:document.getElementById('rera').value.trim()||null,limit:10})});
   const data=await response.json();
   if(!response.ok)throw new Error(data.detail||'Search request failed');
   document.getElementById('statusBox').textContent=data.message||'Search completed.';
