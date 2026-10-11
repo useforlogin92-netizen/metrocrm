@@ -133,6 +133,8 @@ def test_ai_caller_tool_arguments_are_validated_server_side():
         ("get_property", {"unit_id": True}),
         ("get_property", {"unit_id": 0}),
         ("search_properties", {"budget_min": float("inf")}),
+        ("search_properties", {"budget_min": float("nan")}),
+        ("search_properties", {"budget_min": 10**1000}),
         ("search_properties", {"unexpected": "field"}),
         ("record_call_outcome", {"outcome": "FOLLOW_UP", "summary": "ok", "extra": "field"}),
         ("search_properties", {"budget_min": 200, "budget_max": 100}),
