@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.csrf import csrf_token
+from app.csrf import csrf_token, require_csrf_header
 
 router = APIRouter(tags=["open-source-project-search"])
 templates = Jinja2Templates(directory="app/templates")
@@ -71,7 +71,7 @@ def open_source_project_search_page(request: Request, db: Session = Depends(get_
     })
 
 
-@router.post("/admin/property-data/open-source-search/api")
+@router.post("/admin/property-data/open-source-search/api", dependencies=[Depends(require_csrf_header)])
 def search_open_source_projects(payload: ProjectSearchRequest, request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
     if not actor or actor.role not in ALLOWED_ROLES:
