@@ -35,6 +35,13 @@ class BrandingSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
+PLACEHOLDER_RE = re.compile(r"\\{\\{([A-Za-z_][A-Za-z0-9_]*)\\}\\}")
+
+
+def render_message_template(template: str, values: dict[str, str]) -> str:
+    """Replace known white-label placeholders while leaving unknown ones visible."""
+    return PLACEHOLDER_RE.sub(lambda match: values.get(match.group(1), match.group(0)), template)
+
 def _actor(request: Request, db: Session):
     from app.main import _current_user
     return _current_user(request, db)
