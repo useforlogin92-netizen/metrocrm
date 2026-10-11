@@ -281,9 +281,13 @@ def update_profile(request: Request, mobile: str = Form(""), email: str = Form("
     user.email = email.strip().lower() or None
     user.category = category.strip() or None
     user.team = team.strip() or None
-    user.security_question = security_question.strip() or None
-    if security_answer.strip():
-        user.security_answer_hash = hash_password(security_answer.strip())
+    if user.role.upper() in {"SUPER_ADMIN", "ADMIN"}:
+        user.security_question = security_question.strip() or None
+        if security_answer.strip():
+            user.security_answer_hash = hash_password(security_answer.strip())
+    else:
+        user.security_question = None
+        user.security_answer_hash = None
     _audit(db, user.id, "PROFILE_UPDATED", user)
     db.commit()
     return RedirectResponse("/profile", status_code=303)
@@ -379,13 +383,14 @@ def create_user(request: Request, username: str = Form(...), password: str = For
     role = role.upper()
     if not actor or not _can_manage_user(actor, target_role=role):
         return RedirectResponse("/admin/users?error=forbidden", status_code=303)
-    if len(password) < 8 or not security_question.strip() or not security_answer.strip():
+    admin_recovery_role = role in {"SUPER_ADMIN", "ADMIN"}
+    if len(password) < 8 or (admin_recovery_role and (not security_question.strip() or not security_answer.strip())):
         return RedirectResponse("/admin/users?error=validation", status_code=303)
     manager = int(manager_id) if manager_id.isdigit() else None
     if not _valid_reporting_manager(actor, manager, None, db):
         return RedirectResponse("/admin/users?error=manager", status_code=303)
     auto_approved = actor.role.upper() == "SUPER_ADMIN"
-    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip(), security_answer_hash=hash_password(security_answer.strip()), is_active=True, is_approved=auto_approved)
+    user = User(username=username.strip(), password_hash=hash_password(password), role=role, mobile=mobile.strip() or None, email=email.strip().lower() or None, category=category.strip() or None, team=team.strip() or None, reporting_manager_id=manager, security_question=security_question.strip() or None if admin_recovery_role else None, security_answer_hash=hash_password(security_answer.strip()) if admin_recovery_role else None, is_active=True, is_approved=auto_approved)
     db.add(user)
     _audit(db, actor.id, "USER_CREATED", user, {"role": role, "auto_approved": auto_approved})
     if auto_approved:
