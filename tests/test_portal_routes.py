@@ -42,3 +42,19 @@ def test_backup_status_redirects_expired_or_invalid_sessions():
     assert 'if not user:' in source
     assert 'request.session.clear()' in source
     assert 'RedirectResponse("/super-admin/login", status_code=303)' in source
+
+
+from app.models import Unit
+from app.routers.realestate_finance import _unit_status_bucket
+
+
+def test_unit_matrix_status_mapping_does_not_assume_unknown_is_available():
+    assert _unit_status_bucket(Unit(unit_number="A-1", status="AVAILABLE")) == "AVAILABLE"
+    assert _unit_status_bucket(Unit(unit_number="A-2", status="BOOKED")) == "BOOKED"
+    assert _unit_status_bucket(Unit(unit_number="A-3", availability="ON HOLD")) == "HOLD"
+    assert _unit_status_bucket(Unit(unit_number="A-4")) == "UNKNOWN"
+
+
+def test_unit_matrix_route_is_registered_in_real_estate_finance_router():
+    from app.routers.realestate_finance import router as finance_router
+    assert any(route.path == "/crm/advanced/unit-matrix" for route in finance_router.routes)
