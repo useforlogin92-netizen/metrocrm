@@ -62,12 +62,13 @@ def _site_visits_in_scope_query(scope_ids: set[int]):
 
 
 def _visit_in_scope(actor: User, visit: SiteVisit, lead: Lead | None, db: Session) -> bool:
-    """Check visit scope without requiring a linked lead for an assigned visit."""
+    """Match the dashboard's scope rule for linked and unlinked assigned visits."""
     if actor.role in ADMIN_ROLES:
         return True
-    if lead is not None:
-        return _lead_in_scope(actor, lead, db)
-    return visit.sales_employee_id in _scope_user_ids(actor, db)
+    scope_ids = _scope_user_ids(actor, db)
+    lead_is_in_scope = lead is not None and lead.assigned_user_id in scope_ids
+    visit_owner_is_in_scope = visit.sales_employee_id in scope_ids
+    return lead_is_in_scope or visit_owner_is_in_scope
 
 
 @router.get("", response_class=HTMLResponse)
