@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from html import escape
+from math import isfinite
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
 from app.models import AuditEvent, Customer, FollowUp, Lead, Project, SiteVisit, User
-from app.site_visit_workflow_models import DeveloperSalesContact, SiteVisitReview
+from app.site_visit_workflow_models import DeveloperSalesContact, SiteVisitCheckIn, SiteVisitReview
 
 router = APIRouter(prefix="/site-visits", tags=["site-visit-workflow"])
 ALLOWED_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
@@ -60,6 +63,24 @@ def _visible_visit(actor: User, visit: SiteVisit, lead: Lead, db: Session) -> bo
     return visit.sales_employee_id in _team_user_ids(actor, db)
 
 
+def _can_access_visit(actor: User, visit: SiteVisit, lead: Lead | None, db: Session) -> bool:
+    if actor.role in {"SUPER_ADMIN", "ADMIN"}:
+        return True
+    if lead and _visible_visit(actor, visit, lead, db):
+        return True
+    return visit.sales_employee_id in _team_user_ids(actor, db)
+
+
+def _valid_gps_coordinates(latitude: float, longitude: float, accuracy_m: float | None = None) -> bool:
+    if not isfinite(latitude) or not isfinite(longitude):
+        return False
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        return False
+    if accuracy_m is not None and (not isfinite(accuracy_m) or accuracy_m < 0):
+        return False
+    return True
+
+
 @router.get("", response_class=HTMLResponse)
 def visit_workflow(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
@@ -85,6 +106,7 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
     user_map = {u.id: u.username for u in db.scalars(select(User)).all()}
     project_map = {p.id: p for p in projects}
     review_map = {r.visit_id: r for r in db.scalars(select(SiteVisitReview).where(SiteVisitReview.visit_id.in_([v.id for v in visits]))).all()} if visits else {}
+    checkin_map = {item.visit_id: item for item in db.scalars(select(SiteVisitCheckIn).where(SiteVisitCheckIn.visit_id.in_([v.id for v in visits]))).all()} if visits else {}
     rows = []
     for v in visits:
         customer = customers.get(v.customer_id) if v.customer_id else (customers.get(db.get(Lead, v.lead_id).customer_id) if v.lead_id and db.get(Lead, v.lead_id) else None)
@@ -99,11 +121,21 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
         scheduled_text = escape(v.scheduled_at.strftime("%d %b %Y %I:%M %p"))
         visit_status = escape(v.status or "SCHEDULED")
         deal_status = escape(review.deal_status if review else "FEEDBACK PENDING")
+        checkin = checkin_map.get(v.id)
+        if checkin:
+            checkin_control = f" <small>GPS recorded {escape(checkin.captured_at.strftime('%d %b %Y %I:%M %p'))}</small>"
+        elif (v.status or "SCHEDULED").upper() in {"CANCELLED", "NO_SHOW", "CUSTOMER_NO_SHOW"}:
+            checkin_control = "<small>Check-in unavailable for cancelled/no-show visits</small>"
+        else:
+            checkin_control = (f'<form class="gps-checkin-form" method="post" action="/site-visits/{v.id}/check-in">'
+                f'<input type="hidden" name="csrf_token" value="{escape(csrf_token(request))}">'
+                '<input type="hidden" name="latitude"><input type="hidden" name="longitude">'
+                '<input type="hidden" name="accuracy_m"><button class="btn gps-checkin-button" type="submit">Record GPS Check-in</button></form>')
         rows.append(
             f"<tr><td>#{v.id}</td><td>{customer_name}</td><td>{project_name}</td>"
             f"<td>{caller_name}</td><td>{coordinator_name}</td><td>{sm_name}<br><small>{sm_phone}</small></td>"
             f"<td>{scheduled_text}</td><td>{visit_status}</td><td>{deal_status}</td>"
-            f'<td><a href="/site-visits/{v.id}/feedback">Feedback / Next Step</a></td></tr>'
+            f'<td><a href="/site-visits/{v.id}/feedback">Feedback / Next Step</a><br>{checkin_control}</td></tr>'
         )
     csrf = escape(csrf_token(request))
     selected_lead_id = request.query_params.get("lead_id", "")
@@ -127,7 +159,25 @@ def visit_workflow(request: Request, db: Session = Depends(get_db)):
 <div style="grid-column:1/-1"><label>Projects to visit * (multiple select supported)</label><select name="project_ids" multiple required>{project_opts}</select><p class="hint">Use Ctrl/⌘ to select multiple projects. A separate visit record will be created for each project, linked to the same customer, date/time, and visit batch.</p></div>
 </div><p><button type="submit">Create Visit Plan</button></p></form></div>
 <div class="card"><h2>Recent Site Visits</h2><div class="scroll"><table><thead><tr><th>Visit</th><th>Customer</th><th>Project</th><th>Caller</th><th>Visit Conducted By</th><th>SM</th><th>Date / Time</th><th>Status</th><th>Deal</th><th>Action</th></tr></thead><tbody>{''.join(rows) or '<tr><td colspan="10">No visits found yet.</td></tr>'}</tbody></table></div></div>
-</main></body></html>"""
+</main><script>
+document.querySelectorAll(".gps-checkin-form").forEach(function(form){{
+  form.addEventListener("submit", function(event){{
+    event.preventDefault();
+    if (!navigator.geolocation) {{ alert("This browser does not support GPS location."); return; }}
+    const button = form.querySelector(".gps-checkin-button");
+    button.disabled = true; button.textContent = "Getting location…";
+    navigator.geolocation.getCurrentPosition(function(position){{
+      form.querySelector('[name="latitude"]').value = position.coords.latitude;
+      form.querySelector('[name="longitude"]').value = position.coords.longitude;
+      form.querySelector('[name="accuracy_m"]').value = position.coords.accuracy;
+      form.submit();
+    }}, function(error){{
+      button.disabled = false; button.textContent = "Record GPS Check-in";
+      alert("GPS check-in was not recorded. Allow location access and try again. (" + error.message + ")");
+    }}, {{enableHighAccuracy:true, timeout:15000, maximumAge:0}});
+  }});
+}});
+</script></body></html>"""
     return HTMLResponse(body)
 
 
@@ -184,6 +234,44 @@ def create_visit_batch(
     except Exception:
         db.rollback()
         raise
+    return RedirectResponse("/site-visits", status_code=303)
+
+
+@router.post("/{visit_id}/check-in", dependencies=[Depends(require_csrf)])
+def record_visit_checkin(
+    visit_id: int, request: Request,
+    latitude: float = Form(...), longitude: float = Form(...),
+    accuracy_m: float | None = Form(None),
+    csrf_token_value: str = Form("", alias="csrf_token"),
+    db: Session = Depends(get_db),
+):
+    require_csrf(request, csrf_token_value)
+    actor = _actor(request, db)
+    if not actor or actor.role not in ALLOWED_ROLES:
+        return RedirectResponse("/", status_code=303)
+    visit = db.get(SiteVisit, visit_id)
+    lead = db.get(Lead, visit.lead_id) if visit and visit.lead_id else None
+    if not visit or not _can_access_visit(actor, visit, lead, db):
+        return HTMLResponse("Visit not found or outside your permitted scope.", status_code=404)
+    if (visit.status or "SCHEDULED").upper() in {"CANCELLED", "NO_SHOW", "CUSTOMER_NO_SHOW"}:
+        return HTMLResponse("GPS check-in is not allowed for cancelled or no-show visits.", status_code=409)
+    if not _valid_gps_coordinates(latitude, longitude, accuracy_m):
+        return HTMLResponse("Invalid GPS coordinates or accuracy value.", status_code=422)
+    if db.scalar(select(SiteVisitCheckIn.id).where(SiteVisitCheckIn.visit_id == visit.id)) is not None:
+        return HTMLResponse("GPS check-in has already been recorded for this visit.", status_code=409)
+    checkin = SiteVisitCheckIn(
+        visit_id=visit.id, actor_user_id=actor.id,
+        latitude=Decimal(str(latitude)), longitude=Decimal(str(longitude)),
+        accuracy_m=Decimal(str(accuracy_m)) if accuracy_m is not None else None,
+        captured_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    db.add(checkin)
+    db.add(AuditEvent(actor_user_id=actor.id, action="SITE_VISIT_GPS_CHECKIN_RECORDED", entity_type="SiteVisit", entity_id=str(visit.id), details=f"accuracy_m={accuracy_m}" if accuracy_m is not None else "accuracy_m=unknown"))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return HTMLResponse("GPS check-in has already been recorded for this visit.", status_code=409)
     return RedirectResponse("/site-visits", status_code=303)
 
 
