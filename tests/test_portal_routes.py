@@ -79,3 +79,11 @@ def test_branding_routes_register_in_production_app():
     paths = {getattr(route, "path", None) for route in production_app.routes}
     assert "/admin/branding" in paths
     assert "/admin/branding/logo" in paths
+
+
+from app.routers.branding_settings import render_message_template
+
+
+def test_branding_template_renderer_replaces_known_placeholders_and_preserves_unknown():
+    rendered = render_message_template("Hi {{Customer_Name}} from {{Company_Name}} at {{Unknown_Field}}", {"Customer_Name": "Asha", "Company_Name": "Metro Homes"})
+    assert rendered == "Hi Asha from Metro Homes at {{Unknown_Field}}"
