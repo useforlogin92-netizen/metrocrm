@@ -12,6 +12,7 @@ def _payload(name="Sample Heights"):
         "locality": "Andheri East",
         "pincode": "400069",
         "developer": "Example Developer",
+        "rera_registration_number": "P52100012345",
         "configurations": [
             {
                 "configuration": "2 BHK",
@@ -53,13 +54,15 @@ def test_duplicate_create_updates_existing_project(db_session):
     assert db_session.query(Project).count() == 1
 
 
-def test_duplicate_matching_uses_project_city_locality_without_requiring_developer(db_session):
+def test_duplicate_matching_never_reassigns_project_across_developers(db_session):
     first, _ = apply_property_master(
         db_session,
         payload=_payload(),
         source=PropertyUpdateSource.BULK,
         create=True,
     )
+    # Even when project name, city, locality, and RERA all match, a different
+    # developer must get a separate project rather than take ownership of the first.
     second_payload = {**_payload(), "developer": "Another Developer"}
     second, _ = apply_property_master(
         db_session,
@@ -67,5 +70,7 @@ def test_duplicate_matching_uses_project_city_locality_without_requiring_develop
         source=PropertyUpdateSource.BULK,
         create=True,
     )
-    assert first.id == second.id
-    assert db_session.query(Project).count() == 1
+    db_session.flush()
+    assert first.id != second.id
+    assert first.developer_id != second.developer_id
+    assert db_session.query(Project).count() == 2
