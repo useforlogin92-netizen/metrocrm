@@ -35,6 +35,8 @@ from app.services.whatsapp_property_import import (
 router = APIRouter(tags=["whatsapp-property-import"])
 ALLOWED_ROLES = {"SUPER_ADMIN", "ADMIN"}
 ALLOWED_MIME = {"application/pdf", "image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"}
+MAX_ATTACHMENTS = 10
+MAX_TOTAL_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 def _user(request: Request, db: Session):
@@ -84,19 +86,24 @@ def _shell(actor, title: str, body: str) -> HTMLResponse:
 
 
 async def _stage(files: list[UploadFile], token: str) -> list[dict]:
+    active_files = [upload for upload in files if upload.filename]
+    if len(active_files) > MAX_ATTACHMENTS:
+        raise ValueError(f"Maximum {MAX_ATTACHMENTS} attachments are allowed per import")
     root = _root("property-import-staging") / token
     root.mkdir(parents=True, exist_ok=False)
     result = []
+    total_bytes = 0
     try:
-        for upload in files:
-            if not upload.filename:
-                continue
+        for upload in active_files:
             mime = (upload.content_type or mimetypes.guess_type(upload.filename)[0] or "").lower()
             if mime not in ALLOWED_MIME:
                 raise ValueError(f"Unsupported attachment type: {Path(upload.filename).name}")
             data = await upload.read(MAX_ATTACHMENT_BYTES + 1)
             if len(data) > MAX_ATTACHMENT_BYTES:
                 raise ValueError(f"Attachment exceeds 30 MB: {Path(upload.filename).name}")
+            total_bytes += len(data)
+            if total_bytes > MAX_TOTAL_ATTACHMENT_BYTES:
+                raise ValueError("Combined attachments exceed the 50 MB import limit")
             safe_name = Path(upload.filename).name
             target = root / f"{secrets.token_urlsafe(10)}-{safe_name}"
             target.write_bytes(data)
