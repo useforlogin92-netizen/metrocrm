@@ -44,6 +44,7 @@ class CallerSearchRequest(BaseModel):
     construction_statuses: list[str] = Field(default_factory=list)
     possession_by: int | None = None
     preferred_locations: list[str] = Field(default_factory=list)
+    project_name: str | None = Field(default=None, max_length=200)
 
 
 def _user(request: Request, db: Session) -> User | None:
