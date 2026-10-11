@@ -169,7 +169,7 @@ def share_property_whatsapp(request: Request, lead_id: int = Form(...), unit_id:
             "Customer_Name": customer.name,
         }).strip()
         if greeting:
-            body = f"{greeting}\\n\\n{body}"
+            body = f"{greeting}\n\n{body}"
     try:
         result = send_text(customer.mobile, body)
         status = result.get("status", "TEST"); provider_id = result.get("provider_message_id"); error = None
