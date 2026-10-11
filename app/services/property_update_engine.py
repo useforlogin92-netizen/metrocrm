@@ -83,7 +83,10 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
         # 1) RERA match when supplied
         # 2) Project Name + City + Locality
         # 3) Project Name + City only when that combination is unique
-        candidates = db.query(Project).filter(Project.name.ilike(project_name)).all()
+        candidates = db.query(Project).filter(
+            Project.developer_id == developer.id,
+            Project.name.ilike(project_name),
+        ).all()
         normalized_city = city.casefold()
         normalized_locality = locality.casefold()
         normalized_rera = rera.casefold()
@@ -107,9 +110,9 @@ def apply_property_master(db: Session, *, payload: Mapping[str, Any], source: Pr
             project = location[0]
         elif len(city_only) == 1:
             project = city_only[0]
-        if project:
-            project.developer_id = developer.id
-        else:
+        # Candidate matching is scoped to this developer, so never transfer
+        # an existing project across developer ownership during deduplication.
+        if not project:
             project = Project(developer_id=developer.id, name=project_name); db.add(project); db.flush()
     project.name = canonical.get("project_name") or project.name
     for attr, key in (("address","full_address"),("city","city"),("locality","locality"),("pincode","pincode"),("rera","rera_registration_number")):
