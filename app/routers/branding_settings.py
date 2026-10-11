@@ -62,7 +62,7 @@ def _validated_logo(raw: bytes) -> bytes:
             if len(result) > MAX_LOGO_BYTES:
                 raise ValueError("Optimized logo exceeds the 2 MB limit.")
             return result
-    except (UnidentifiedImageError, OSError) as exc:
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError("Uploaded file is not a valid supported image.") from exc
 
 
@@ -83,7 +83,7 @@ body{{font:14px Arial,sans-serif;background:#f4f7fb;color:var(--secondary);paddi
 <label>Upload logo (PNG, JPEG, WebP; max 2 MB)</label><input type=file name=logo accept=image/png,image/jpeg,image/webp>
 <label>WhatsApp template</label><textarea name=whatsapp_template maxlength=4000 required>{escape(settings.whatsapp_template)}</textarea>
 <label>SMS template</label><textarea name=sms_template maxlength=1600 required>{escape(settings.sms_template)}</textarea>
-<p class=muted>Supported placeholders: {{Company_Name}}, {{Project_Name}}, {{Agent_Name}}, {{Customer_Name}}.</p><button type=submit>Save branding settings</button></form></section></main></body></html>"""
+<p class=muted>Supported placeholders: {{{{Company_Name}}}}, {{{{Project_Name}}}}, {{{{Agent_Name}}}}, {{{{Customer_Name}}}}.</p><button type=submit>Save branding settings</button></form></section></main></body></html>"""
 
 
 @router.get("", response_class=HTMLResponse)
@@ -91,7 +91,7 @@ def branding_settings_page(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
     if not actor or actor.role not in {"ADMIN", "SUPER_ADMIN"}:
         return RedirectResponse("/", status_code=303)
-    settings = db.get(BrandingSettings, 1) or BrandingSettings(id=1)
+    settings = db.get(BrandingSettings, 1) or BrandingSettings(id=1, company_name="MetroCRM", project_name="Real Estate", primary_color="#1d4ed8", secondary_color="#0f172a", whatsapp_template="Hello {{Customer_Name}}, {{Agent_Name}} from {{Company_Name}} is contacting you about {{Project_Name}}.", sms_template="Hello {{Customer_Name}}, {{Agent_Name}} from {{Company_Name}} will contact you about {{Project_Name}}.")
     return HTMLResponse(_page(settings, request))
 
 
