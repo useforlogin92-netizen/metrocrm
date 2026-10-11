@@ -35,7 +35,7 @@ class BrandingSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
-PLACEHOLDER_RE = re.compile(r"\\{\\{([A-Za-z_][A-Za-z0-9_]*)\\}\\}")
+PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 
 
 def render_message_template(template: str, values: dict[str, str]) -> str:
