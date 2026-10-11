@@ -1,3 +1,9 @@
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+import app.routers.whatsapp_property_import as route_module
 from app.services import whatsapp_property_import as importer
 from app.services.whatsapp_property_import import analyze_sources, attachment_record, find_safe_project_matches, normalize_name, parse_property_text
 
@@ -113,3 +119,33 @@ def test_project_matching_uses_normalized_name():
     result = find_safe_project_matches(FakeSession(), parsed)
     assert result["ambiguous"] is False
     assert result["matches"][0]["project_id"] == 42
+
+
+
+def test_whatsapp_import_rejects_too_many_attachments_before_staging():
+    files = [SimpleNamespace(filename=f"file-{i}.pdf") for i in range(route_module.MAX_ATTACHMENTS + 1)]
+    with pytest.raises(ValueError, match="Maximum"):
+        asyncio.run(route_module._stage(files, "too-many-test"))
+
+
+def test_whatsapp_import_enforces_combined_attachment_size_and_cleans_staging(monkeypatch, tmp_path):
+    class FakeUpload:
+        def __init__(self, filename, data):
+            self.filename = filename
+            self.content_type = "application/pdf"
+            self.data = data
+
+        async def read(self, limit):
+            return self.data[:limit]
+
+    monkeypatch.setattr(route_module, "MAX_ATTACHMENT_BYTES", 10)
+    monkeypatch.setattr(route_module, "MAX_TOTAL_ATTACHMENT_BYTES", 5)
+    monkeypatch.setattr(route_module, "_root", lambda name: tmp_path / name)
+    monkeypatch.setattr(route_module, "attachment_text", lambda filename, mime, data: "")
+    monkeypatch.setattr(route_module, "attachment_record", lambda filename, mime, data: {
+        "filename": filename, "mime_type": mime, "extracted_text_chars": 0,
+    })
+    files = [FakeUpload("one.pdf", b"123"), FakeUpload("two.pdf", b"456")]
+    with pytest.raises(ValueError, match="Combined attachments"):
+        asyncio.run(route_module._stage(files, "combined-size-test"))
+    assert not (tmp_path / "property-import-staging" / "combined-size-test").exists()
