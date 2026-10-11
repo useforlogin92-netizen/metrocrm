@@ -262,10 +262,12 @@ def _validate_tool_arguments(tool: str, arguments: dict[str, Any]) -> None:
         if key not in arguments:
             continue
         value = arguments[key]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"{key} must be a finite number")
         if value < 0 or value > 1_000_000_000_000:
             raise ValueError(f"{key} is outside the allowed range")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"{key} must be a finite number")
     for key in schema.get("integers", set()):
         if key not in arguments:
             continue
