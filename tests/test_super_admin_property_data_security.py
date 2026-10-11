@@ -20,6 +20,16 @@ def test_property_data_routes_are_registered_for_both_portals():
     assert "/super-admin/property-data/template" in paths
     assert "/admin/property-data/import" in paths
     assert "/super-admin/property-data/import" in paths
+    assert "/super-admin/property-data/delete-godrej-nest" in paths
+
+
+def test_godrej_nest_delete_route_is_post_only_and_super_admin_scoped():
+    routes = [
+        route for route in app.routes
+        if getattr(route, "path", None) == "/super-admin/property-data/delete-godrej-nest"
+    ]
+    assert len(routes) == 1
+    assert routes[0].methods == {"POST"}
 
 
 @pytest.mark.parametrize("role", ["TELECALLER", "SALES_EXECUTIVE", "MANAGER", "TL", "ACCOUNTANT", "HR"])
