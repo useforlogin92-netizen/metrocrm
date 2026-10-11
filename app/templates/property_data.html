@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}MetroCRM | Property Data{% endblock %}
+{% block title %}{{ app_name }} | Property Data{% endblock %}
 {% block header_title %}Property Data{% endblock %}
 {% block breadcrumb %}Property Data{% endblock %}
 {% block content %}
@@ -49,7 +49,7 @@ select,input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid
 <div class="pd-grid">
   <div class="pd-card">
     <h3 style="margin-top:0">Excel Import</h3>
-    <p class="pd-note">Upload the completed <b>MetroCRM_Property_Data_Template.xlsx</b>. Import does not require additional approval.</p>
+    <p class="pd-note">Upload the completed <b>Property_Data_Template.xlsx</b>. Import does not require additional approval.</p>
     <form method="post" action="{{ property_data_base }}/import" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Excel file (.xlsx)</label>
