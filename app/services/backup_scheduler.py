@@ -1,4 +1,4 @@
-"""Twice-daily secure backup scheduler with catch-up retries and failure alerts."""
+"""Four-times-daily secure backup scheduler with catch-up retries and failure alerts."""
 from __future__ import annotations
 
 import logging
@@ -15,6 +15,7 @@ from app.services.backup_alerts import notify_backup_failure
 logger = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 _last_missed_alert: str | None = None
+_SCHEDULED_CYCLES = (("start", 11), ("midday", 14), ("afternoon", 17), ("end", 19))
 
 
 def _retry_job() -> None:
@@ -29,7 +30,7 @@ def _retry_job() -> None:
 
         now = datetime.now(ZoneInfo(settings.backup_timezone))
         grace = max(0, settings.backup_missed_cycle_grace_minutes)
-        expected_label = "start" if now.hour == 11 and now.minute >= grace else "end" if now.hour == 19 and now.minute >= grace else None
+        expected_label = next((label for label, hour in _SCHEDULED_CYCLES if now.hour == hour and now.minute >= grace), None)
         if expected_label:
             today = now.strftime("%Y-%m-%d")
             marker = f"{today}:{expected_label}"
@@ -62,11 +63,19 @@ def start_backup_scheduler() -> None:
     if not settings.backup_enabled or _scheduler is not None:
         return
     _scheduler = BackgroundScheduler(timezone=settings.backup_timezone)
-    _scheduler.add_job(lambda: _scheduled_backup("start"), CronTrigger(hour=11, minute=0, timezone=settings.backup_timezone), id="metrocrm_backup_start", replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=3600)
-    _scheduler.add_job(lambda: _scheduled_backup("end"), CronTrigger(hour=19, minute=0, timezone=settings.backup_timezone), id="metrocrm_backup_end", replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=3600)
+    for label, hour in _SCHEDULED_CYCLES:
+        _scheduler.add_job(
+            lambda cycle_label=label: _scheduled_backup(cycle_label),
+            CronTrigger(hour=hour, minute=0, timezone=settings.backup_timezone),
+            id=f"metrocrm_backup_{label}",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
     _scheduler.add_job(_retry_job, CronTrigger(minute="*/10", timezone=settings.backup_timezone), id="metrocrm_backup_retry", replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=300)
     _scheduler.start()
-    logger.info("MetroCRM backup scheduler started: 11:00, 19:00, retries every 10 minutes (%s)", settings.backup_timezone)
+    logger.info("MetroCRM backup scheduler started: 11:00, 14:00, 17:00, 19:00, retries every 10 minutes (%s)", settings.backup_timezone)
 
 
 def stop_backup_scheduler() -> None:

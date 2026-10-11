@@ -282,5 +282,5 @@ def backup_health() -> dict[str, object]:
         "s3_configured": s3_configured,
         "google_drive_configured": bool(settings.backup_google_client_id and settings.backup_google_client_secret and settings.backup_google_refresh_token and settings.backup_google_folder_id),
         "onedrive_configured": bool(settings.backup_onedrive_client_id and settings.backup_onedrive_client_secret and settings.backup_onedrive_refresh_token and settings.backup_onedrive_folder_path),
-        "queued_retries": queued, "timezone": settings.backup_timezone, "schedule": ["11:00", "19:00"], "last_backup": latest,
+        "queued_retries": queued, "timezone": settings.backup_timezone, "schedule": ["11:00", "14:00", "17:00", "19:00"], "last_backup": latest,
     }
