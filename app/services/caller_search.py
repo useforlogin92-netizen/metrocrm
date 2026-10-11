@@ -92,6 +92,10 @@ def filter_and_rank_properties(filters: dict[str, Any], properties: Iterable[dic
         wanted_types = {str(v).strip().casefold() for v in requested_types}
         candidates = [p for p in candidates if str(p.get("property_type") or "").strip().casefold() in wanted_types]
 
+    project_name = str(filters.get("project_name") or "").strip().casefold()
+    if project_name:
+        candidates = [p for p in candidates if project_name in str(p.get("project") or p.get("title") or "").casefold()]
+
     candidates = _strict_preferred_location_filter(filters, candidates)
     candidates = _station_range_filter(filters, candidates)
 
