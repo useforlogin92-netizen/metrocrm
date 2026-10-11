@@ -54,6 +54,15 @@ def _can_reassign(actor: User) -> bool:
     return actor.role in ASSIGN_ROLES
 
 
+def _site_visits_in_scope_query(scope_ids: set[int]):
+    """Return visits assigned to this scope, including visits without a linked lead."""
+    return select(SiteVisit).outerjoin(
+        Lead, SiteVisit.lead_id == Lead.id
+    ).where(
+        or_(Lead.assigned_user_id.in_(scope_ids), SiteVisit.sales_employee_id.in_(scope_ids))
+    )
+
+
 @router.get("", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     actor = _actor(request, db)
@@ -68,9 +77,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     if actor.role not in ADMIN_ROLES:
         leads_query = select(Lead).where(Lead.assigned_user_id.in_(scope_ids)).order_by(Lead.created_at.desc()).limit(500)
         followup_query = select(FollowUp).where(FollowUp.completed.is_(False), FollowUp.assigned_user_id.in_(scope_ids)).order_by(FollowUp.due_at.asc()).limit(500)
-        visit_query = select(SiteVisit).join(Lead, SiteVisit.lead_id == Lead.id).where(
-            or_(Lead.assigned_user_id.in_(scope_ids), SiteVisit.sales_employee_id.in_(scope_ids))
-        ).order_by(SiteVisit.scheduled_at.asc()).limit(500)
+        visit_query = _site_visits_in_scope_query(scope_ids).order_by(SiteVisit.scheduled_at.asc()).limit(500)
     leads = db.scalars(leads_query).all()
     followups = db.scalars(followup_query).all()
     visits = db.scalars(visit_query).all()
