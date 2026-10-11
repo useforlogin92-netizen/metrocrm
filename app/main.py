@@ -205,13 +205,14 @@ def root(request: Request):
 @app.get("/auth/super-admin/login", response_class=HTMLResponse)
 def super_admin_login_alias(request: Request):
     """Provide a browser-safe GET entry point for the existing POST login action."""
-    return RedirectResponse("/super-admin/login", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 @app.get("/super-admin/login", response_class=HTMLResponse)
 def super_admin_login_page(request: Request):
-    if request.session.get("user_id") and request.session.get("login_portal") == "super_admin":
+    # Legacy URL retained only as a compatibility redirect.
+    if request.session.get("user_id"):
         return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": True})
+    return RedirectResponse("/", status_code=303)
 
 @app.get("/health")
 def health() -> dict[str, str]:

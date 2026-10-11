@@ -26,9 +26,11 @@ def test_staff_login_guard_is_before_legacy_login_route():
     assert routes[0].endpoint.__name__ == "staff_login"
 
 
-def test_login_template_posts_super_admin_to_dedicated_endpoint():
+def test_unified_login_template_posts_all_roles_to_common_endpoint():
     template = (TEMPLATES / "login.html").read_text(encoding="utf-8")
-    assert 'action="{% if super_admin_only %}/auth/super-admin/login{% else %}/auth/login{% endif %}"' in template
+    assert '<form method="post" action="/auth/login">' in template
+    assert "/super-admin/forgot-password" in template
+    assert "Forgot your password?" in template
 
 
 def test_login_template_has_no_unrelated_om_krishna_group_branding():

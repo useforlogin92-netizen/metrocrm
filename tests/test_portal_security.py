@@ -18,25 +18,23 @@ def test_role_verification_methods_match_login_policy():
     assert allowed_methods("SALES_EXECUTIVE") == ["mobile_otp", "email_otp", "approval"]
 
 
-def test_dedicated_login_routes_exist():
-    assert _route("/admin/login", "GET")
-    assert _route("/auth/admin/login", "POST")
-    assert _route("/super-admin/login", "GET")
-    assert _route("/auth/super-admin/login", "POST")
+def test_single_login_routes_exist():
+    assert _route("/", "GET")
     assert _route("/auth/login", "POST")
     assert _route("/auth/verify", "POST")
+    assert _route("/admin/login", "GET")
+    assert _route("/super-admin/login", "GET")
     assert _route("/super-admin/login-requests", "GET")
 
 
-def test_portal_auth_routes_are_owned_by_portal_module():
-    """The live portal must not expose legacy app.main auth handlers."""
-    for path in ("/auth/admin/login", "/auth/super-admin/login", "/auth/login", "/auth/verify"):
+def test_common_login_route_is_owned_by_portal_module():
+    """The live common login flow remains owned by the portal module."""
+    for path in ("/auth/login", "/auth/verify"):
         route = _route(path, "POST")
         assert route.endpoint.__module__ == "app.portal"
 
 
-def test_portal_route_policy_is_separated():
-    """Dedicated role portals and the common staff endpoint must remain distinct."""
-    assert _route("/auth/admin/login", "POST").endpoint.__name__ == "admin_login"
-    assert _route("/auth/super-admin/login", "POST").endpoint.__name__ == "super_admin_login"
+def test_single_login_is_role_neutral():
+    """All roles enter through the same authentication endpoint."""
     assert _route("/auth/login", "POST").endpoint.__name__ == "staff_login"
+    assert _route("/auth/login", "POST").endpoint.__module__ == "app.portal"

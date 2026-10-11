@@ -25,8 +25,13 @@ APPROVAL_RESEND_COOLDOWN_SECONDS = 60
 
 
 def _render(request: Request, error: str | None, portal: str):
-    template_name = "admin_login.html" if portal == "admin" else "login.html"
-    return templates.TemplateResponse(request, template_name, {"request": request, "error": error, "portal": portal, "super_admin_only": portal == "super_admin"})
+    # All roles use one common login screen. Role-specific permissions remain
+    # enforced by the backend after credentials are identified.
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"request": request, "error": error, "portal": "staff", "super_admin_only": False},
+    )
 
 
 def _portal_session_matches(request: Request, portal: str) -> bool:
@@ -100,14 +105,8 @@ def _valid_csrf(request: Request, key: str, supplied: str) -> bool:
 
 def _login_flow(request: Request, username: str, password: str, method: str, portal: str, db: Session):
     user = db.scalar(select(User).where(User.username == username.strip()))
-    required_role = {"admin": "ADMIN", "super_admin": "SUPER_ADMIN"}.get(portal)
-    if required_role and (not user or user.role != required_role):
-        label = "Admin" if required_role == "ADMIN" else "Super Admin"
-        return _render(request, f"This portal is restricted to authorized {label} accounts.", portal), 403
     if not user or not authenticate_password(user, password):
-        return _render(request, "Invalid username or password.", portal), 401
-    if portal == "staff" and user.role in {"ADMIN", "SUPER_ADMIN"}:
-        return _render(request, "Administrator accounts must use their dedicated secure login portal.", portal), 403
+        return _render(request, "Invalid username or password.", "staff"), 401
     if method not in allowed_methods(user.role):
         return _render(request, "This verification method is not allowed for your role.", portal), 403
     if method == "approval":
@@ -154,20 +153,21 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
 
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
-    if _portal_session_matches(request, "admin"):
+    # Legacy URL retained for compatibility; the actual login is always /.
+    if request.session.get("user_id"):
         return RedirectResponse("/dashboard", status_code=303)
-    return _render(request, None, "admin")
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/auth/admin/login")
 def admin_login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), db: Session = Depends(get_db)):
-    response, _ = _login_flow(request, username, password, method, "admin", db)
+    response, _ = _login_flow(request, username, password, method, "staff", db)
     return response
 
 
 @app.post("/auth/super-admin/login")
 def super_admin_login(request: Request, username: str = Form(...), password: str = Form(...), method: str = Form(...), portal: str = Form("super_admin"), db: Session = Depends(get_db)):
-    response, _ = _login_flow(request, username, password, method, "super_admin", db)
+    response, _ = _login_flow(request, username, password, method, "staff", db)
     return response
 
 
@@ -194,10 +194,6 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
         user = db.get(User, user_id)
         if not user or not user.is_active:
             return JSONResponse({"error": "account_disabled"}, status_code=403)
-        if login_portal == "admin" and user.role != "ADMIN":
-            return JSONResponse({"error": "approval_portal_role_mismatch"}, status_code=403)
-        if login_portal == "staff" and user.role in {"ADMIN", "SUPER_ADMIN"}:
-            return JSONResponse({"error": "administrator_must_use_dedicated_portal"}, status_code=403)
         if value.strip().upper() != "APPROVED":
             return JSONResponse({"error": "approval_confirmation_required"}, status_code=400)
         allowed, reason = _approval_request_active(db, user.id, int(approval_request_id))
@@ -236,7 +232,7 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
 def super_admin_login_requests(request: Request, db: Session = Depends(get_db)):
     actor = main_module._current_user(request, db)
     if not actor or actor.role != "SUPER_ADMIN":
-        return RedirectResponse("/super-admin/login", status_code=303)
+        return RedirectResponse("/", status_code=303)
     csrf = _csrf_token(request, "login_approval_csrf")
     candidates = db.scalars(select(AuditEvent).where(AuditEvent.action == "LOGIN_APPROVAL_REQUEST", AuditEvent.entity_type == "User").order_by(AuditEvent.id.desc()).limit(500)).all()
     latest_by_user: dict[str, AuditEvent] = {}
