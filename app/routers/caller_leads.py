@@ -4,7 +4,7 @@ from html import escape
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
@@ -40,7 +40,12 @@ def caller_leads(request: Request, db: Session = Depends(get_db)):
     visible_user_ids = _visible_user_ids(user, db)
     lead_query = select(Lead).order_by(Lead.created_at.desc()).limit(200)
     if visible_user_ids is not None:
-        lead_query = select(Lead).where((Lead.assigned_user_id.in_(visible_user_ids)) | (Lead.assigned_user_id.is_(None) & (user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}))).order_by(Lead.created_at.desc()).limit(200)
+        if user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
+            lead_query = lead_query.where(
+                or_(Lead.assigned_user_id.in_(visible_user_ids), Lead.assigned_user_id.is_(None))
+            )
+        else:
+            lead_query = lead_query.where(Lead.assigned_user_id.in_(visible_user_ids))
     leads = db.scalars(lead_query).all()
     assignable_users = []
     if user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
@@ -89,7 +94,7 @@ def assign_caller_lead(
         visible_ids = _visible_user_ids(actor, db) or {actor.id}
         if lead.assigned_user_id is not None and lead.assigned_user_id not in visible_ids:
             return HTMLResponse("Forbidden: lead outside your team", status_code=403)
-        if target.id not in visible_ids and target.reporting_manager_id not in visible_ids:
+        if target.id not in visible_ids:
             return HTMLResponse("Forbidden: caller outside your team", status_code=403)
     previous_id = lead.assigned_user_id
     lead.assigned_user_id = target.id
