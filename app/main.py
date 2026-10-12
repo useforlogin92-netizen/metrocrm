@@ -196,10 +196,21 @@ def _browser_redirect(request: Request, location: str, fallback: dict | None = N
         return RedirectResponse(location, status_code=status_code)
     return JSONResponse(fallback or {"status": "ok"})
 
+def _login_destination(role: str) -> str:
+    """Return a known registered landing route without crossing login portals.
+
+    Keep the shared dashboard as the fallback until dedicated role landing
+    routes are verified in the route inventory. Authorization remains enforced
+    by each protected endpoint, not by this redirect.
+    """
+    return "/dashboard"
+
+
 @app.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    if request.session.get("user_id"):
-        return RedirectResponse("/dashboard", status_code=303)
+def root(request: Request, db: Session = Depends(get_db)):
+    user = _current_user(request, db)
+    if user:
+        return RedirectResponse(_login_destination(user.role), status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": False})
 
 @app.get("/auth/super-admin/login", response_class=HTMLResponse)
@@ -208,9 +219,12 @@ def super_admin_login_alias(request: Request):
     return RedirectResponse("/super-admin/login", status_code=303)
 
 @app.get("/super-admin/login", response_class=HTMLResponse)
-def super_admin_login_page(request: Request):
+def super_admin_login_page(request: Request, db: Session = Depends(get_db)):
     if request.session.get("user_id") and request.session.get("login_portal") == "super_admin":
-        return RedirectResponse("/dashboard", status_code=303)
+        user = _current_user(request, db)
+        if user:
+            return RedirectResponse(_login_destination(user.role), status_code=303)
+        request.session.clear()
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": True})
 
 @app.get("/health")
@@ -299,22 +313,11 @@ def change_password(request: Request, current_password: str = Form(...), new_pas
 
 @app.get("/super-admin")
 def super_admin_entry(request: Request, db: Session = Depends(get_db)):
-    """Compatibility entry point for users opening the Super Admin base URL."""
+    """Compatibility entry point that respects the authenticated role boundary."""
     user = _current_user(request, db)
     if not user:
         return RedirectResponse("/", status_code=303)
-    if user.role != "SUPER_ADMIN":
-        return RedirectResponse("/dashboard", status_code=303)
-    return RedirectResponse("/dashboard", status_code=303)
-
-
-@app.get("/super-admin")
-def super_admin_entry(request: Request, db: Session = Depends(get_db)):
-    """Compatibility entry point for users opening the Super Admin base URL."""
-    user = _current_user(request, db)
-    if not user:
-        return RedirectResponse("/", status_code=303)
-    return RedirectResponse("/dashboard", status_code=303)
+    return RedirectResponse(_login_destination(user.role), status_code=303)
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
