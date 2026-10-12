@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     secret_key: str = "CHANGE-ME-IN-ENV"
     database_url: str = "sqlite:///./metrocrm.db"
     session_max_age: int = 900
+    # Per-process PostgreSQL connection budget: 5 persistent + up to 5 overflow.
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
+    database_pool_timeout: int = 15
+    database_pool_recycle: int = 1800
     otp_expiry_seconds: int = 300
     otp_max_attempts: int = 5
 
