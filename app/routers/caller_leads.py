@@ -93,7 +93,7 @@ def caller_leads(request: Request, db: Session = Depends(get_db)):
     return HTMLResponse(body)
 
 
-@router.post("/leads/quick-add", dependencies=[Depends(require_csrf)])
+@router.post("/leads/quick-add")
 def quick_add_caller_lead(
     request: Request,
     name: str = Form(..., min_length=2, max_length=200),
