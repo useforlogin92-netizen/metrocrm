@@ -1,0 +1,93 @@
+name: MetroCRM Live Route Smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/live-route-smoke.yml"
+      - "app/main.py"
+      - "app/main_portal.py"
+      - "app/portal.py"
+      - "app/routers/caller_leads.py"
+      - "app/routers/health.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-route-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check live MetroCRM HTTP routes
+        env:
+          BASE_URL: https://metrocrm-live.onrender.com
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          base = os.environ["BASE_URL"].rstrip("/")
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(NoRedirect)
+
+          def request(path):
+              req = urllib.request.Request(
+                  base + path,
+                  headers={"User-Agent": "MetroCRM-live-route-smoke/1.0"},
+                  method="GET",
+              )
+              try:
+                  response = opener.open(req, timeout=25)
+              except urllib.error.HTTPError as exc:
+                  response = exc
+              status = response.getcode()
+              location = response.headers.get("Location", "")
+              body = response.read(2048).decode("utf-8", errors="replace")
+              print(f"{path}: status={status}, location={location or '-'}")
+              return status, location, body
+
+          failures = []
+          status, _, body = request("/healthz")
+          if status != 200:
+              failures.append(f"/healthz expected 200, got {status}")
+          else:
+              try:
+                  payload = json.loads(body)
+                  if payload.get("status") != "ok":
+                      failures.append(f"/healthz returned unexpected payload: {payload!r}")
+              except Exception as exc:
+                  failures.append(f"/healthz returned non-JSON response: {exc}")
+
+          status, location, _ = request("/caller/leads")
+          if status not in (302, 303, 307, 308) or location.rstrip("/") not in ("", "/"):
+              failures.append(f"unauthenticated /caller/leads should redirect to /, got {status} {location!r}")
+
+          for path in ("/dashboard", "/caller/leads"):
+              status, location, _ = request(path)
+              if status not in (302, 303, 307, 308) or location.rstrip("/") not in ("", "/"):
+                  failures.append(f"unauthenticated {path} should redirect to /, got {status} {location!r}")
+
+          status, location, _ = request("/admin/users")
+          if status not in (302, 303, 307, 308) or location.rstrip("/") != "/dashboard":
+              failures.append(f"unauthenticated /admin/users should redirect to /dashboard, got {status} {location!r}")
+
+          for path in ("/admin/login", "/super-admin/login"):
+              status, _, _ = request(path)
+              if status != 200:
+                  failures.append(f"{path} expected 200, got {status}")
+
+          if failures:
+              print("\nLIVE ROUTE CHECK FAILED:")
+              for failure in failures:
+                  print(f"- {failure}")
+              sys.exit(1)
+          print("\nAll live route smoke checks passed.")
+          PY
