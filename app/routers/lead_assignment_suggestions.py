@@ -66,9 +66,11 @@ def suggestions(request: Request, db: Session = Depends(get_db)):
     for lead in leads:
         customer = customers.get(lead.customer_id)
         recommendations = recommend_lead_assignees(lead, callers, workloads, limit=3)
+        # Recommendations are advisory; admins can select any active caller.
+        eligible_callers = callers if scoped_ids is None else [u for u in callers if u.id in scoped_ids]
         options = "".join(
-            f'<option value="{item["user_id"]}">{escape(item["username"])} — {item["open_lead_count"]} open leads</option>'
-            for item in recommendations
+            f'<option value="{u.id}">{escape(u.username)} — {escape(u.role)} — {workloads.get(u.id, 0)} open leads</option>'
+            for u in eligible_callers
         )
         summary = ", ".join(
             f'{escape(item["username"])} ({item["open_lead_count"]} open)'
@@ -84,17 +86,21 @@ def suggestions(request: Request, db: Session = Depends(get_db)):
             "<button type='submit'>Approve & Assign</button></form>"
             if can_assign else "<span class='muted'>No eligible caller / outside team scope</span>"
         )
+        user_details = "".join(
+            f"<div><strong>{escape(u.username)}</strong> · {escape(u.role)} · Team: {escape(u.team or 'Not set')} · Active · {workloads.get(u.id, 0)} open leads</div>"
+            for u in eligible_callers
+        ) or "No eligible users"
         rows.append(
             f"<tr><td>#{lead.id}</td><td>{escape(customer.name if customer else 'Unlinked')}</td>"
             f"<td>{escape(lead.source or 'Unknown')}</td><td>{escape(lead.preferred_location or '')}</td>"
-            f"<td>{escape(lead.status or 'NEW')}</td><td>{escape(summary)}</td><td>{form}</td></tr>"
+            f"<td>{escape(lead.status or 'NEW')}</td><td>{escape(summary)}</td><td>{user_details}</td><td>{form}</td></tr>"
         )
     body = f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>MetroCRM | Assignment Suggestions</title><style>
 body{{font:14px Arial,sans-serif;background:#f4f7fb;color:#17243a;margin:0;padding:24px}}main{{max-width:1400px;margin:auto}}section{{background:#fff;border:1px solid #e1e8f0;border-radius:14px;padding:20px}}table{{border-collapse:collapse;width:100%;min-width:1000px}}.wrap{{overflow:auto}}th,td{{padding:10px;border-bottom:1px solid #e8edf4;text-align:left;vertical-align:top}}th{{background:#f8fafc}}input,select,button{{font:inherit;padding:8px;border:1px solid #cbd5e1;border-radius:7px;margin:2px;max-width:230px}}button{{background:#1d4ed8;color:white;border:0;font-weight:700}}.muted{{color:#64748b}}p{{color:#475569}}
 </style></head><body><main><section><h1>Lead Assignment Suggestions</h1>
 <p>Suggestions balance current open-lead workload. This is advisory only: an Admin, Super Admin or appropriately scoped TL must explicitly approve an assignment. Area/language specialisation is not scored because reliable caller coverage fields are not currently defined in the User schema.</p>
-<div class='wrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Location</th><th>Status</th><th>Recommended callers</th><th>Approval</th></tr></thead><tbody>{''.join(rows) or "<tr><td colspan='7'>No leads in your permitted scope.</td></tr>"}</tbody></table></div></section></main></body></html>"""
+<div class='wrap'><table><thead><tr><th>Lead</th><th>Customer</th><th>Source</th><th>Location</th><th>Status</th><th>Recommended callers</th><th>Eligible user details (all active callers)</th><th>Approval / Assign</th></tr></thead><tbody>{''.join(rows) or "<tr><td colspan='8'>No leads in your permitted scope.</td></tr>"}</tbody></table></div></section></main></body></html>"""
     return HTMLResponse(body)
 
 
