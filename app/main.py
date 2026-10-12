@@ -41,6 +41,7 @@ from app.services.backup_scheduler import start_backup_scheduler, stop_backup_sc
 from app.services.property_submission_schema import ensure_property_submission_schema
 from app.services.integrations import generate_and_send_otp
 import app.models  # noqa: F401
+import app.reminder_models  # noqa: F401
 import app.site_visit_workflow_models  # noqa: F401
 import app.catalog_models  # noqa: F401
 import app.integration_models  # noqa: F401
