@@ -27,3 +27,15 @@ def require_csrf(request: Request, supplied: str = Form("", alias="csrf_token"))
 def require_csrf_header(request: Request) -> None:
     """Validate the CSRF token carried by JSON requests in X-CSRF-Token."""
     _validate_csrf(request, request.headers.get("X-CSRF-Token", ""))
+
+
+
+def require_csrf_either(request: Request, supplied: str = Form("", alias="csrf_token")) -> None:
+    """Accept a form token or X-CSRF-Token for endpoints supporting both clients.
+
+    If the header is present it takes precedence; an invalid header never falls
+    back to a valid form field, preventing ambiguous token validation.
+    """
+    header_token = request.headers.get("X-CSRF-Token")
+    token = header_token if header_token is not None else supplied
+    _validate_csrf(request, token)
