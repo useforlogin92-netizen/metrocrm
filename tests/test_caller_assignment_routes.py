@@ -28,6 +28,16 @@ def test_assignment_post_requires_csrf_and_assignment_reason():
     # Length limits are enforced by FastAPI form validation at request time.
 
 
+def test_whatsapp_number_normalization_for_indian_and_international_numbers():
+    from app.routers.caller_leads import _whatsapp_digits
+
+    assert _whatsapp_digits("98765 43210") == "919876543210"
+    assert _whatsapp_digits("0 98765 43210") == "919876543210"
+    assert _whatsapp_digits("0091-9876543210") == "919876543210"
+    assert _whatsapp_digits("+1 (415) 555-2671") == "14155552671"
+    assert _whatsapp_digits("12345") == ""
+
+
 def test_assignment_role_scope_helpers_keep_callers_team_limited():
     from app.routers.caller_leads import _visible_user_ids
 
