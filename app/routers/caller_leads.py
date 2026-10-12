@@ -32,7 +32,6 @@ def _visible_user_ids(user: User, db: Session) -> set[int] | None:
     return ids
 
 
-@router.get("/leads", response_class=HTMLResponse)
 def _whatsapp_digits(mobile: str) -> str:
     raw = (mobile or "").strip()
     digits = "".join(ch for ch in raw if ch.isdigit())
@@ -50,6 +49,7 @@ def _whatsapp_digits(mobile: str) -> str:
     return normalized if 10 <= len(normalized) <= 15 else ""
 
 
+@router.get("/leads", response_class=HTMLResponse)
 def caller_leads(request: Request, db: Session = Depends(get_db)):
     user = current_user(request, db)
     if not user or user.role not in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:

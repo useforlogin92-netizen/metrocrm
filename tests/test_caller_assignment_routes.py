@@ -15,6 +15,8 @@ def test_caller_assignment_routes_are_registered():
         for method in (getattr(route, "methods", None) or set())
     }
     assert ("/caller/leads", "GET") in route_methods
+    leads_route = next(route for route in routes if getattr(route, "path", None) == "/caller/leads" and "GET" in (getattr(route, "methods", None) or set()))
+    assert getattr(leads_route.endpoint, "__name__", "") == "caller_leads"
     assert ("/caller/leads/{lead_id}/assign", "POST") in route_methods
 
 
