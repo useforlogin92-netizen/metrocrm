@@ -155,7 +155,7 @@ def _login_flow(request: Request, username: str, password: str, method: str, por
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
     if _portal_session_matches(request, "admin"):
-        return RedirectResponse("/dashboard", status_code=303)
+        return RedirectResponse(main_module._login_destination("ADMIN"), status_code=303)
     return _render(request, None, "admin")
 
 
@@ -229,7 +229,7 @@ def portal_verify(request: Request, token: str = Form(...), value: str = Form(..
     request.session["last_activity"] = datetime.now(timezone.utc).timestamp()
     main_module._audit(db, user.id, "LOGIN_SUCCESS", user, {"method": method, "portal": login_portal})
     db.commit()
-    return RedirectResponse("/dashboard", status_code=303)
+    return RedirectResponse(main_module._login_destination(user.role), status_code=303)
 
 
 @app.get("/super-admin/login-requests", response_class=HTMLResponse)
