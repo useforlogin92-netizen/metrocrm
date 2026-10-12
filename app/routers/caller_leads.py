@@ -33,6 +33,23 @@ def _visible_user_ids(user: User, db: Session) -> set[int] | None:
 
 
 @router.get("/leads", response_class=HTMLResponse)
+def _whatsapp_digits(mobile: str) -> str:
+    raw = (mobile or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if raw.startswith("+"):
+        normalized = digits
+    else:
+        if digits.startswith("00"):
+            digits = digits[2:]
+        if len(digits) == 10 and digits[0] in "6789":
+            normalized = f"91{digits}"
+        elif len(digits) == 11 and digits.startswith("0") and digits[1] in "6789":
+            normalized = f"91{digits[1:]}"
+        else:
+            normalized = digits
+    return normalized if 10 <= len(normalized) <= 15 else ""
+
+
 def caller_leads(request: Request, db: Session = Depends(get_db)):
     user = current_user(request, db)
     if not user or user.role not in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
@@ -61,9 +78,10 @@ def caller_leads(request: Request, db: Session = Depends(get_db)):
         project_name = ((requirement.project_preference or '').strip() if requirement else '') or 'Property not selected'
         mobile = (customer.mobile or '').strip() if customer else ''
         digits = ''.join(ch for ch in mobile if ch.isdigit())
+        whatsapp_digits = _whatsapp_digits(mobile)
         email = (customer.email or '').strip() if customer else ''
         phone_action = f'<a class="btn" href="tel:{escape(mobile, quote=True)}">Call</a>' if len(digits) >= 7 else '<span>Number unavailable</span>'
-        whatsapp_action = f'<a class="btn whatsapp" target="_blank" rel="noopener noreferrer" href="https://wa.me/{digits}">WhatsApp</a>' if len(digits) >= 10 else '<span>WhatsApp unavailable</span>'
+        whatsapp_action = f'<a class="btn whatsapp" target="_blank" rel="noopener noreferrer" href="https://wa.me/{whatsapp_digits}">WhatsApp</a>' if whatsapp_digits else '<span>WhatsApp unavailable</span>'
         email_action = f'<a class="btn email" href="mailto:{escape(email, quote=True)}">Email</a>' if email else '<span>Email unavailable</span>'
         assignment_action = ""
         if user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}:
