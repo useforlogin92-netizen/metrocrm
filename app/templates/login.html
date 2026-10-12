@@ -61,12 +61,45 @@
           <button class="button" type="submit">🔐 Continue Secure Login&nbsp; →</button>
         </form>
         {% if super_admin_only %}<a class="forgot-link" href="/super-admin/forgot-password">Forgot your password?</a>{% endif %}
-        <div class="super-note">🛡 This is a restricted Super Admin area.<br>Only authorized personnel can access this system.</div>
+        {% if super_admin_only %}<div class="super-note">🛡 This is a restricted Super Admin area.<br>Only authorized personnel can access this system.</div>{% endif %}
         <div class="security-line"></div><div class="security"><span>🔒</span> Encrypted session · Role-based access · Audit logging</div>
-        <div class="portal-note">{% if super_admin_only %}Super Admin credentials are restricted to this portal and cannot use staff login.{% else %}Authorized staff access only · MetroCRM{% endif %}</div>
+        <div class="portal-note">{% if super_admin_only %}Super Admin credentials are restricted to this portal and cannot use staff login.{% else %}Authorized staff &amp; sales executive access only{% endif %}</div>
       </div>
     </section>
   </main>
-  <script>function tick(){const d=new Date();document.getElementById('liveTime').textContent=d.toLocaleTimeString('en-IN',{hour12:true});document.getElementById('liveDate').textContent=d.toLocaleDateString('en-IN',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});}tick();setInterval(tick,1000);</script>
+  <script>
+    (function () {
+      function updateLiveClock() {
+        const timeElement = document.getElementById("liveTime");
+        const dateElement = document.getElementById("liveDate");
+        if (!timeElement || !dateElement) return;
+
+        const now = new Date();
+        timeElement.textContent = now.toLocaleTimeString("en-IN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: true
+        });
+        dateElement.textContent = now.toLocaleDateString("en-IN", {
+          weekday: "short",
+          day: "2-digit",
+          month: "short",
+          year: "numeric"
+        });
+      }
+
+      function startLiveClock() {
+        updateLiveClock();
+        window.setInterval(updateLiveClock, 1000);
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", startLiveClock, { once: true });
+      } else {
+        startLiveClock();
+      }
+    })();
+  </script>
 </body>
 </html>
