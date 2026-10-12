@@ -133,6 +133,11 @@ def all_leads(
         if page * PAGE_SIZE < total else ""
     )
     token = escape(csrf_token(request), quote=True)
+    batch_count = request.query_params.get("assigned_batch", "")
+    batch_notice = (
+        f"<p class='success' role='status'>Assignment complete: {int(batch_count)} lead(s) assigned or reassigned.</p>"
+        if batch_count.isdigit() else ""
+    )
     body = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | All Leads</title>
 <style>
@@ -148,7 +153,7 @@ input[type=checkbox]{{width:17px;height:17px;accent-color:#2563eb}}.btn{{display
 @media(max-width:700px){{body{{padding:10px}}.card{{padding:13px}}.filters>*{{width:100%}}.bulk>*{{width:100%}}}}
 </style></head><body><main><section class='card'>
 <nav><a class='btn secondary' href='/dashboard'>← Dashboard</a><a class='btn secondary' href='/admin/all-leads/history'>Assignment History</a><a class='btn secondary' href='/caller/leads'>Caller Lead Workspace</a></nav>
-<h1>All Leads</h1><p>Review all CRM leads and assign multiple selected leads to an active Sales Executive or Telecaller.</p>
+<h1>All Leads</h1>{batch_notice}<p>Review all CRM leads and assign multiple selected leads to an active Sales Executive or Telecaller.</p>
 <form class='filters' method='get' action='/admin/all-leads'>
 <input name='q' value='{escape(q, quote=True)}' placeholder='Search name, mobile, lead ID, source, location'>
 <select name='status'>{status_options}</select><select name='assigned'>{owner_options}</select>
@@ -200,12 +205,14 @@ def bulk_assign(
     if len(leads) != len(ids):
         return HTMLResponse("One or more selected leads were not found. No leads were changed.", status_code=404)
 
+    changed_count = 0
     try:
         for lead in leads:
             previous_owner = lead.assigned_user_id
             if previous_owner == target.id:
                 continue
             lead.assigned_user_id = target.id
+            changed_count += 1
             if lead.original_owner_id is None:
                 lead.original_owner_id = target.id
             db.add(LeadAssignmentHistory(
@@ -226,9 +233,8 @@ def bulk_assign(
     except Exception:
         db.rollback()
         raise
-    assigned_count = sum(1 for lead in leads if lead.assigned_user_id == target.id)
     return RedirectResponse(
-        f"/admin/all-leads?assigned={target.id}&assigned_batch={assigned_count}",
+        f"/admin/all-leads?assigned={target.id}&assigned_batch={changed_count}",
         status_code=303,
     )
 
