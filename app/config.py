@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -91,6 +92,22 @@ class Settings(BaseSettings):
     ai_caller_store_transcript: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_runtime_settings(self):
+        environment = self.environment.strip().lower()
+        if self.session_max_age <= 0:
+            raise ValueError("SESSION_MAX_AGE must be a positive number")
+        if self.otp_expiry_seconds <= 0:
+            raise ValueError("OTP_EXPIRY_SECONDS must be a positive number")
+        if self.otp_max_attempts <= 0:
+            raise ValueError("OTP_MAX_ATTEMPTS must be a positive number")
+        if environment in {"production", "prod"}:
+            if not self.secret_key.strip() or self.secret_key == "CHANGE-ME-IN-ENV":
+                raise ValueError("SECRET_KEY must be set to a unique secret in production")
+            if self.database_url.startswith("sqlite"):
+                raise ValueError("DATABASE_URL must point to a persistent production database, not SQLite")
+        return self
 
 
 settings = Settings()
