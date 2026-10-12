@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from html import escape
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -90,6 +91,84 @@ def caller_leads(request: Request, db: Session = Depends(get_db)):
         rows.append(f'<tr><td>{lead.id}</td><td>{escape(customer.name if customer else "Unlinked")}</td><td>{escape(mobile) if mobile else "Number unavailable"}</td><td>{phone_action}<br>{whatsapp_action}<br>{email_action}</td><td>{escape(lead.source or "")}</td><td>{escape(lead.preferred_location or "")}</td><td>{escape(project_name)}</td><td>{escape(lead.bhk or "")}</td><td>{escape(lead.status or "")}</td><td>{assignment_action}</td><td><a class="btn" href="/caller/lead/{lead.id}/call">Start Call</a></td></tr>')
     body = """<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>MetroCRM | My Leads</title><style>body{font-family:Inter,Arial,sans-serif;background:#f5f7fb;color:#10213f;margin:0;padding:24px}.wrap{max-width:1200px;margin:auto}.card{background:#fff;border:1px solid #e5eaf2;border-radius:16px;padding:20px;box-shadow:0 5px 20px #0000000a}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:11px;border-bottom:1px solid #eef2f7;text-align:left}th{background:#f8fafc}.btn{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;padding:8px 12px;font-weight:750}.page-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.page-nav a,.page-nav button{display:inline-block;border:1px solid #cbd5e1;background:#fff;color:#10213f;text-decoration:none;border-radius:8px;padding:8px 12px;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.page-nav a:hover,.page-nav button:hover:not(:disabled){background:#eff6ff;border-color:#93c5fd}.page-nav button:disabled{opacity:.45;cursor:not-allowed;background:#f8fafc;color:#94a3b8}@media(max-width:700px){table{display:block;overflow:auto;white-space:nowrap}.page-nav a,.page-nav button{flex:1;text-align:center}}</style></head><body><div class='wrap'><div class='card'><nav class='page-nav' aria-label='Page navigation'><a href='/dashboard'>Dashboard</a><button id='metrocrm-history-back' type='button' disabled aria-label='Go back to the previous page'>← Back</button><button id='metrocrm-history-forward' type='button' disabled aria-label='Go forward to the next page'>Forward →</button></nav><h1>My Leads — Call Assistant</h1><p>Select a lead and click Start Call. The opening script and matching property script will be prepared automatically.</p><table><tr><th>ID</th><th>Customer</th><th>Mobile Number</th><th>Contact Actions</th><th>Source</th><th>Location</th><th>Property / Project Name</th><th>BHK</th><th>Status</th><th>Assign Caller</th><th>Call Assistant</th></tr>""" + ("".join(rows) or "<tr><td colspan='11'>No leads found.</td></tr>") + "</table></div></div><script>(function(){const back=document.getElementById('metrocrm-history-back');const forward=document.getElementById('metrocrm-history-forward');if(!back||!forward)return;function sync(){if('navigation' in window&&window.navigation){back.disabled=!window.navigation.canGoBack;forward.disabled=!window.navigation.canGoForward;return;}back.disabled=window.history.length<=1;forward.disabled=false;}back.addEventListener('click',function(){if(back.disabled)return;if('navigation' in window&&window.navigation)window.navigation.back();else window.history.back();});forward.addEventListener('click',function(){if(forward.disabled)return;if('navigation' in window&&window.navigation)window.navigation.forward();else window.history.forward();});window.addEventListener('pageshow',sync);window.addEventListener('popstate',sync);if('navigation' in window&&window.navigation){window.navigation.addEventListener('currententrychange',sync);window.navigation.addEventListener('navigate',sync);}sync();})();</script></body></html>"
     return HTMLResponse(body)
+
+
+@router.post("/leads/quick-add", dependencies=[Depends(require_csrf)])
+def quick_add_caller_lead(
+    request: Request,
+    name: str = Form(..., min_length=2, max_length=200),
+    mobile: str = Form(..., min_length=7, max_length=30),
+    source: str = Form("INCOMING_CALL", max_length=60),
+    email: str = Form("", max_length=255),
+    preferred_location: str = Form("", max_length=500),
+    bhk: str = Form("", max_length=30),
+    budget_min: str = Form("", max_length=30),
+    budget_max: str = Form("", max_length=30),
+    requirement: str = Form("", max_length=2000),
+    notes: str = Form("", max_length=2000),
+    _csrf: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+):
+    actor = current_user(request, db)
+    if not actor or actor.role not in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}:
+        return HTMLResponse("Forbidden", status_code=403)
+
+    clean_name = name.strip()
+    clean_mobile = mobile.strip()
+    digits = "".join(ch for ch in clean_mobile if ch.isdigit())
+    clean_source = source.strip().upper()
+    clean_email = email.strip()
+    if len(clean_name) < 2 or not 7 <= len(digits) <= 15:
+        return HTMLResponse("Please provide a valid customer name and mobile number.", status_code=400)
+    if clean_source not in {"WALK_IN", "INCOMING_CALL"}:
+        return HTMLResponse("Invalid lead source.", status_code=400)
+    if clean_email and ("@" not in clean_email or "." not in clean_email.rsplit("@", 1)[-1]):
+        return HTMLResponse("Please provide a valid email address.", status_code=400)
+
+    def _amount(value: str, label: str) -> Decimal | None:
+        if not value.strip():
+            return None
+        try:
+            amount = Decimal(value.strip())
+        except InvalidOperation:
+            raise ValueError(f"Invalid {label}.")
+        if not amount.is_finite() or amount < 0:
+            raise ValueError(f"Invalid {label}.")
+        return amount
+
+    try:
+        minimum = _amount(budget_min, "minimum budget")
+        maximum = _amount(budget_max, "maximum budget")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            return HTMLResponse("Minimum budget cannot exceed maximum budget.", status_code=400)
+        customer = Customer(
+            name=clean_name, mobile=clean_mobile, email=clean_email or None,
+            notes=notes.strip() or None,
+        )
+        db.add(customer)
+        db.flush()
+        lead = Lead(
+            customer_id=customer.id, source=clean_source, status="NEW",
+            assigned_user_id=actor.id, original_owner_id=actor.id,
+            preferred_location=preferred_location.strip() or None,
+            bhk=bhk.strip() or None, budget_min=minimum, budget_max=maximum,
+            requirement=requirement.strip() or None,
+        )
+        db.add(lead)
+        db.flush()
+        db.add(AuditEvent(
+            actor_user_id=actor.id, action="CALLER_QUICK_LEAD_CREATED",
+            entity_type="Lead", entity_id=str(lead.id),
+            details=f"source={clean_source};assigned_user_id={actor.id}",
+        ))
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return HTMLResponse(str(exc), status_code=400)
+    except Exception:
+        db.rollback()
+        raise
+    return RedirectResponse("/dashboard?lead_created=1", status_code=303)
 
 
 @router.post("/leads/{lead_id}/assign")
