@@ -76,8 +76,8 @@ jobs:
                   failures.append(f"unauthenticated {path} should redirect to /, got {status} {location!r}")
 
           status, location, _ = request("/admin/users")
-          if status not in (302, 303, 307, 308) or location.rstrip("/") != "/admin/login":
-              failures.append(f"unauthenticated /admin/users should redirect to /admin/login, got {status} {location!r}")
+          if status not in (302, 303, 307, 308) or location.rstrip("/") != "/dashboard":
+              failures.append(f"unauthenticated /admin/users should redirect to /dashboard, got {status} {location!r}")
 
           for path in ("/admin/login", "/super-admin/login"):
               status, _, _ = request(path)
