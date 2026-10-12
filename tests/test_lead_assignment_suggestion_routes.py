@@ -109,3 +109,26 @@ def test_admin_cannot_assign_to_inactive_or_ineligible_user(db_session, monkeypa
     db_session.refresh(lead)
     assert lead.assigned_user_id == current.id
     assert db_session.query(LeadAssignmentHistory).count() == 0
+
+
+def test_admin_suggestions_show_all_active_callers_and_details(db_session, monkeypatch):
+    admin = _user(db_session, "admin-details", "ADMIN")
+    _user(db_session, "caller-recommended", "SALES_EXECUTIVE", team="North")
+    _user(db_session, "caller-not-top-three", "TELECALLER", team="West")
+    _user(db_session, "inactive-caller", "TELECALLER", is_active=False, team="South")
+    lead = Lead(source="website", status="NEW")
+    db_session.add(lead)
+    db_session.commit()
+    monkeypatch.setattr(routes, "_actor", lambda request, db: admin)
+
+    request = _request("/admin/lead-assignment-suggestions")
+    request.scope["method"] = "GET"
+    request.scope["session"] = {}
+    response = routes.suggestions(request, db_session)
+
+    assert isinstance(response, HTMLResponse)
+    assert "Eligible user details (all active callers)" in response.body.decode()
+    assert "caller-recommended" in response.body.decode()
+    assert "caller-not-top-three" in response.body.decode()
+    assert "West" in response.body.decode()
+    assert "inactive-caller" not in response.body.decode()
