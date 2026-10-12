@@ -221,7 +221,10 @@ def super_admin_login_alias(request: Request):
 @app.get("/super-admin/login", response_class=HTMLResponse)
 def super_admin_login_page(request: Request):
     if request.session.get("user_id") and request.session.get("login_portal") == "super_admin":
-        return RedirectResponse("/dashboard", status_code=303)
+        user = _current_user(request, db)
+        if user:
+            return RedirectResponse(_login_destination(user.role), status_code=303)
+        request.session.clear()
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": True})
 
 @app.get("/health")
