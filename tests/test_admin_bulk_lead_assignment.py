@@ -19,6 +19,7 @@ def _request(path="/admin/all-leads/bulk-assign", method="POST"):
         "raw_path": path.encode(),
         "query_string": b"",
         "headers": [],
+        "session": {},
         "client": ("127.0.0.1", 1234),
         "server": ("testserver", 443),
     })
