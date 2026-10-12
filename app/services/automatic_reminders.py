@@ -5,10 +5,12 @@ single dedicated worker, not from the web application's lifespan.
 """
 from __future__ import annotations
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.models import Customer, FollowUp, Lead, SiteVisit, User
 from app.reminder_models import ReminderDelivery
 from app.services.email import send_email
@@ -18,13 +20,14 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 RETRY_MINUTES = (1, 5, 15, 30, 60, 120)
 
-def _naive_utc(value: datetime) -> datetime:
+def _naive_local(value: datetime) -> datetime:
+    zone = ZoneInfo(settings.backup_timezone)
     if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.astimezone(zone).replace(tzinfo=None)
     return value
 
 def _key(event_type: str, event_id: int, due_at: datetime, stage: str, user_id: int, channel: str) -> str:
-    due = _naive_utc(due_at).isoformat(timespec="seconds")
+    due = _naive_local(due_at).isoformat(timespec="seconds")
     return f"{event_type}:{event_id}:{due}:{stage}:{user_id}:{channel}"
 
 def _queue(db: Session, *, event_type: str, event_id: int, due_at: datetime,
@@ -88,11 +91,11 @@ def _notify(db: Session, *, event_type: str, event_id: int, due_at: datetime,
 
 def process_due_reminders(db: Session, now: datetime | None = None) -> dict[str, int]:
     """Queue and attempt reminders due within 30 minutes, overdue, or visits within an hour."""
-    now = _naive_utc(now or datetime.now(timezone.utc))
+    now = _naive_local(now or datetime.now(ZoneInfo(settings.backup_timezone)))
     counts = {"queued_or_attempted": 0, "sent": 0, "retry": 0, "failed": 0, "skipped": 0}
     followups = db.scalars(select(FollowUp).where(FollowUp.completed.is_(False)).order_by(FollowUp.due_at.asc()).limit(1000)).all()
     for item in followups:
-        due = _naive_utc(item.due_at)
+        due = _naive_local(item.due_at)
         stage = "overdue" if due <= now else ("upcoming" if due <= now + timedelta(minutes=30) else "")
         if not stage:
             continue
@@ -140,7 +143,7 @@ def process_due_reminders(db: Session, now: datetime | None = None) -> dict[str,
         lead = db.get(Lead, visit.lead_id) if visit.lead_id else None
         if customer is None and lead and lead.customer_id:
             customer = db.get(Customer, lead.customer_id)
-        due = _naive_utc(visit.scheduled_at)
+        due = _naive_local(visit.scheduled_at)
         channel = _recipient(user)
         if not channel:
             counts["skipped"] += 1
