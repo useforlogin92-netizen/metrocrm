@@ -141,7 +141,7 @@ def test_all_leads_shows_assigned_caller_and_clickable_followup_status(db_sessio
     db_session.commit()
     monkeypatch.setattr(routes, "_actor", lambda request, db: admin)
 
-    response = routes.all_leads(_request("/admin/all-leads", "GET"), db_session=db_session) if False else routes.all_leads(_request("/admin/all-leads", "GET"), db=db_session)
+    response = routes.all_leads(_request("/admin/all-leads", "GET"), db=db_session)
 
     assert isinstance(response, HTMLResponse)
     assert "Follow-up Visible Customer" in response.body.decode()
