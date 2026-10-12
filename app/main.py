@@ -219,7 +219,7 @@ def super_admin_login_alias(request: Request):
     return RedirectResponse("/super-admin/login", status_code=303)
 
 @app.get("/super-admin/login", response_class=HTMLResponse)
-def super_admin_login_page(request: Request):
+def super_admin_login_page(request: Request, db: Session = Depends(get_db)):
     if request.session.get("user_id") and request.session.get("login_portal") == "super_admin":
         user = _current_user(request, db)
         if user:
