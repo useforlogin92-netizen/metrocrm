@@ -405,3 +405,71 @@ def test_property_calling_speech_includes_developer_and_furnishing_details():
     assert any("Acme Group" in text for text in speeches.values())
     assert any("Apartment" in text for text in speeches.values())
     assert any("Semi-Furnished" in text for text in speeches.values())
+
+
+def test_user_can_update_own_followup_repeatedly_with_timestamped_audit(db_session, monkeypatch):
+    from datetime import datetime
+    from app.models import AuditEvent, Customer, FollowUp, Lead, User
+    from app.routers import caller_assistant
+
+    actor = User(username="followup-owner", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    customer = Customer(name="Follow-up Customer", mobile="9876501234")
+    db_session.add_all([actor, customer])
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="WEBSITE", status="NEW", assigned_user_id=actor.id)
+    db_session.add(lead)
+    db_session.flush()
+    followup = FollowUp(lead_id=lead.id, customer_id=customer.id, assigned_user_id=actor.id,
+                        due_at=datetime(2026, 10, 14, 10, 30), purpose="Initial call", notes="First note", completed=False)
+    db_session.add(followup)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    first = caller_assistant.update_my_followup(
+        followup_id=followup.id, request=_post_request(), due_at="2026-10-15T11:45",
+        purpose="Second call", notes="Customer asked to call tomorrow", status="PENDING",
+        csrf_token_value="test", db=db_session,
+    )
+    assert first.status_code == 303
+    second = caller_assistant.update_my_followup(
+        followup_id=followup.id, request=_post_request(), due_at="2026-10-16T12:00",
+        purpose="Budget discussion", notes="Budget confirmed", status="COMPLETED",
+        csrf_token_value="test", db=db_session,
+    )
+    assert second.status_code == 303
+    db_session.refresh(followup)
+    assert followup.purpose == "Budget discussion"
+    assert followup.notes == "Budget confirmed"
+    assert followup.completed is True
+    events = db_session.query(AuditEvent).filter_by(action="PERSONAL_FOLLOWUP_UPDATED", entity_id=str(followup.id)).order_by(AuditEvent.id.asc()).all()
+    assert len(events) == 2
+    assert all(event.created_at is not None for event in events)
+    assert "Second call" in events[0].details
+    assert "Budget discussion" in events[1].details
+
+
+def test_user_cannot_update_another_users_followup(db_session, monkeypatch):
+    from datetime import datetime
+    from app.models import FollowUp, User
+    from app.routers import caller_assistant
+
+    actor = User(username="followup-owner-one", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    other = User(username="followup-owner-two", password_hash="x", role="SALES_EXECUTIVE", is_active=True, is_approved=True)
+    db_session.add_all([actor, other])
+    db_session.flush()
+    followup = FollowUp(assigned_user_id=other.id, due_at=datetime(2026, 10, 14, 10, 30), purpose="Private follow-up", completed=False)
+    db_session.add(followup)
+    db_session.commit()
+    monkeypatch.setattr(caller_assistant, "_current_user", lambda request, db: actor)
+    monkeypatch.setattr(caller_assistant, "require_csrf", lambda request, token: None)
+
+    response = caller_assistant.update_my_followup(
+        followup_id=followup.id, request=_post_request(), due_at="2026-10-15T11:45",
+        purpose="Unauthorized edit", notes="Should not save", status="COMPLETED",
+        csrf_token_value="test", db=db_session,
+    )
+    assert response.status_code == 404
+    db_session.refresh(followup)
+    assert followup.purpose == "Private follow-up"
+    assert followup.completed is False
