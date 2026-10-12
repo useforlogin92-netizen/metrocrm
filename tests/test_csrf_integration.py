@@ -1,5 +1,12 @@
+import warnings
+
 from fastapi import Depends, FastAPI, Request
-from fastapi.testclient import TestClient
+
+# Starlette currently touches a deprecated AnyIO alias during TestClient import.
+# Keep strict project deprecation checks enabled while isolating this upstream import warning.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.csrf import csrf_token, require_csrf, require_csrf_either, require_csrf_header
