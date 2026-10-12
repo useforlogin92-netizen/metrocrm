@@ -1,9 +1,11 @@
 """Regression tests for Admin/Super Admin bulk lead assignment."""
+from datetime import datetime, timedelta
+
 from starlette.requests import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import app.routers.admin_bulk_lead_assignment as routes
-from app.models import AuditEvent, Customer, Lead, LeadAssignmentHistory, User
+from app.models import AuditEvent, Customer, FollowUp, Lead, LeadAssignmentHistory, User
 
 
 def _request(path="/admin/all-leads/bulk-assign", method="POST"):
@@ -119,3 +121,33 @@ def test_all_leads_and_history_routes_are_registered():
     assert ("/admin/all-leads", "GET") in routes_found
     assert ("/admin/all-leads/bulk-assign", "POST") in routes_found
     assert ("/admin/all-leads/history", "GET") in routes_found
+
+
+def test_all_leads_shows_assigned_caller_and_clickable_followup_status(db_session, monkeypatch):
+    admin = _user(db_session, "admin-followup-view", "SUPER_ADMIN")
+    caller = _user(db_session, "caller-followup-view", "TELECALLER")
+    customer = Customer(name="Follow-up Visible Customer", mobile="9876543210")
+    db_session.add(customer)
+    db_session.flush()
+    lead = Lead(customer_id=customer.id, source="website", status="FOLLOW_UP", assigned_user_id=caller.id)
+    db_session.add(lead)
+    db_session.flush()
+    db_session.add_all([
+        FollowUp(lead_id=lead.id, customer_id=customer.id, assigned_user_id=caller.id,
+                 due_at=datetime.now() + timedelta(days=1), purpose="Call customer", notes="Discuss site visit", completed=False),
+        FollowUp(lead_id=lead.id, customer_id=customer.id, assigned_user_id=caller.id,
+                 due_at=datetime.now() - timedelta(days=1), purpose="Initial call", notes="Completed discussion", completed=True),
+    ])
+    db_session.commit()
+    monkeypatch.setattr(routes, "_actor", lambda request, db: admin)
+
+    response = routes.all_leads(_request("/admin/all-leads", "GET"), db_session=db_session) if False else routes.all_leads(_request("/admin/all-leads", "GET"), db=db_session)
+
+    assert isinstance(response, HTMLResponse)
+    assert "Follow-up Visible Customer" in response.body.decode()
+    assert "caller-followup-view" in response.body.decode()
+    assert "View follow-ups (2)" in response.body.decode()
+    assert "Discuss site visit" in response.body.decode()
+    assert "Completed discussion" in response.body.decode()
+    assert "Pending" in response.body.decode()
+    assert "Completed" in response.body.decode()
