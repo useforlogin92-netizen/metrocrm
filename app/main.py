@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import json
 import time
 
@@ -8,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_methods, authenticate_password, create_pending, pending_method, verify_pending
@@ -16,7 +17,7 @@ from app.config import settings
 from app.csrf import csrf_token, require_csrf
 from app.database import Base, engine, get_db
 from app.email_verification import EmailVerification
-from app.models import AuditEvent, User
+from app.models import AuditEvent, Booking, Customer, FollowUp, Lead, SiteVisit, User
 from app.permissions import Access, Role
 from app.features.users.service import filter_user_records, parse_permission_overrides
 from app.security import hash_password
@@ -326,7 +327,93 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     show_integrations = user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER"}
     show_alerts = user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}
     show_approvals = user.role in {"SUPER_ADMIN", "ADMIN"}
-    return templates.TemplateResponse(request, "dashboard.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "show_user_management": show_user_management, "show_integrations": show_integrations, "show_alerts": show_alerts, "show_approvals": show_approvals})
+
+    executive_roles = {"SALES_EXECUTIVE", "TELECALLER"}
+    dashboard_metrics = None
+    priority_followups = []
+    if user.role in executive_roles:
+        # Lead.created_at is stored as naive UTC; follow-up and visit schedules
+        # are entered as local wall-clock values by the CRM forms.
+        local_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_end = local_start + timedelta(days=1)
+        utc_start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
+        utc_end = local_end.astimezone(timezone.utc).replace(tzinfo=None)
+        local_start_naive = local_start.replace(tzinfo=None)
+        local_end_naive = local_end.replace(tzinfo=None)
+
+        today_leads = db.scalar(select(func.count(Lead.id)).where(
+            Lead.assigned_user_id == user.id, Lead.created_at >= utc_start, Lead.created_at < utc_end
+        )) or 0
+        pending_followups = db.scalar(select(func.count(FollowUp.id)).where(
+            FollowUp.assigned_user_id == user.id, FollowUp.completed.is_(False), FollowUp.due_at < local_end_naive
+        )) or 0
+        site_visits_today = db.scalar(select(func.count(SiteVisit.id)).outerjoin(
+            Lead, SiteVisit.lead_id == Lead.id
+        ).where(
+            SiteVisit.scheduled_at >= local_start_naive,
+            SiteVisit.scheduled_at < local_end_naive,
+            or_(SiteVisit.sales_employee_id == user.id, Lead.assigned_user_id == user.id),
+            (SiteVisit.status.is_(None)) | func.upper(SiteVisit.status).notin_({"CANCELLED", "COMPLETED", "DONE", "NO_SHOW", "CUSTOMER_NO_SHOW"}),
+        )) or 0
+        closed_deals = db.scalar(select(func.count(Booking.id)).where(
+            Booking.employee_id == user.id,
+            func.upper(Booking.status).in_({"BOOKED", "CLOSED", "CONFIRMED", "COMPLETED"}),
+        )) or 0
+        dashboard_metrics = {
+            "today_leads": int(today_leads),
+            "pending_followups": int(pending_followups),
+            "site_visits_today": int(site_visits_today),
+            "closed_deals": int(closed_deals),
+        }
+
+        followup_query = select(FollowUp).where(
+            FollowUp.assigned_user_id == user.id,
+            FollowUp.completed.is_(False),
+            FollowUp.due_at < local_end_naive,
+        ).order_by(FollowUp.escalation_level.desc(), FollowUp.due_at.asc()).limit(8)
+        for item in db.scalars(followup_query).all():
+            lead = db.get(Lead, item.lead_id) if item.lead_id else None
+            customer = db.get(Customer, item.customer_id) if item.customer_id else (
+                db.get(Customer, lead.customer_id) if lead and lead.customer_id else None
+            )
+            mobile = (customer.mobile or "").strip() if customer else ""
+            digits = "".join(ch for ch in mobile if ch.isdigit())
+            if mobile.startswith("+"):
+                wa_digits = digits
+            elif digits.startswith("00"):
+                wa_digits = digits[2:]
+            elif len(digits) == 10 and digits[:1] in {"6", "7", "8", "9"}:
+                wa_digits = "91" + digits
+            elif len(digits) == 11 and digits.startswith("0") and digits[1:2] in {"6", "7", "8", "9"}:
+                wa_digits = "91" + digits[1:]
+            else:
+                wa_digits = digits
+            if not 10 <= len(wa_digits) <= 15:
+                wa_digits = ""
+            due_at = item.due_at
+            priority_followups.append({
+                "id": item.id,
+                "lead_id": item.lead_id,
+                "customer_name": customer.name if customer else "Customer not linked",
+                "mobile": mobile,
+                "phone_href": "tel:" + mobile if len(digits) >= 7 else "",
+                "whatsapp_href": "https://wa.me/" + wa_digits if wa_digits else "",
+                "due_label": due_at.strftime("%d %b, %I:%M %p") if due_at else "Due time unavailable",
+                "overdue": bool(due_at and due_at < local_now.replace(tzinfo=None)),
+                "purpose": item.purpose or "Follow-up call",
+                "notes": item.notes or "",
+                "escalation_level": item.escalation_level or 0,
+            })
+
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "request": request, "username": user.username, "role": user.role,
+        "avatar": user.username[:1].upper(), "show_user_management": show_user_management,
+        "show_integrations": show_integrations, "show_alerts": show_alerts,
+        "show_approvals": show_approvals, "csrf_token": csrf_token(request), "dashboard_metrics": dashboard_metrics,
+        "priority_followups": priority_followups,
+        "lead_created": request.query_params.get("lead_created") == "1",
+    })
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
