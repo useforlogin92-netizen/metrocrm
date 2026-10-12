@@ -197,12 +197,12 @@ def _browser_redirect(request: Request, location: str, fallback: dict | None = N
     return JSONResponse(fallback or {"status": "ok"})
 
 def _login_destination(role: str) -> str:
-    """Return the canonical landing route for an authenticated role."""
-    normalized = (role or "").strip().upper()
-    if normalized == "SUPER_ADMIN":
-        return "/super-admin/property-data"
-    if normalized == "ADMIN":
-        return "/admin/property-data"
+    """Return a known registered landing route without crossing login portals.
+
+    Keep the shared dashboard as the fallback until dedicated role landing
+    routes are verified in the route inventory. Authorization remains enforced
+    by each protected endpoint, not by this redirect.
+    """
     return "/dashboard"
 
 
