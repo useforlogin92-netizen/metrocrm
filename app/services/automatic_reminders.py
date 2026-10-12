@@ -110,7 +110,7 @@ def process_due_reminders(db: Session, now: datetime | None = None) -> dict[str,
             counts["skipped"] += 1
             continue
         purpose = (item.purpose or "Call follow-up").strip()
-        body = f"MetroCRM reminder: {purpose}. Due: {due.strftime('%d %b %Y %I:%M UTC')}."
+        body = f"MetroCRM reminder: {purpose}. Due: {due.strftime('%d %b %Y %I:%M local time')}."
         if customer:
             body += f" Customer: {customer.name}."
         if lead:
