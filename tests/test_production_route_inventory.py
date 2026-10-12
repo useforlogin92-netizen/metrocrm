@@ -1,4 +1,9 @@
-from fastapi.testclient import TestClient
+import warnings
+
+# Starlette currently touches a deprecated AnyIO alias during TestClient import.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from fastapi.testclient import TestClient
 
 
 def test_production_entrypoint_registers_health_and_login_routes():
