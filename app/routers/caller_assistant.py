@@ -481,3 +481,80 @@ def complete_lead_followup(
     db.add(AuditEvent(actor_user_id=user.id, action="LEAD_FOLLOWUP_COMPLETED", entity_type="Lead", entity_id=str(lead.id), details=json.dumps({"followup_id": followup.id})))
     db.commit()
     return RedirectResponse(f"/caller/lead/{lead.id}/call", status_code=303)
+
+
+@router.get("/my-follow-ups", response_class=HTMLResponse)
+def my_followups(request: Request, db: Session = Depends(get_db)):
+    """Personal follow-up workspace; staff see only follow-ups assigned to themselves."""
+    user = _current_user(request, db)
+    if not user or not _allowed(user):
+        return RedirectResponse("/", status_code=303)
+    followups = db.scalars(
+        select(FollowUp).where(FollowUp.assigned_user_id == user.id)
+        .order_by(FollowUp.completed.asc(), FollowUp.due_at.asc(), FollowUp.id.desc())
+        .limit(300)
+    ).all()
+    rows = []
+    for item in followups:
+        lead = db.get(Lead, item.lead_id) if item.lead_id else None
+        customer = db.get(Customer, item.customer_id) if item.customer_id else None
+        status = "COMPLETED" if item.completed else ("OVERDUE" if item.due_at < datetime.now() else "PENDING")
+        lead_status = lead.status if lead else "—"
+        due_value = item.due_at.strftime("%Y-%m-%dT%H:%M")
+        rows.append(
+            f"<tr><td>{item.id}</td><td>{item.lead_id or '—'}</td>"
+            f"<td>{__import__('html').escape(customer.name if customer else '—')}</td>"
+            f"<td>{__import__('html').escape(lead_status or 'NEW')}</td>"
+            f"<td><span>{status}</span></td><td><form method='post' action='/caller/my-follow-ups/{item.id}/update'>"
+            f"<input type='hidden' name='csrf_token' value='{csrf_token(request)}'>"
+            f"<label>Due date/time <input type='datetime-local' name='due_at' value='{due_value}' required></label>"
+            f"<label>Purpose <input name='purpose' maxlength='255' value='{__import__('html').escape(item.purpose or '', quote=True)}'></label>"
+            f"<label>Notes <textarea name='notes' maxlength='5000'>{__import__('html').escape(item.notes or '')}</textarea></label>"
+            f"<label>Status <select name='status'><option value='PENDING' {'selected' if not item.completed else ''}>Pending</option>"
+            f"<option value='COMPLETED' {'selected' if item.completed else ''}>Completed</option></select></label>"
+            f"<button type='submit'>Save update</button></form>"
+            f"<a href='/caller/lead/{item.lead_id}/call'>Open lead workflow</a></td></tr>"
+        )
+    body = """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>MetroCRM | My Follow-ups</title><style>
+body{font:14px Arial,sans-serif;background:#f4f7fb;color:#17243a;margin:0;padding:24px}.wrap{max-width:1450px;margin:auto;background:white;padding:22px;border:1px solid #e1e8f0;border-radius:14px}table{border-collapse:collapse;width:100%;min-width:1050px}th,td{padding:10px;border-bottom:1px solid #e8edf4;text-align:left;vertical-align:top}th{background:#f8fafc}form{display:grid;gap:7px;min-width:240px}label{display:grid;gap:3px}input,textarea,select,button{font:inherit;padding:7px;border:1px solid #cbd5e1;border-radius:6px}button{background:#1d4ed8;color:white;border:0;font-weight:700;cursor:pointer}a{color:#1d4ed8}.table-wrap{overflow:auto}.nav{display:flex;gap:10px;margin-bottom:18px}.nav a{padding:8px 12px;border:1px solid #cbd5e1;border-radius:7px;text-decoration:none}
+</style></head><body><main class='wrap'><nav class='nav'><a href='/dashboard'>Dashboard</a><a href='/caller/leads'>My Leads</a></nav>
+<h1>My Follow-ups</h1><p>Only follow-ups assigned to your user account are shown. Every save creates an append-only audit event with actor and timestamp; previous updates are retained.</p>
+<div class='table-wrap'><table><thead><tr><th>Follow-up ID</th><th>Lead</th><th>Customer</th><th>Lead status</th><th>Follow-up status</th><th>Update follow-up</th></tr></thead><tbody>""" + ("".join(rows) or "<tr><td colspan='6'>No follow-ups assigned to you.</td></tr>") + """</tbody></table></div></main></body></html>"""
+    return HTMLResponse(body)
+
+
+@router.post("/my-follow-ups/{followup_id}/update", dependencies=[Depends(require_csrf)])
+def update_my_followup(
+    followup_id: int, request: Request,
+    due_at: str = Form(...), purpose: str = Form(""), notes: str = Form(""),
+    status: str = Form(...),
+    csrf_token_value: str = Form("", alias="csrf_token"), db: Session = Depends(get_db),
+):
+    require_csrf(request, csrf_token_value)
+    user = _current_user(request, db)
+    if not user or not _allowed(user):
+        return RedirectResponse("/", status_code=303)
+    followup = db.get(FollowUp, followup_id)
+    if not followup or followup.assigned_user_id != user.id:
+        return HTMLResponse("Follow-up not found in your personal workspace.", status_code=404)
+    try:
+        scheduled = datetime.fromisoformat(due_at)
+    except ValueError:
+        return HTMLResponse("Enter a valid follow-up date and time.", status_code=400)
+    normalized = status.strip().upper()
+    if normalized not in {"PENDING", "COMPLETED"}:
+        return HTMLResponse("Select a valid follow-up status.", status_code=400)
+    before = {"due_at": followup.due_at.isoformat(), "purpose": followup.purpose, "notes": followup.notes, "status": "COMPLETED" if followup.completed else "PENDING"}
+    followup.due_at = scheduled
+    followup.purpose = purpose.strip()[:255] or "Call follow-up"
+    followup.notes = notes.strip()[:5000] or None
+    followup.completed = normalized == "COMPLETED"
+    after = {"due_at": scheduled.isoformat(), "purpose": followup.purpose, "notes": followup.notes, "status": normalized}
+    db.add(AuditEvent(
+        actor_user_id=user.id, action="PERSONAL_FOLLOWUP_UPDATED",
+        entity_type="FollowUp", entity_id=str(followup.id),
+        details=json.dumps({"before": before, "after": after}, ensure_ascii=False),
+    ))
+    db.commit()
+    return RedirectResponse("/caller/my-follow-ups", status_code=303)
