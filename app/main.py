@@ -196,10 +196,21 @@ def _browser_redirect(request: Request, location: str, fallback: dict | None = N
         return RedirectResponse(location, status_code=status_code)
     return JSONResponse(fallback or {"status": "ok"})
 
+def _login_destination(role: str) -> str:
+    """Choose a role-safe landing page after login or when opening the root URL."""
+    normalized_role = (role or "").strip().upper()
+    if normalized_role == "SUPER_ADMIN":
+        return "/super-admin/property-data"
+    if normalized_role == "ADMIN":
+        return "/admin/property-data"
+    return "/dashboard"
+
+
 @app.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    if request.session.get("user_id"):
-        return RedirectResponse("/dashboard", status_code=303)
+def root(request: Request, db: Session = Depends(get_db)):
+    user = _current_user(request, db)
+    if user:
+        return RedirectResponse(_login_destination(user.role), status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "super_admin_only": False})
 
 @app.get("/auth/super-admin/login", response_class=HTMLResponse)
