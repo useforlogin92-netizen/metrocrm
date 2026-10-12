@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import csrf_token, require_csrf
 from app.database import get_db
-from app.models import AuditEvent, Customer, Lead, LeadAssignmentHistory, User
+from app.models import AuditEvent, Customer, FollowUp, Lead, LeadAssignmentHistory, User
 
 router = APIRouter(prefix="/admin/all-leads", tags=["bulk-lead-assignment"])
 ADMIN_ROLES = {"SUPER_ADMIN", "ADMIN"}
@@ -81,6 +81,15 @@ def all_leads(
         ).all()
     } if leads else {}
     users = {user.id: user for user in db.scalars(select(User)).all()}
+    lead_ids_on_page = [lead.id for lead in leads]
+    followups_by_lead: dict[int, list[FollowUp]] = {}
+    if lead_ids_on_page:
+        followups = db.scalars(
+            select(FollowUp).where(FollowUp.lead_id.in_(lead_ids_on_page)).order_by(FollowUp.due_at.desc(), FollowUp.id.desc())
+        ).all()
+        for followup in followups:
+            if followup.lead_id is not None:
+                followups_by_lead.setdefault(followup.lead_id, []).append(followup)
     callers = db.scalars(
         select(User).where(User.is_active.is_(True), User.role.in_(CALLER_ROLES)).order_by(User.username.asc())
     ).all()
@@ -95,6 +104,19 @@ def all_leads(
             [f"₹{lead.budget_min:,.0f}" if lead.budget_min is not None else "",
              f"₹{lead.budget_max:,.0f}" if lead.budget_max is not None else ""]
         ).strip(" –") or "—"
+        lead_followups = followups_by_lead.get(lead.id, [])
+        if lead_followups:
+            followup_items = "".join(
+                "<li>"
+                f"<strong>{escape(followup.due_at.strftime('%d %b %Y, %I:%M %p') if followup.due_at else 'No due date')}</strong> — "
+                f"<span>{'Completed' if followup.completed else 'Pending'}</span>"
+                f"<small>{escape(followup.purpose or 'Follow-up')}{(' · ' + escape(followup.notes)) if followup.notes else ''}</small>"
+                "</li>"
+                for followup in lead_followups
+            )
+            followup_cell = f"<details class='followups'><summary>View follow-ups ({len(lead_followups)})</summary><ul>{followup_items}</ul></details>"
+        else:
+            followup_cell = "<span class='muted'>No follow-ups</span>"
         rows.append(
             "<tr>"
             f"<td><input class='lead-select' type='checkbox' name='lead_ids' value='{lead.id}' aria-label='Select lead {lead.id}'></td>"
@@ -105,6 +127,7 @@ def all_leads(
             f"<td>{escape(lead.bhk or '—')}<small>{escape(budget)}</small></td>"
             f"<td>{escape(lead.status or 'NEW')}</td>"
             f"<td>{escape(owner.username if owner else 'Unassigned')}</td>"
+            f"<td>{followup_cell}</td>"
             f"<td><a class='btn secondary' href='/caller/lead/{lead.id}/call'>Open Call</a></td>"
             "</tr>"
         )
@@ -148,7 +171,7 @@ h1{{margin:8px 0}}p,.muted,small{{color:#64748b}}small{{display:block;margin-top
 input,select{{font:inherit;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;max-width:100%}}
 input[type=checkbox]{{width:17px;height:17px;accent-color:#2563eb}}.btn{{display:inline-block;padding:10px 13px;border:0;border-radius:8px;background:#2563eb;color:white;text-decoration:none;font-weight:750;cursor:pointer}}
 .secondary{{background:#fff;color:#172b4d;border:1px solid #cbd5e1}}.filters input{{min-width:220px}}.bulk{{padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px}}
-.table-wrap{{overflow:auto}}table{{width:100%;min-width:1000px;border-collapse:collapse}}th,td{{padding:12px;border-bottom:1px solid #edf1f6;text-align:left;vertical-align:middle}}th{{font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc}}td small{{max-width:200px;overflow-wrap:anywhere}}
+.table-wrap{{overflow:auto}}table{{width:100%;min-width:1000px;border-collapse:collapse}}th,td{{padding:12px;border-bottom:1px solid #edf1f6;text-align:left;vertical-align:middle}}th{{font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc}}td small{{max-width:200px;overflow-wrap:anywhere}}.followups{{min-width:170px;max-width:280px}}.followups summary{{cursor:pointer;color:#1d4ed8;font-weight:700}}.followups ul{{padding-left:18px;margin:8px 0}}.followups li{{margin:0 0 10px;overflow-wrap:anywhere}}
 .pager{{justify-content:space-between;margin-top:16px}}.count{{font-weight:750;color:#334155}}.warning{{color:#9a3412;font-size:12px}}.success{{padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-weight:700}}
 @media(max-width:700px){{body{{padding:10px}}.card{{padding:13px}}.filters>*{{width:100%}}.bulk>*{{width:100%}}}}
 </style></head><body><main><section class='card'>
@@ -169,8 +192,8 @@ input[type=checkbox]{{width:17px;height:17px;accent-color:#2563eb}}.btn{{display
 <button class='btn' type='submit'>Assign Selected Leads</button>
 <span class='warning'>Only checked leads on this page will be assigned.</span>
 </div>
-<div class='table-wrap'><table><thead><tr><th><input id='select-page' type='checkbox' aria-label='Select all leads on this page'></th><th>Lead / Customer</th><th>Source</th><th>Location</th><th>BHK / Budget</th><th>Status</th><th>Current Caller</th><th>Action</th></tr></thead>
-<tbody>{''.join(rows) or "<tr><td colspan='8'>No leads match these filters.</td></tr>"}</tbody></table></div>
+<div class='table-wrap'><table><thead><tr><th><input id='select-page' type='checkbox' aria-label='Select all leads on this page'></th><th>Lead / Customer</th><th>Source</th><th>Location</th><th>BHK / Budget</th><th>Lead Status</th><th>Current Caller</th><th>Follow-up</th><th>Action</th></tr></thead>
+<tbody>{''.join(rows) or "<tr><td colspan='9'>No leads match these filters.</td></tr>"}</tbody></table></div>
 </form><div class='pager'><span class='muted'>Bulk assignment is recorded in assignment history.</span><div>{previous_link} {next_link}</div></div>
 </section></main><script>
 (function(){{const master=document.getElementById('select-page');const boxes=[...document.querySelectorAll('.lead-select')];const count=document.getElementById('selected-count');function sync(){{const n=boxes.filter(b=>b.checked).length;count.textContent=n+' selected';if(master){{master.checked=boxes.length>0&&n===boxes.length;master.indeterminate=n>0&&n<boxes.length;}}}}if(master)master.addEventListener('change',()=>{{boxes.forEach(b=>b.checked=master.checked);sync();}});boxes.forEach(b=>b.addEventListener('change',sync));document.getElementById('bulk-assignment-form').addEventListener('submit',e=>{{if(!boxes.some(b=>b.checked)){{e.preventDefault();alert('Select at least one lead before assigning.');return;}}if(!confirm('Assign '+boxes.filter(b=>b.checked).length+' selected lead(s) to the chosen caller?'))e.preventDefault();}});sync();}})();
