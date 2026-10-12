@@ -5,7 +5,7 @@ from app.routers import caller_leads
 
 
 def _request():
-    return Request({"type": "http", "method": "GET", "path": "/caller/leads", "headers": [], "query_string": b""})
+    return Request({"type": "http", "method": "GET", "path": "/caller/leads", "headers": [], "query_string": b"", "session": {}})
 
 
 def test_manager_lead_workspace_includes_reporting_tree_only(db_session, monkeypatch):
@@ -36,6 +36,9 @@ def test_manager_lead_workspace_includes_reporting_tree_only(db_session, monkeyp
     assert "Manager Own Customer" in html
     assert "Manager Team Customer" in html
     assert "Outside Team Customer" not in html
+    assert "Assign Caller" in html
+    assert "/caller/leads/" in html and "/assign" in html
+    assert "lead-scope-exec" in html
 
 
 def test_sales_executive_lead_workspace_shows_only_own_assigned_leads(db_session, monkeypatch):
