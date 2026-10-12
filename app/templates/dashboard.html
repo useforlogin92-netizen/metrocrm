@@ -98,7 +98,7 @@
   function updateNetworkStatus(){
     if(!networkBadge)return;
     const online=window.navigator.onLine;
-    networkBadge.textContent=online?'Network online · cloud reachable only while connected':'Offline · CRM records are not cached';
+    networkBadge.textContent=online?'Network online · cloud status not verified':'Offline · CRM records are not cached';
     networkBadge.classList.toggle('online',online);
     networkBadge.classList.toggle('offline',!online);
   }
