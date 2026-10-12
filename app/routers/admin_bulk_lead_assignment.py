@@ -149,7 +149,7 @@ input,select{{font:inherit;padding:10px;border:1px solid #cbd5e1;border-radius:8
 input[type=checkbox]{{width:17px;height:17px;accent-color:#2563eb}}.btn{{display:inline-block;padding:10px 13px;border:0;border-radius:8px;background:#2563eb;color:white;text-decoration:none;font-weight:750;cursor:pointer}}
 .secondary{{background:#fff;color:#172b4d;border:1px solid #cbd5e1}}.filters input{{min-width:220px}}.bulk{{padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px}}
 .table-wrap{{overflow:auto}}table{{width:100%;min-width:1000px;border-collapse:collapse}}th,td{{padding:12px;border-bottom:1px solid #edf1f6;text-align:left;vertical-align:middle}}th{{font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc}}td small{{max-width:200px;overflow-wrap:anywhere}}
-.pager{{justify-content:space-between;margin-top:16px}}.count{{font-weight:750;color:#334155}}.warning{{color:#9a3412;font-size:12px}}
+.pager{{justify-content:space-between;margin-top:16px}}.count{{font-weight:750;color:#334155}}.warning{{color:#9a3412;font-size:12px}}.success{{padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;color:#166534;font-weight:700}}
 @media(max-width:700px){{body{{padding:10px}}.card{{padding:13px}}.filters>*{{width:100%}}.bulk>*{{width:100%}}}}
 </style></head><body><main><section class='card'>
 <nav><a class='btn secondary' href='/dashboard'>← Dashboard</a><a class='btn secondary' href='/admin/all-leads/history'>Assignment History</a><a class='btn secondary' href='/caller/leads'>Caller Lead Workspace</a></nav>
