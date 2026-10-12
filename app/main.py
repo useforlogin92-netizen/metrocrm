@@ -354,7 +354,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             SiteVisit.scheduled_at >= local_start_naive,
             SiteVisit.scheduled_at < local_end_naive,
             or_(SiteVisit.sales_employee_id == user.id, Lead.assigned_user_id == user.id),
-            (SiteVisit.status.is_(None)) | (~SiteVisit.status.ilike("CANCELLED")),
+            (SiteVisit.status.is_(None)) | func.upper(SiteVisit.status).notin_({"CANCELLED", "COMPLETED", "DONE", "NO_SHOW", "CUSTOMER_NO_SHOW"}),
         )) or 0
         closed_deals = db.scalar(select(func.count(Booking.id)).where(
             Booking.employee_id == user.id,
@@ -410,7 +410,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "request": request, "username": user.username, "role": user.role,
         "avatar": user.username[:1].upper(), "show_user_management": show_user_management,
         "show_integrations": show_integrations, "show_alerts": show_alerts,
-        "show_approvals": show_approvals, "dashboard_metrics": dashboard_metrics,
+        "show_approvals": show_approvals, "csrf_token": csrf_token(request), "dashboard_metrics": dashboard_metrics,
         "priority_followups": priority_followups,
         "lead_created": request.query_params.get("lead_created") == "1",
     })
