@@ -123,6 +123,7 @@ def test_admin_suggestions_show_all_active_callers_and_details(db_session, monke
 
     request = _request("/admin/lead-assignment-suggestions")
     request.scope["method"] = "GET"
+    request.scope["session"] = {}
     response = routes.suggestions(request, db_session)
 
     assert isinstance(response, HTMLResponse)
