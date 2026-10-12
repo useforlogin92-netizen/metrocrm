@@ -19,9 +19,21 @@ def _user(request:Request,db:Session)->User|None:
     return _current_user(request,db)
 def _require_user(request:Request,db:Session)->User|None:
     user=_user(request,db); return user if user and user.role in _ALLOWED else None
-def _money(value:Any)->str:
+def _money(value: Any) -> str:
     return format_property_value(value)
-def _rate(value:Any)->str:
+
+
+def _speech_money(value: Any) -> str:
+    """Use natural spoken Indian units in scripts, not terse UI abbreviations."""
+    formatted = format_property_value(value)
+    if formatted.endswith(" lakh"):
+        return formatted[:-5] + " Lakhs"
+    if formatted.endswith(" Cr"):
+        return formatted[:-3] + " Crores"
+    return formatted
+
+
+def _rate(value: Any) -> str:
     return format_rate_per_sqft(value)
 def _human_status(value: Any) -> str:
     """Translate internal status codes into short, caller-friendly wording."""
@@ -52,7 +64,7 @@ def _speech_safe_properties(properties: list[dict[str, Any]]) -> list[dict[str, 
             continue
         row = {key: value for key, value in item.items() if key not in excluded}
         if row.get("price") is not None:
-            row["price"] = _money(row["price"])
+            row["price"] = _speech_money(row["price"])
         status = row.get("construction_status") or row.get("status") or row.get("availability")
         if status:
             row["construction_status"] = _human_status(status)
