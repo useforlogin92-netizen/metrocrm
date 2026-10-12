@@ -24,12 +24,18 @@ def _money(value: Any) -> str:
 
 
 def _speech_money(value: Any) -> str:
-    """Use natural spoken Indian units in scripts, not terse UI abbreviations."""
+    """Use natural spoken Indian units without unnecessary trailing zeros."""
     formatted = format_property_value(value)
     if formatted.endswith(" lakh"):
-        return formatted[:-5] + " Lakhs"
+        number = formatted[:-5]
+        return f"{number} Lakh" if number == "1" else f"{number} Lakhs"
     if formatted.endswith(" Cr"):
-        return formatted[:-3] + " Crores"
+        number = formatted[:-3]
+        try:
+            number = format(float(number), ".2f").rstrip("0").rstrip(".")
+        except ValueError:
+            pass
+        return f"{number} Crore" if number == "1" else f"{number} Crores"
     return formatted
 
 
