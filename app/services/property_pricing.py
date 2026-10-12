@@ -30,7 +30,12 @@ def parse_money(value: Any) -> Decimal | None:
     text = str(value).strip().lower().replace("₹", "").replace(",", "")
     if not text:
         return None
-    text = text.replace("crores", "crore").replace("crs", "cr").replace("lacs", "lakh").replace("lac", "lakh")
+    text = (
+        text.replace("crores", "crore")
+        .replace("crs", "cr")
+        .replace("lacs", "lakh")
+        .replace("lac", "lakh")
+    )
     match = re.search(r"(-?\d+(?:\.\d+)?)\s*(crore|cr|lakh|lakhs)?", text)
     if not match:
         return None
@@ -54,9 +59,8 @@ def _trim(value: Decimal, places: str = "0.01") -> str:
 
 
 def _crore_display(value: Decimal) -> str:
-    """Format crore values with exactly two decimal places for speech/display."""
-    rounded = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return format(rounded, ".2f")
+    """Format crores to at most two decimal places, removing trailing zeros."""
+    return _trim(value / Decimal("1"), "0.01")
 
 
 def _indian_integer(value: Decimal) -> str:
@@ -75,14 +79,18 @@ def _indian_integer(value: Decimal) -> str:
 
 
 def format_property_value(value: Any) -> str:
-    """Display property value below 1 Cr in lakh, otherwise in Cr with two decimals."""
+    """Format rupee amounts in readable Indian units: Lakh below 1 Cr, Cr otherwise."""
     amount = parse_money(value)
     if amount is None:
         return "Price on request"
     if amount >= CRORE:
         return f"{_crore_display(amount / CRORE)} Cr"
     if amount >= LAKH:
-        return f"{_trim(amount / LAKH)} lakh"
+        return f"{_trim(amount / LAKH)} Lakh"
+    if amount <= -CRORE:
+        return f"{_crore_display(abs(amount) / CRORE)} Cr"
+    if amount <= -LAKH:
+        return f"{_trim(abs(amount) / LAKH)} Lakh"
     return f"₹{_indian_integer(amount)}"
 
 
@@ -109,7 +117,12 @@ def calculate_rate_per_sqft(carpet_area: Any, total_price: Any) -> Decimal | Non
     return total / area
 
 
-def pricing_pair(carpet_area: Any, rate_per_sqft: Any = None, total_price: Any = None, source: str = "rate") -> tuple[Decimal | None, Decimal | None]:
+def pricing_pair(
+    carpet_area: Any,
+    rate_per_sqft: Any = None,
+    total_price: Any = None,
+    source: str = "rate",
+) -> tuple[Decimal | None, Decimal | None]:
     """Return normalized (rate/sq.ft., total price) using the last edited source."""
     if source == "total":
         total = parse_money(total_price)
