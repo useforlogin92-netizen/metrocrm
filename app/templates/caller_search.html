@@ -119,6 +119,12 @@ async function submitDisposition(event){
   }catch(error){message.textContent=error instanceof Error?error.message:'Save failed';}
 }
 
+
+let leadSearchTimer=null;
+function scheduleLeadSearch(){if(leadSearchTimer)window.clearTimeout(leadSearchTimer);leadSearchTimer=window.setTimeout(searchLeads,300)}
+['leadQuery','leadLocation'].forEach(id=>$(id).addEventListener('input',scheduleLeadSearch));
+['leadBudget','leadBhk','leadStatus'].forEach(id=>$(id).addEventListener('change',searchLeads));
+
 init();
 </script>
 {% endblock %}
