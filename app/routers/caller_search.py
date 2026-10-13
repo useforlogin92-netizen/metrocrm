@@ -14,7 +14,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.catalog_models import PropertyMedia
-from app.csrf import require_csrf_header
+from app.csrf import csrf_token, require_csrf_header
 from app.database import get_db
 from app.models import AuditEvent, Customer, Lead, Project, PropertyConfiguration, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
@@ -354,7 +354,7 @@ def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLR
     user = _user(request, db)
     if not user or not _can_use_search(user):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse(request, "caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}, "csrf_token": __import__("app.csrf", fromlist=["csrf_token"]).csrf_token(request)})
+    return templates.TemplateResponse(request, "caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}, "csrf_token": csrf_token(request)})
 
 
 @router.post("/search")
