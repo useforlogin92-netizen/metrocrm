@@ -24,7 +24,7 @@ from app.services.property_pricing import format_property_value, format_rate_per
 router = APIRouter(prefix="/caller", tags=["caller-search"])
 templates = Jinja2Templates(directory="app/templates")
 
-CALLER_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+CALLER_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER", "ACCOUNTANT", "HR"}
 
 
 def _can_use_search(user: User | None) -> bool:
