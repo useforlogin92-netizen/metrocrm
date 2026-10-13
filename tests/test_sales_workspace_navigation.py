@@ -110,3 +110,29 @@ def test_sales_executive_can_open_scoped_crm_workspaces(page_fn, db_session, mon
     response = page_fn(_request(), db_session)
 
     assert response.status_code == 200
+
+
+
+def test_sales_and_caller_dashboard_exposes_core_workflows():
+    dashboard = Path("app/templates/dashboard.html").read_text(encoding="utf-8")
+    base = Path("app/templates/base.html").read_text(encoding="utf-8")
+    sales_roles = "['SUPER_ADMIN','ADMIN','MANAGER','TL','SALES_EXECUTIVE','TELECALLER']"
+    for label, href in (
+        ("My Tasks &amp; Follow-ups", "/crm/advanced/tasks"),
+        ("Site Visits", "/site-visits"),
+        ("WhatsApp Outreach", "/whatsapp"),
+        ("Email Property Details", "/email"),
+        ("Advanced CRM Hub", "/crm/advanced"),
+    ):
+        assert label in dashboard
+        assert href in dashboard
+    assert sales_roles in base
+    assert "My Tasks &amp; Follow-ups" in base
+    assert "/crm/advanced/tasks" in base
+
+
+def test_sales_targets_shortcut_excludes_telecaller():
+    dashboard = Path("app/templates/dashboard.html").read_text(encoding="utf-8")
+    target_link = dashboard.index('href="/crm/advanced/targets"')
+    role_gate = "{% if role in ['SUPER_ADMIN','ADMIN','MANAGER','TL','SALES_EXECUTIVE'] %}"
+    assert dashboard.rfind(role_gate, 0, target_link) > dashboard.rfind("{% endif %}", 0, target_link)

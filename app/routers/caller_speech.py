@@ -19,17 +19,59 @@ def _user(request:Request,db:Session)->User|None:
     return _current_user(request,db)
 def _require_user(request:Request,db:Session)->User|None:
     user=_user(request,db); return user if user and user.role in _ALLOWED else None
-def _money(value:Any)->str:
+def _money(value: Any) -> str:
     return format_property_value(value)
-def _rate(value:Any)->str:
+
+
+def _speech_money(value: Any) -> str:
+    formatted = format_property_value(value)
+    if formatted.endswith(" lakh"):
+        number = formatted[:-5]
+        return f"{number} Lakh" if number == "1" else f"{number} Lakhs"
+    if formatted.endswith(" Cr"):
+        number = formatted[:-3]
+        try:
+            number = format(float(number), ".2f").rstrip("0").rstrip(".")
+        except ValueError:
+            pass
+        return f"{number} Crore" if number == "1" else f"{number} Crores"
+    return formatted
+
+
+def _rate(value: Any) -> str:
     return format_rate_per_sqft(value)
-def _speech_safe_properties(properties:list[dict[str,Any]])->list[dict[str,Any]]:
-    safe=[]
+
+
+def _human_status(value: Any) -> str:
+    raw = str(value or "").strip()
+    key = raw.upper().replace("-", "_").replace(" ", "_")
+    return {
+        "READY_TO_MOVE": "ready to move in",
+        "READY_TO_MOVE_IN": "ready to move in",
+        "UNDER_CONSTRUCTION": "under construction",
+        "UPCOMING": "upcoming project",
+        "SOLD_OUT": "sold out",
+    }.get(key, raw.replace("_", " ").lower())
+
+
+def _speech_safe_properties(properties: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    safe = []
+    excluded = {
+        "rera", "rera_number", "rera_registration", "rera_registration_number",
+        "price_per_sqft", "rate_per_sqft", "rate", "id", "unit_id", "project_id",
+        "score", "reasons", "location_category", "property_type",
+    }
     for item in properties[:30]:
-        if not isinstance(item,dict): continue
-        row=dict(item)
-        if row.get("price") is not None: row["price"]=_money(row["price"])
-        if row.get("price_per_sqft") is not None: row["price_per_sqft"]=_rate(row["price_per_sqft"])
+        if not isinstance(item, dict):
+            continue
+        row = {key: value for key, value in item.items() if key not in excluded}
+        if row.get("price") is not None:
+            row["price"] = _speech_money(row["price"])
+        status = row.get("construction_status") or row.get("status") or row.get("availability")
+        if status:
+            row["construction_status"] = _human_status(status)
+        for key in ("status", "availability", "possession_status"):
+            row.pop(key, None)
         safe.append(row)
     return safe
 def _group_properties(properties:list[dict[str,Any]])->OrderedDict[str,list[dict[str,Any]]]:
@@ -38,27 +80,38 @@ def _group_properties(properties:list[dict[str,Any]])->OrderedDict[str,list[dict
         if not isinstance(item,dict):continue
         location=str(item.get("locality") or item.get("location") or "Other location").strip(); grouped.setdefault(location,[]).append(item)
     return grouped
-def _fallback_script(properties:list[dict[str,Any]],language:str,detail:str)->str:
-    grouped=_group_properties(_speech_safe_properties(properties))
-    if not grouped:return "Abhi selected requirement ke liye koi property available nahi mili. Main requirement note karke human sales team se confirm karwa sakta hoon."
-    if language=="hi":opening="Namaste, aapki requirement ke according maine available properties ko location-wise shortlist kiya hai."; closing="Aap batayein kaunsi location ya property aapko sabse suitable lag rahi hai, main uski details aur site visit ke next steps bata deta hoon."
-    elif language=="en":opening="Hello, based on your requirement, I have shortlisted the available properties location-wise."; closing="Please tell me which location or property looks most suitable, and I will explain the details and next steps for a site visit."
-    else:opening="Namaste, aapki requirement ke hisaab se maine available properties ko location-wise shortlist kiya hai."; closing="Aap batayein kaunsi location ya property aapko suitable lag rahi hai, main uski details aur site visit ke next steps bata deta hoon."
-    lines=[opening]
-    for location,items in grouped.items():
-        lines.append(f"\n{location} mein {len(items)} option{'s' if len(items)!=1 else ''} available hai.")
-        for idx,item in enumerate(items,1):
-            name=str(item.get("project") or item.get("title") or f"Property {idx}"); facts=[]
-            if item.get("bhk"):facts.append(str(item["bhk"]))
-            if item.get("property_type"):facts.append(str(item["property_type"]))
-            if detail=="full" and item.get("carpet_area") is not None:facts.append(f"{item['carpet_area']} sq.ft. carpet area")
-            if item.get("price") is not None:facts.append(str(item["price"]))
-            if detail=="full" and item.get("price_per_sqft"):facts.append(str(item["price_per_sqft"]))
-            if item.get("construction_status"):facts.append(str(item["construction_status"]))
-            if item.get("possession"):facts.append(f"possession {item['possession']}")
-            if detail=="full" and item.get("rera"):facts.append(f"RERA {item['rera']}")
-            lines.append(f"{idx}. {name}: {', '.join(facts) if facts else 'details available in CRM' }.")
-    lines.append(f"\n{closing}"); return " ".join(lines)
+def _fallback_script(properties: list[dict[str, Any]], language: str, detail: str) -> str:
+    grouped = _group_properties(_speech_safe_properties(properties))
+    if not grouped:
+        return "Abhi selected requirement ke liye suitable property option nahi mila. Main details confirm karke update karwa deta hoon."
+    if language == "en":
+        opening = "Hello, based on your requirement, I have shortlisted suitable options for you."
+        closing = "When would you like to plan a site visit?"
+    else:
+        opening = "Namaste, aapki requirement ke according maine best options shortlist kiye hain."
+        closing = "Aap bataiye kab site visit plan karein?"
+    lines = [opening]
+    for location, items in grouped.items():
+        descriptions = []
+        for item in items:
+            name = str(item.get("project") or item.get("title") or "this project").strip()
+            parts = [name]
+            if item.get("bhk"):
+                parts.append(str(item["bhk"]))
+            area = item.get("carpet_area")
+            if detail == "full" and isinstance(area, (int, float)):
+                parts.append(f"{area:g} square feet carpet area")
+            if item.get("construction_status"):
+                parts.append(str(item["construction_status"]))
+            if item.get("price"):
+                parts.append(f"at {item['price']}")
+            descriptions.append(" - ".join(parts))
+        if descriptions:
+            lines.append(f"{location} mein: " + "; ".join(descriptions) + ".")
+    lines.append(closing)
+    return " ".join(lines)
+
+
 def _openai_key()->str:return os.getenv("OPENAI_API_KEY","").strip()
 def _ai_model()->str:return os.getenv("METROCRM_AI_MODEL","gpt-5.6-luna").strip()
 def _voice_config()->dict[str,str]:return {"female":os.getenv("METROCRM_TTS_FEMALE_VOICE","coral").strip() or "coral","male":os.getenv("METROCRM_TTS_MALE_VOICE","onyx").strip() or "onyx"}
@@ -67,7 +120,7 @@ def _ai_prompt(properties:list[dict[str,Any]],language:str,detail:str)->str:
 async def _generate_with_openai(properties:list[dict[str,Any]],language:str,detail:str)->str|None:
     key=_openai_key()
     if not key:return None
-    system=("You are MetroCRM's real-estate caller speech writer. Create one ready-to-speak phone script from the supplied CRM property results. Group properties by location, mention the number of options in each location, and describe every property in a natural order. Use only supplied CRM facts. For property prices, say the supplied formatted price exactly: below 1 crore use lakh, and 1 crore or above use Cr. For rate per square foot, use the supplied ₹/sq.ft. value. Never invent price, availability, amenities, possession, RERA or discounts. If a field is missing, omit it. Do not mention internal IDs, scores, JSON, CRM, AI, prompts or technical details. Write like an experienced Indian property consultant having a calm phone conversation. Use short spoken sentences, natural transitions, conversational phrases and punctuation pauses. Do not make every property sound like a rigid list. Avoid robotic repetition, overlong sentences and sales-announcer language. End with a simple question inviting the customer to choose a location or property.")
+    system=("You are a professional Indian real-estate sales agent writing a natural phone-call script. Use only the supplied property facts. Open with a warm Namaste and explain that you shortlisted options based on the customer's requirement. Describe each option in this order: location, project name, BHK, carpet area when available, human-friendly status, and total budget in clean Lakhs/Crores. Use the formatted price exactly and never read raw rupee digits. Completely exclude RERA numbers, per-square-foot rates, internal IDs, scores, database constants and technical labels. Never say READY_TO_MOVE, APARTMENT or similar enum values. If a field is missing, omit it. Keep the script concise and natural, and end with 'Aap bataiye kab site visit plan karein?' Adapt wording to the requested language. Do not mention AI, CRM, JSON or technical details.")
     payload={"model":_ai_model(),"input":[{"role":"system","content":system},{"role":"user","content":_ai_prompt(properties,language,detail)}],"max_output_tokens":3000}
     try:
         async with httpx.AsyncClient(timeout=35) as client:response=await client.post("https://api.openai.com/v1/responses",headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"},json=payload)

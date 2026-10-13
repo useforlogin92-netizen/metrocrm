@@ -10,12 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.catalog_models import PropertyMedia
+from app.csrf import csrf_token, require_csrf_header
 from app.database import get_db
-from app.models import Project, PropertyConfiguration, Tower, Unit, User
+from app.models import AuditEvent, Customer, Lead, Project, PropertyConfiguration, Tower, Unit, User
 from app.location_catalog import MUMBAI_LOCAL_STATIONS
 from app.services.caller_search import BHK_OPTIONS, BUDGET_SLABS, CONSTRUCTION_OPTIONS, JODI_OPTIONS, SIDE_OPTIONS, filter_and_rank_properties
 from app.services.property_pricing import format_property_value, format_rate_per_sqft
@@ -23,11 +24,32 @@ from app.services.property_pricing import format_property_value, format_rate_per
 router = APIRouter(prefix="/caller", tags=["caller-search"])
 templates = Jinja2Templates(directory="app/templates")
 
+# Inventory/property search remains restricted to sales and management roles.
 CALLER_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+# Lead list/actions can be enabled for every defined CRM category, subject to row-level scope.
+LEAD_MANAGEMENT_ROLES = CALLER_ROLES | {"ACCOUNTANT", "HR"}
 
 
 def _can_use_search(user: User | None) -> bool:
     return bool(user and user.role in CALLER_ROLES)
+
+
+def _can_manage_leads(user: User | None) -> bool:
+    return bool(user and user.role in LEAD_MANAGEMENT_ROLES)
+
+
+class LeadSearchRequest(BaseModel):
+    query: str = Field(default="", max_length=200)
+    budget_min: float | None = Field(default=None, ge=0)
+    budget_max: float | None = Field(default=None, ge=0)
+    bhk: str = Field(default="", max_length=30)
+    location: str = Field(default="", max_length=200)
+    lead_status: str = Field(default="", max_length=40)
+
+
+class LeadDispositionRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=50)
+    notes: str = Field(default="", max_length=4000)
 
 
 class CallerSearchRequest(BaseModel):
@@ -209,6 +231,118 @@ def _inventory_rows(db: Session, city: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _visible_lead_user_ids(user: User, db: Session) -> set[int] | None:
+    if user.role in {"SUPER_ADMIN", "ADMIN"}:
+        return None
+    visible = {user.id}
+    if user.role in {"MANAGER", "TL"}:
+        frontier = {user.id}
+        while frontier:
+            children = db.scalars(select(User.id).where(User.reporting_manager_id.in_(frontier))).all()
+            frontier = {int(uid) for uid in children if int(uid) not in visible}
+            visible.update(frontier)
+    return visible
+
+
+_LEAD_STATUS_GROUPS = {
+    "HOT": {"QUALIFIED", "SITE_VISIT_SCHEDULED", "NEGOTIATION", "BOOKED"},
+    "WARM": {"CONTACTED", "FOLLOW_UP_REQUIRED"},
+    "COLD": {"LOST", "NOT_INTERESTED"},
+    "SITE_VISIT_BOOKED": {"SITE_VISIT_SCHEDULED"},
+}
+_ALLOWED_DISPOSITION_STATUSES = {
+    "NEW", "CONTACTED", "QUALIFIED", "FOLLOW_UP_REQUIRED", "SITE_VISIT_SCHEDULED",
+    "NEGOTIATION", "BOOKED", "LOST", "NOT_INTERESTED", "INVALID", "DUPLICATE", "CLOSED",
+}
+
+
+@router.post("/search/leads")
+def search_leads(body: LeadSearchRequest, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+    user = _user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not _can_manage_leads(user):
+        raise HTTPException(status_code=403, detail="caller_search_not_permitted")
+
+    stmt = select(Lead, Customer, User).outerjoin(Customer, Lead.customer_id == Customer.id).outerjoin(User, Lead.assigned_user_id == User.id).order_by(Lead.created_at.desc()).limit(300)
+    visible_ids = _visible_lead_user_ids(user, db)
+    if visible_ids is not None:
+        if user.role in {"MANAGER", "TL"}:
+            stmt = stmt.where(or_(Lead.assigned_user_id.in_(visible_ids), Lead.assigned_user_id.is_(None)))
+        else:
+            stmt = stmt.where(Lead.assigned_user_id == user.id)
+
+    query = body.query.strip()
+    if query:
+        pattern = f"%{query}%"
+        stmt = stmt.where(or_(Customer.name.ilike(pattern), Customer.mobile.ilike(pattern), Customer.alternate_mobile.ilike(pattern), Customer.email.ilike(pattern), Lead.source.ilike(pattern)))
+    if body.budget_min is not None:
+        stmt = stmt.where(or_(Lead.budget_max.is_(None), Lead.budget_max >= body.budget_min))
+    if body.budget_max is not None:
+        stmt = stmt.where(or_(Lead.budget_min.is_(None), Lead.budget_min <= body.budget_max))
+    if body.bhk.strip():
+        stmt = stmt.where(Lead.bhk.ilike(f"%{body.bhk.strip()}%"))
+    if body.location.strip():
+        stmt = stmt.where(Lead.preferred_location.ilike(f"%{body.location.strip()}%"))
+    status_key = body.lead_status.strip().upper().replace(" ", "_").replace("-", "_")
+    if status_key in _LEAD_STATUS_GROUPS:
+        stmt = stmt.where(Lead.status.in_(_LEAD_STATUS_GROUPS[status_key]))
+    elif status_key:
+        stmt = stmt.where(Lead.status == status_key)
+
+    results = []
+    for lead, customer, assigned_user in db.execute(stmt).all():
+        mobile = customer.mobile if customer else None
+        results.append({
+            "id": lead.id,
+            "name": customer.name if customer else "Unlinked customer",
+            "mobile": mobile,
+            "alternate_mobile": customer.alternate_mobile if customer else None,
+            "email": customer.email if customer else None,
+            "source": lead.source,
+            "status": lead.status,
+            "budget_min": float(lead.budget_min) if lead.budget_min is not None else None,
+            "budget_max": float(lead.budget_max) if lead.budget_max is not None else None,
+            "preferred_location": lead.preferred_location,
+            "bhk": lead.bhk,
+            "assigned_to": assigned_user.username if assigned_user else "Unassigned",
+            "created_at": lead.created_at.isoformat() if lead.created_at else None,
+        })
+    return {"count": len(results), "results": results}
+
+
+@router.post("/search/leads/{lead_id}/disposition", dependencies=[Depends(require_csrf_header)])
+def save_lead_disposition(
+    lead_id: int, body: LeadDispositionRequest, request: Request, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    user = _user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not _can_manage_leads(user):
+        raise HTTPException(status_code=403, detail="caller_search_not_permitted")
+    lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead_not_found")
+    visible_ids = _visible_lead_user_ids(user, db)
+    if visible_ids is not None and lead.assigned_user_id not in visible_ids:
+        raise HTTPException(status_code=404, detail="lead_not_found")
+    normalized = body.status.strip().upper().replace(" ", "_").replace("-", "_")
+    if normalized not in _ALLOWED_DISPOSITION_STATUSES:
+        raise HTTPException(status_code=422, detail="invalid_lead_status")
+    previous_status = lead.status
+    lead.status = normalized
+    details = {"previous_status": previous_status, "new_status": normalized, "notes": body.notes.strip()}
+    db.add(AuditEvent(
+        actor_user_id=user.id,
+        action="LEAD_DISPOSITION_UPDATED",
+        entity_type="Lead",
+        entity_id=str(lead.id),
+        details=json.dumps(details, ensure_ascii=False),
+    ))
+    db.commit()
+    return {"success": True, "lead_id": lead.id, "status": lead.status}
+
+
 @router.get("/options")
 def caller_search_options(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = _user(request, db)
@@ -227,7 +361,7 @@ def caller_search_page(request: Request, db: Session = Depends(get_db)) -> HTMLR
     user = _user(request, db)
     if not user or not _can_use_search(user):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse(request, "caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}})
+    return templates.TemplateResponse(request, "caller_search.html", {"request": request, "username": user.username, "role": user.role, "avatar": user.username[:1].upper(), "active_page": "caller", "show_integrations": user.role in {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL"}, "show_alerts": user.role in {"SUPER_ADMIN", "ADMIN"}, "show_approvals": user.role in {"SUPER_ADMIN", "ADMIN"}, "csrf_token": csrf_token(request)})
 
 
 @router.post("/search")
