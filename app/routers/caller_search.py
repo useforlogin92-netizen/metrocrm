@@ -24,11 +24,18 @@ from app.services.property_pricing import format_property_value, format_rate_per
 router = APIRouter(prefix="/caller", tags=["caller-search"])
 templates = Jinja2Templates(directory="app/templates")
 
-CALLER_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER", "ACCOUNTANT", "HR"}
+# Inventory/property search remains restricted to sales and management roles.
+CALLER_ROLES = {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER"}
+# Lead list/actions can be enabled for every defined CRM category, subject to row-level scope.
+LEAD_MANAGEMENT_ROLES = CALLER_ROLES | {"ACCOUNTANT", "HR"}
 
 
 def _can_use_search(user: User | None) -> bool:
     return bool(user and user.role in CALLER_ROLES)
+
+
+def _can_manage_leads(user: User | None) -> bool:
+    return bool(user and user.role in LEAD_MANAGEMENT_ROLES)
 
 
 class LeadSearchRequest(BaseModel):
@@ -254,7 +261,7 @@ def search_leads(body: LeadSearchRequest, request: Request, db: Session = Depend
     user = _user(request, db)
     if not user:
         raise HTTPException(status_code=401, detail="authentication_required")
-    if not _can_use_search(user):
+    if not _can_manage_leads(user):
         raise HTTPException(status_code=403, detail="caller_search_not_permitted")
 
     stmt = select(Lead, Customer, User).outerjoin(Customer, Lead.customer_id == Customer.id).outerjoin(User, Lead.assigned_user_id == User.id).order_by(Lead.created_at.desc()).limit(300)
@@ -311,7 +318,7 @@ def save_lead_disposition(
     user = _user(request, db)
     if not user:
         raise HTTPException(status_code=401, detail="authentication_required")
-    if not _can_use_search(user):
+    if not _can_manage_leads(user):
         raise HTTPException(status_code=403, detail="caller_search_not_permitted")
     lead = db.get(Lead, lead_id)
     if not lead:
