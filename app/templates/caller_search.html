@@ -8,6 +8,19 @@
 @media(max-width:900px){.result-top{grid-template-columns:120px minmax(0,1fr)}.score-box{grid-column:1/-1;display:block;text-align:left}.score{display:inline-block;margin-right:7px}.score-note{display:inline-block}.spec-grid{grid-template-columns:repeat(2,minmax(100px,1fr))}}@media(max-width:700px){.range{grid-template-columns:1fr}.search-actions{align-items:stretch;flex-direction:column}.btn{width:100%}.results-head{align-items:stretch;flex-direction:column}.view-select{width:100%}.result-top,.list-view .result-top{grid-template-columns:1fr}.property-photo{height:180px}.spec-grid{grid-template-columns:repeat(2,1fr)}.help-grid{grid-template-columns:1fr}}
 </style>
 <div class="search-intro"><h2>Find the Right Property Faster</h2><p>Match caller requirements with CRM inventory using location, station range, budget, BHK/configuration, construction status and possession criteria.</p></div>
+<div class="search-card" id="leadSearchPanel">
+  <h3>Lead Search & Quick Actions</h3>
+  <p class="muted">Search leads within your assigned or role-authorized scope. Contact customers and update disposition without leaving this page.</p>
+  <div class="grid">
+    <div><label for="leadQuery">Name / Mobile / Email / Source</label><input id="leadQuery" maxlength="200" placeholder="Search customer or source"></div>
+    <div><label for="leadBudget">Budget Range</label><select id="leadBudget"><option value="">Any budget</option><option value="0:10000000">Below 1 Cr</option><option value="10000000:20000000">1–2 Cr</option><option value="20000000:30000000">2–3 Cr</option><option value="30000000:50000000">3–5 Cr</option><option value="50000000:">Above 5 Cr</option></select></div>
+    <div><label for="leadBhk">BHK / Configuration</label><select id="leadBhk"><option value="">Any configuration</option><option>1 BHK</option><option>2 BHK</option><option>3 BHK</option><option>4 BHK</option><option>5 BHK</option><option>1+1</option><option>2+2</option><option>3+3</option><option>4+4</option><option>5+5</option></select></div>
+    <div><label for="leadLocation">Preferred Location</label><input id="leadLocation" maxlength="200" placeholder="Kandivali West, Malad, etc."></div>
+    <div><label for="leadStatus">Lead Status</label><select id="leadStatus"><option value="">All statuses</option><option value="HOT">Hot</option><option value="WARM">Warm</option><option value="COLD">Cold</option><option value="SITE_VISIT_BOOKED">Site Visit Booked</option><option value="NEW">New</option><option value="CONTACTED">Contacted</option><option value="FOLLOW_UP_REQUIRED">Follow-up Required</option><option value="NEGOTIATION">Negotiation</option><option value="BOOKED">Booked</option></select></div>
+  </div>
+  <div class="result-actions"><button class="btn primary" type="button" onclick="searchLeads()">Search Leads</button><button class="btn secondary" type="button" onclick="resetLeadSearch()">Reset Lead Filters</button><span id="leadSearchStatus" class="muted" role="status"></span></div>
+  <div id="leadResults" aria-live="polite"><div class="empty">Search leads to see results.</div></div>
+</div>
 <div class="search-card"><h3>Location</h3><div class="grid">
 <div><label>City</label><input id="city" value="Mumbai"></div>
 <div><label>Mumbai Corridor</label><select id="corridor"><option value="">Any corridor</option></select></div>
