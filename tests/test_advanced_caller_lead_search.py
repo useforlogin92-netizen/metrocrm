@@ -1,4 +1,4 @@
-from app.routers.caller_search import _LEAD_STATUS_GROUPS, _ALLOWED_DISPOSITION_STATUSES
+from app.routers.caller_search import CALLER_ROLES, _LEAD_STATUS_GROUPS, _ALLOWED_DISPOSITION_STATUSES
 from app.routers.caller_speech import _fallback_script, _speech_money, _speech_safe_properties
 from pathlib import Path
 
@@ -80,3 +80,7 @@ def test_fallback_speech_is_natural_and_omits_technical_values():
     assert "site visit" in script.lower()
     for forbidden in ("P123456", "19000", "APARTMENT", "READY_TO_MOVE", "RERA"):
         assert forbidden not in script
+
+
+def test_search_workspace_is_available_to_every_defined_user_category():
+    assert CALLER_ROLES == {"SUPER_ADMIN", "ADMIN", "MANAGER", "TL", "SALES_EXECUTIVE", "TELECALLER", "ACCOUNTANT", "HR"}
