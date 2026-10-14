@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     exotel_agent_number: str = ""
     exotel_app_flow_url: str = ""
     exotel_api_base_url: str = "https://api.in.exotel.com"
-    exotel_status_callback_secret: str = ""
+    exotel_status_callback_secret: str = ""\n    cloud_calling_public_base_url: str = ""
 
     # AI caller/voice gateway. Provider credentials and voice IDs stay in deployment env vars.
     ai_caller_provider: str = ""
