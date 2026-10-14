@@ -65,7 +65,7 @@ def _validate_config() -> tuple[str, str, str, str, str, str]:
     )
 
 
-def initiate_call(customer_number: str, *, timeout_seconds: float = 15.0) -> ExotelCall:
+def initiate_call(\n    customer_number: str, *, status_callback: str | None = None, timeout_seconds: float = 15.0\n) -> ExotelCall:
     """Request an Exotel two-leg call. Only invoke when provider mode is explicitly exotel."""
     api_key, api_token, sid, virtual_number, agent_number, base = _validate_config()
     customer_digits = _digits(customer_number)
