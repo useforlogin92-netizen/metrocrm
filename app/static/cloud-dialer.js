@@ -60,6 +60,14 @@
   $("mute-call").addEventListener("click",()=>{muted=!muted;$("mute-call").textContent=muted?"Unmute":"Mute";status(muted?"Muted · mock call":held?"On hold · mock call":"Connected · mock call");});
   $("hold-call").addEventListener("click",()=>{held=!held;$("hold-call").textContent=held?"Resume":"Hold";status(held?"On hold · mock call":muted?"Muted · mock call":"Connected · mock call");});
   $("end-call").addEventListener("click",()=>finishCall("end"));
+  document.addEventListener("click", event => {
+    const dial = event.target.closest(".cloud-call-lead");
+    if (!dial || !root.isConnected) return;
+    $("dial-number").value = dial.dataset.phone || "";
+    $("lead-id").value = dial.dataset.leadId || "";
+    root.scrollIntoView({behavior:"smooth",block:"nearest"});
+    startCall(false);
+  });
   refreshHistory();
   // Click-to-call links from the existing CRM can open this widget with a number and optional lead ID.
   const params = new URLSearchParams(location.search);
