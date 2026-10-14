@@ -2,7 +2,9 @@
   const root = document.getElementById("cloud-dialer");
   if (!root || root.dataset.initialized === "true") return;
   root.dataset.initialized = "true";
-  const token = root.dataset.csrf || "";\n  const provider = (root.dataset.provider || "mock").toLowerCase();\n  let statusPoll = null;
+  const token = root.dataset.csrf || "";
+  const provider = (root.dataset.provider || "mock").toLowerCase();
+  let statusPoll = null;
   let number = "", current = null, seconds = 0, ticker = null, muted = false, held = false;
   const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   root.innerHTML = `<div class="cloud-dialer"><label for="dial-number">Phone number</label><input class="dialer-display" id="dial-number" type="tel" autocomplete="off" placeholder="Enter number" aria-label="Phone number"><div class="dialpad">${["1","2","3","4","5","6","7","8","9","*","0","#"].map(k=>`<button type="button" data-key="${k}">${k}</button>`).join("")}</div><p class="call-status" id="call-status" aria-live="polite">Ready · Mock mode</p><p class="dialer-muted" id="call-duration">00:00</p><div id="incoming-slot"></div><div class="dialer-actions"><button class="dialer-primary" id="start-call">Call</button><button id="simulate-incoming">Simulate incoming</button><button id="mute-call" disabled>Mute</button><button id="hold-call" disabled>Hold</button><button id="end-call" class="dialer-danger" disabled>End call</button></div><input type="hidden" id="lead-id"><textarea class="call-notes" id="call-notes" maxlength="4000" placeholder="Call notes (saved when ending call)"></textarea><div class="call-history"><strong>Recent calls</strong><ul id="call-history"><li>Loading…</li></ul></div></div>`;
@@ -39,7 +41,24 @@
       await refreshHistory();
     } catch(e) { current=null; setActive(false); status(e.message); }
   }
-  async function startStatusPolling() {\n    clearInterval(statusPoll);\n    statusPoll = setInterval(async () => {\n      if (!current) { clearInterval(statusPoll); statusPoll=null; return; }\n      try {\n        const data = await api("/caller/api/calls?limit=100", {method:"GET", headers:{}});\n        const latest = data.calls.find(item => item.id === current.id);\n        if (!latest) return;\n        current = latest;\n        status("Exotel call · " + latest.status.replaceAll("_"," "));\n        if (latest.answered_at && !ticker) startTicker();\n        if (["completed","missed","failed","cancelled"].includes(latest.status)) {\n          stopTicker(); clearInterval(statusPoll); statusPoll=null; current=null; setActive(false); $("simulate-incoming").disabled=true; await refreshHistory();\n        }\n      } catch (_) { /* retry on the next polling interval */ }\n    }, 3000);\n  }\n  async function answerCall() {
+  async function startStatusPolling() {
+    clearInterval(statusPoll);
+    statusPoll = setInterval(async () => {
+      if (!current) { clearInterval(statusPoll); statusPoll=null; return; }
+      try {
+        const data = await api("/caller/api/calls?limit=100", {method:"GET", headers:{}});
+        const latest = data.calls.find(item => item.id === current.id);
+        if (!latest) return;
+        current = latest;
+        status("Exotel call · " + latest.status.replaceAll("_"," "));
+        if (latest.answered_at && !ticker) startTicker();
+        if (["completed","missed","failed","cancelled"].includes(latest.status)) {
+          stopTicker(); clearInterval(statusPoll); statusPoll=null; current=null; setActive(false); $("simulate-incoming").disabled=true; await refreshHistory();
+        }
+      } catch (_) { /* retry on the next polling interval */ }
+    }, 3000);
+  }
+  async function answerCall() {
     if (!current) return;
     try { current=await api("/caller/api/calls/"+encodeURIComponent(current.id),{method:"PATCH",body:JSON.stringify({action:"answer"})}); $("incoming-slot").innerHTML=""; status("Connected · mock call"); startTicker(); }
     catch(e) { status(e.message); }
@@ -47,7 +66,8 @@
   async function finishCall(action="end") {
     if (!current) return;
     try {
-      if (provider !== "mock") { status("Ending a live call is controlled by the telephony provider; control API is not configured yet."); return; }\n      current=await api("/caller/api/calls/"+encodeURIComponent(current.id),{method:"PATCH",body:JSON.stringify({action,notes:$("call-notes").value})});
+      if (provider !== "mock") { status("Ending a live call is controlled by the telephony provider; control API is not configured yet."); return; }
+      current=await api("/caller/api/calls/"+encodeURIComponent(current.id),{method:"PATCH",body:JSON.stringify({action,notes:$("call-notes").value})});
       status("Call "+current.status+" · "+current.duration_seconds+" sec");
       current=null; stopTicker(); setActive(false); muted=false; held=false;
       $("mute-call").textContent="Mute"; $("hold-call").textContent="Hold"; $("incoming-slot").innerHTML="";
@@ -68,7 +88,8 @@
     root.scrollIntoView({behavior:"smooth",block:"nearest"});
     startCall(false);
   });
-  if (provider !== "mock") { $("simulate-incoming").disabled=true; $("mute-call").disabled=true; $("hold-call").disabled=true; $("end-call").disabled=true; }\n  refreshHistory();
+  if (provider !== "mock") { $("simulate-incoming").disabled=true; $("mute-call").disabled=true; $("hold-call").disabled=true; $("end-call").disabled=true; }
+  refreshHistory();
   // Click-to-call links from the existing CRM can open this widget with a number and optional lead ID.
   const params = new URLSearchParams(location.search);
   if (params.get("phone")) $("dial-number").value=params.get("phone");
