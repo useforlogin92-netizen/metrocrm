@@ -17,6 +17,8 @@ from app.routers.caller_assistant import router as caller_assistant_router
 from app.routers.caller_leads import router as caller_leads_router
 from app.routers.caller_speech import router as caller_speech_router
 from app.routers.caller_speech_settings import router as caller_speech_settings_router, install_caller_voice_selection
+from app.routers.cloud_calling import router as cloud_calling_router
+import app.cloud_calling_models  # noqa: F401,E402
 from app.routers.health import router as health_router
 from app.routers.media_catalog import router as media_catalog_router
 from app.routers.password_recovery import router as password_recovery_router
@@ -75,6 +77,7 @@ app.include_router(media_catalog_router)
 app.include_router(sales_property_router)
 app.include_router(caller_assistant_router)
 app.include_router(caller_leads_router)
+app.include_router(cloud_calling_router)
 app.include_router(caller_speech_router)
 app.include_router(caller_speech_settings_router)
 app.include_router(ai_caller_router)
