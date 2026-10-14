@@ -75,7 +75,7 @@
 <label>Customer Notes<input name="customer_notes" value="{{ customer.notes if customer and customer.notes else '' }}" maxlength="2000"></label>
 <label style="grid-column:1/-1">Requirement Notes<textarea name="requirement_notes" rows="2">{{ requirement.notes if requirement and requirement.notes else '' }}</textarea></label>
 </div>
-<p><button class="btn" type="submit">Save Customer & Requirement</button> {% if customer and customer.mobile %}<a class="btn" href="tel:{{ customer.mobile }}">Call Customer</a><a class="btn" href="https://wa.me/{% set wa_phone = customer.mobile|replace(' ', '')|replace('-', '')|replace('(', '')|replace(')', '')|replace('+', '') %}{% if wa_phone|length == 10 %}91{% endif %}{{ wa_phone }}" target="_blank" rel="noopener noreferrer">WhatsApp Customer</a>{% else %}<span class="muted">Save a customer mobile number to enable Call and WhatsApp.</span>{% endif %} <a class="btn" href="/site-visits?lead_id={{ lead.id }}">Schedule Site Visit</a> <a class="btn" href="/whatsapp">Open WhatsApp Workspace</a></p>
+<p><button class="btn" type="submit">Save Customer & Requirement</button> {% if contact_mobile %}<a class="btn" href="tel:{{ contact_mobile }}">Call Customer</a>{% if whatsapp_digits %}<a class="btn" href="https://wa.me/{{ whatsapp_digits }}" target="_blank" rel="noopener noreferrer">WhatsApp Customer</a>{% else %}<span class="muted">WhatsApp unavailable: check the saved mobile number format.</span>{% endif %}{% else %}<span class="muted">Save a customer mobile number to enable Call and WhatsApp.</span>{% endif %} <a class="btn" href="/site-visits?lead_id={{ lead.id }}">Schedule Site Visit</a> <a class="btn" href="/whatsapp">Open WhatsApp Workspace</a></p>
 </form></div>
 
 <div class="card"><h2>Call Follow-ups</h2>
