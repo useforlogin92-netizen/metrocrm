@@ -414,3 +414,13 @@ def test_caller_lead_assistant_template_uses_valid_jinja_carpet_area_formatting(
     template = Path("app/templates/caller_lead_assistant.html").read_text(encoding="utf-8")
     assert "{{ '{:g}'.format(p.carpet_area) }}" in template
     assert "{{ p.carpet_area:g }}" not in template
+
+
+
+def test_caller_assistant_has_direct_whatsapp_customer_action():
+    from pathlib import Path
+
+    template = Path("app/templates/caller_lead_assistant.html").read_text(encoding="utf-8")
+    assert 'href="https://wa.me/{{ customer.mobile' in template
+    assert "WhatsApp Customer" in template
+    assert "Save a customer mobile number to enable Call and WhatsApp." in template
