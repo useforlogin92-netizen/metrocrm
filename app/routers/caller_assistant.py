@@ -178,6 +178,23 @@ def _opening_speeches(user: User, lead: Lead, customer: Customer | None, locatio
     }
 
 
+def _whatsapp_digits(mobile: str | None) -> str:
+    raw = (mobile or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if raw.startswith("+"):
+        normalized = digits
+    else:
+        if digits.startswith("00"):
+            digits = digits[2:]
+        if len(digits) == 10 and digits[0] in "6789":
+            normalized = f"91{digits}"
+        elif len(digits) == 11 and digits.startswith("0") and digits[1] in "6789":
+            normalized = f"91{digits[1:]}"
+        else:
+            normalized = digits
+    return normalized if 10 <= len(normalized) <= 15 else ""
+
+
 def _property_speeches(property_: dict[str, Any], customer: Customer | None) -> dict[str, str]:
     customer_name = (customer.name if customer else "Sir/Ma'am")
     project = property_.get("project") or "this project"
@@ -276,6 +293,8 @@ def lead_call_assistant(lead_id: int, request: Request, db: Session = Depends(ge
                 pass
     return templates.TemplateResponse("caller_lead_assistant.html", {
         "request": request, "user": user, "lead": lead, "customer": customer,
+        "contact_mobile": ((customer.mobile or "").strip() or (customer.alternate_mobile or "").strip()) if customer else "",
+        "whatsapp_digits": _whatsapp_digits(((customer.mobile or "").strip() or (customer.alternate_mobile or "").strip()) if customer else ""),
         "requirement": requirement, "locations": locations, "properties": properties, "followups": followups,
         "opening_speeches": _opening_speeches(user, lead, customer, locations),
         "property_speeches": {str(p["id"]): _property_speeches(p, customer) for p in properties},
