@@ -76,7 +76,7 @@ def caller_leads(request: Request, db: Session = Depends(get_db)):
         customer = db.get(Customer, lead.customer_id) if lead.customer_id else None
         requirement = db.scalar(select(CustomerRequirement).where(CustomerRequirement.customer_id == lead.customer_id, CustomerRequirement.is_active.is_(True)).order_by(CustomerRequirement.updated_at.desc(), CustomerRequirement.id.desc())) if lead.customer_id else None
         project_name = ((requirement.project_preference or '').strip() if requirement else '') or 'Property not selected'
-        mobile = (customer.mobile or '').strip() if customer else ''
+        mobile = ((customer.mobile or '').strip() or (customer.alternate_mobile or '').strip()) if customer else ''
         digits = ''.join(ch for ch in mobile if ch.isdigit())
         whatsapp_digits = _whatsapp_digits(mobile)
         email = (customer.email or '').strip() if customer else ''

@@ -405,3 +405,33 @@ def test_property_calling_speech_includes_developer_and_furnishing_details():
     assert any("Acme Group" in text for text in speeches.values())
     assert any("Apartment" in text for text in speeches.values())
     assert any("Semi-Furnished" in text for text in speeches.values())
+
+
+
+def test_caller_lead_assistant_template_uses_valid_jinja_carpet_area_formatting():
+    from pathlib import Path
+
+    template = Path("app/templates/caller_lead_assistant.html").read_text(encoding="utf-8")
+    assert "{{ '{:g}'.format(p.carpet_area) }}" in template
+    assert "{{ p.carpet_area:g }}" not in template
+
+
+
+def test_caller_assistant_has_direct_whatsapp_customer_action():
+    from pathlib import Path
+
+    template = Path("app/templates/caller_lead_assistant.html").read_text(encoding="utf-8")
+    assert 'href="https://wa.me/{{ whatsapp_digits }}"' in template
+    assert "WhatsApp Customer" in template
+    assert "WhatsApp unavailable: check the saved mobile number format." in template
+    assert "Save a customer mobile number to enable Call and WhatsApp." in template
+
+
+
+def test_call_assistant_uses_alternate_mobile_when_primary_is_missing():
+    from pathlib import Path
+
+    router = Path("app/routers/caller_assistant.py").read_text(encoding="utf-8")
+    leads_router = Path("app/routers/caller_leads.py").read_text(encoding="utf-8")
+    assert '(customer.mobile or "").strip() or (customer.alternate_mobile or "").strip()' in router
+    assert "(customer.alternate_mobile or '').strip()" in leads_router
