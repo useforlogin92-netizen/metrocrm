@@ -82,6 +82,17 @@ class Settings(BaseSettings):
     property_visit_alerts_enabled: bool = True
     property_visit_alert_cooldown_seconds: int = 60
 
+    # Cloud calling stays mock-only until an approved provider is configured.
+    cloud_calling_provider: str = "mock"
+    exotel_api_key: str = ""
+    exotel_api_token: str = ""
+    exotel_account_sid: str = ""
+    exotel_virtual_number: str = ""
+    exotel_agent_number: str = ""
+    exotel_app_flow_url: str = ""
+    exotel_api_base_url: str = "https://api.in.exotel.com"
+    exotel_status_callback_secret: str = ""\n    cloud_calling_public_base_url: str = ""
+
     # AI caller/voice gateway. Provider credentials and voice IDs stay in deployment env vars.
     ai_caller_provider: str = ""
     ai_caller_provider_secret: str = ""
