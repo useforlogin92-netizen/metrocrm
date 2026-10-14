@@ -421,6 +421,6 @@ def test_caller_assistant_has_direct_whatsapp_customer_action():
     from pathlib import Path
 
     template = Path("app/templates/caller_lead_assistant.html").read_text(encoding="utf-8")
-    assert 'href="https://wa.me/{{ customer.mobile' in template
+    assert 'href="https://wa.me/{% set wa_phone = customer.mobile' in template
     assert "WhatsApp Customer" in template
     assert "Save a customer mobile number to enable Call and WhatsApp." in template
