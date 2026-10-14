@@ -78,6 +78,45 @@
 <p><button class="btn" type="submit">Save Customer & Requirement</button> {% if contact_mobile %}<a class="btn" href="tel:{{ contact_mobile }}">Call Customer</a>{% if whatsapp_digits %}<a class="btn" href="https://wa.me/{{ whatsapp_digits }}" target="_blank" rel="noopener noreferrer">WhatsApp Customer</a>{% else %}<span class="muted">WhatsApp unavailable: check the saved mobile number format.</span>{% endif %}{% else %}<span class="muted">Save a customer mobile number to enable Call and WhatsApp.</span>{% endif %} <a class="btn" href="/site-visits?lead_id={{ lead.id }}">Schedule Site Visit</a> <a class="btn" href="/whatsapp">Open WhatsApp Workspace</a></p>
 </form></div>
 
+
+{% if request.query_params.get("call_saved") == "1" %}<div class="card" role="status">Call outcome and notes saved successfully. The lead activity audit has been updated.</div>{% endif %}
+<div class="card" id="after-call-update">
+  <h2>After-Call Update / Call Disposition</h2>
+  <p class="muted">Save the result of every call here. This updates the lead status and records the outcome, notes, next action, staff user and timestamp in the activity audit.</p>
+  <form method="post" action="/caller/lead/{{ lead.id }}/call-log">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="grid">
+      <label>Call Outcome
+        <select name="outcome" required>
+          <option value="">Select outcome</option>
+          <option value="CONNECTED">Connected — spoke with customer</option>
+          <option value="NO_ANSWER">No answer</option>
+          <option value="BUSY">Line busy</option>
+          <option value="CALLBACK_REQUESTED">Customer requested callback</option>
+          <option value="INTERESTED">Interested / qualified</option>
+          <option value="SITE_VISIT">Site visit discussed / scheduled</option>
+          <option value="NEGOTIATION">Negotiation</option>
+          <option value="NOT_INTERESTED">Not interested</option>
+          <option value="INVALID_NUMBER">Invalid number</option>
+          <option value="DUPLICATE">Duplicate lead</option>
+        </select>
+      </label>
+      <label>Next Action
+        <select name="next_action">
+          <option value="">Choose next action</option>
+          <option>Call back</option><option>Share property details</option>
+          <option>Confirm site visit</option><option>Discuss budget</option>
+          <option>Send documents / loan details</option><option>No further action</option>
+        </select>
+      </label>
+      <label style="grid-column:1/-1">Call Notes / Customer Response
+        <textarea name="notes" maxlength="4000" rows="4" placeholder="What did the customer say? Interest, budget feedback, objections, callback promise, questions and agreed next step..." required></textarea>
+      </label>
+    </div>
+    <p><button class="btn" type="submit">Save Call Outcome & Notes</button></p>
+  </form>
+</div>
+
 <div class="card"><h2>Call Follow-ups</h2>
 <form method="post" action="/caller/lead/{{ lead.id }}/follow-ups" class="grid">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
