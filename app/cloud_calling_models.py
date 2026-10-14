@@ -30,3 +30,15 @@ class CloudCallLog(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+
+class CloudCallProviderLink(Base):
+    """Provider IDs are kept separately so existing call-log tables need no migration."""
+    __tablename__ = "cloud_call_provider_links"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    call_id: Mapped[str] = mapped_column(ForeignKey("cloud_call_logs.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider_call_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    last_event: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now, onupdate=_now)
